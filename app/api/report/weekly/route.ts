@@ -4,6 +4,71 @@ import { getDailyAccuracy, getStatsBetween, getWeakKnowledgePoints, getWeeklySta
 import { unauthorized, withApi } from "@/lib/api/http";
 export const dynamic = "force-dynamic";
 
+type WeeklyActionItem = {
+  id: string;
+  title: string;
+  description: string;
+  estimatedMinutes: number;
+  parentTip: string;
+};
+
+function pickActionItems(params: {
+  stats: { total: number; accuracy: number };
+  previousStats: { total: number; accuracy: number };
+  weakPoints: { id: string; title: string; ratio: number; total: number; subject: string }[];
+}) {
+  const { stats, previousStats, weakPoints } = params;
+  const items: WeeklyActionItem[] = [];
+
+  const dailyCount = stats.total < 21 ? 6 : 4;
+  items.push({
+    id: "daily-practice",
+    title: "每日固定练习",
+    description: `每天完成 ${dailyCount} 题基础练习，保持稳定学习节奏。`,
+    estimatedMinutes: 15,
+    parentTip: "建议固定一个 15 分钟时段，完成后打卡并口头复盘 1 个错因。"
+  });
+
+  if (weakPoints.length) {
+    const topWeak = weakPoints[0];
+    items.push({
+      id: `weak-${topWeak.id}`,
+      title: `重点修复：${topWeak.title}`,
+      description: `围绕该知识点补练 5 题，目标将正确率从 ${topWeak.ratio}% 提升到 70%+。`,
+      estimatedMinutes: 20,
+      parentTip: "先让孩子讲思路再做题，做完只纠正一个核心错误，避免一次讲太多。"
+    });
+  } else {
+    items.push({
+      id: "keep-strength",
+      title: "优势巩固",
+      description: "本周无明显薄弱点，建议继续完成 1 组综合训练保持手感。",
+      estimatedMinutes: 15,
+      parentTip: "练习后让孩子复述 1 道题的解题步骤，强化表达与迁移。"
+    });
+  }
+
+  if (stats.accuracy < 65 || stats.accuracy + 5 < previousStats.accuracy) {
+    items.push({
+      id: "wrong-review",
+      title: "错题复盘",
+      description: "从本周错题中挑 3 题复盘，写出“错因 + 正确做法”。",
+      estimatedMinutes: 15,
+      parentTip: "复盘时只问两个问题：为什么错、下次怎么避免，避免直接给答案。"
+    });
+  } else {
+    items.push({
+      id: "advance-practice",
+      title: "进阶挑战",
+      description: "本周表现稳定，可增加 3 题进阶题，提升思维与迁移能力。",
+      estimatedMinutes: 15,
+      parentTip: "遇到难题先鼓励分步作答，不追求一次做对，关注思考过程。"
+    });
+  }
+
+  return items.slice(0, 3);
+}
+
 export const GET = withApi(async () => {
   const student = await getStudentContext();
   if (!student) {
@@ -54,12 +119,19 @@ export const GET = withApi(async () => {
     suggestions.push(`优先巩固：${weakPoints[0].title}。`);
   }
 
+  const actionItems = pickActionItems({ stats, previousStats, weakPoints });
+  const estimatedMinutes = actionItems.reduce((sum, item) => sum + item.estimatedMinutes, 0);
+  const parentTips = actionItems.map((item) => item.parentTip);
+
   return {
     student: { id: student.id, name: student.name, grade: student.grade },
     stats,
     previousStats,
     trend,
     weakPoints,
-    suggestions
+    suggestions,
+    actionItems,
+    estimatedMinutes,
+    parentTips
   };
 });

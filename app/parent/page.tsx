@@ -13,6 +13,9 @@ export default function ParentPage() {
   const [assignmentList, setAssignmentList] = useState<any[]>([]);
   const [assignmentSummary, setAssignmentSummary] = useState<any>(null);
   const [assignmentReminder, setAssignmentReminder] = useState("");
+  const [assignmentActionItems, setAssignmentActionItems] = useState<any[]>([]);
+  const [assignmentParentTips, setAssignmentParentTips] = useState<string[]>([]);
+  const [assignmentEstimatedMinutes, setAssignmentEstimatedMinutes] = useState(0);
   const [assignmentCopied, setAssignmentCopied] = useState(false);
   const [favorites, setFavorites] = useState<any[]>([]);
 
@@ -32,6 +35,9 @@ export default function ParentPage() {
         setAssignmentList(data.data ?? []);
         setAssignmentSummary(data.summary ?? null);
         setAssignmentReminder(data.reminderText ?? "");
+        setAssignmentActionItems(data.actionItems ?? []);
+        setAssignmentParentTips(data.parentTips ?? []);
+        setAssignmentEstimatedMinutes(data.estimatedMinutes ?? 0);
       });
     fetch("/api/parent/favorites")
       .then((res) => res.json())
@@ -90,6 +96,19 @@ export default function ParentPage() {
             <p>{report.previousStats?.accuracy ?? 0}%</p>
           </div>
         </div>
+        <div style={{ marginTop: 12 }}>
+          <div className="section-title">本周可执行行动卡（预计 {report.estimatedMinutes ?? 0} 分钟）</div>
+          <div className="grid" style={{ gap: 8, marginTop: 8 }}>
+            {(report.actionItems ?? []).map((item: any) => (
+              <div className="card" key={item.id}>
+                <div className="section-title">{item.title}</div>
+                <p>{item.description}</p>
+                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
+                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>家长提示：{item.parentTip}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </Card>
       <Card title="薄弱点与建议" tag="诊断">
         <div className="feature-card">
@@ -114,6 +133,16 @@ export default function ParentPage() {
             <div className="badge">本周建议</div>
             <div className="grid" style={{ gap: 6, marginTop: 8 }}>
               {report.suggestions.map((item: string, idx: number) => (
+                <div key={`${item}-${idx}`}>{item}</div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {report.parentTips?.length ? (
+          <div style={{ marginTop: 12 }}>
+            <div className="badge">家长提示</div>
+            <div className="grid" style={{ gap: 6, marginTop: 8 }}>
+              {report.parentTips.map((item: string, idx: number) => (
                 <div key={`${item}-${idx}`}>{item}</div>
               ))}
             </div>
@@ -189,6 +218,22 @@ export default function ParentPage() {
           </div>
         </div>
         <div style={{ marginTop: 12 }}>
+          <div className="section-title">作业行动卡（预计 {assignmentEstimatedMinutes} 分钟）</div>
+          {assignmentActionItems.length ? (
+            <div className="grid" style={{ gap: 8, marginTop: 8 }}>
+              {assignmentActionItems.map((item) => (
+                <div className="card" key={item.id}>
+                  <div className="section-title">{item.title}</div>
+                  <p>{item.description}</p>
+                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>暂无行动卡。</p>
+          )}
+        </div>
+        <div style={{ marginTop: 12 }}>
           <div className="section-title">作业清单</div>
           {assignmentList.length ? (
             <div className="grid" style={{ gap: 8 }}>
@@ -209,6 +254,18 @@ export default function ParentPage() {
           <div className="section-title">提醒文案</div>
           <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "var(--ink-1)" }}>{assignmentReminder}</pre>
         </div>
+        {assignmentParentTips.length ? (
+          <div style={{ marginTop: 12 }}>
+            <div className="section-title">监督提示</div>
+            <div className="grid" style={{ gap: 6 }}>
+              {assignmentParentTips.map((item, idx) => (
+                <div key={`${item}-${idx}`} style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                  {item}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
         <div className="cta-row">
           <button
             className="button secondary"

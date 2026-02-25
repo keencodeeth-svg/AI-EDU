@@ -300,6 +300,72 @@ async function run() {
     assert.equal(reviewResult.body?.intervalLevel, 2, "After one correct review, interval should move to level 2");
     assert.equal(typeof reviewResult.body?.nextReviewAt, "string", "Review result should include nextReviewAt");
 
+    const weeklyReport = await apiFetch("/api/report/weekly");
+    assert.equal(weeklyReport.status, 200, `GET /api/report/weekly failed: ${weeklyReport.raw}`);
+    assert.ok(Array.isArray(weeklyReport.body?.actionItems), "Weekly report should include actionItems");
+    assert.equal(typeof weeklyReport.body?.estimatedMinutes, "number", "Weekly report should include estimatedMinutes");
+    assert.ok(Array.isArray(weeklyReport.body?.parentTips), "Weekly report should include parentTips");
+
+    const parentCandidates = [
+      {
+        email: process.env.API_TEST_PARENT_EMAIL || "parent@demo.com",
+        password: process.env.API_TEST_PARENT_PASSWORD || "Parent123"
+      },
+      {
+        email: process.env.API_TEST_PARENT_FALLBACK_EMAIL || "parent1@demo.com",
+        password: process.env.API_TEST_PARENT_FALLBACK_PASSWORD || "Parent123"
+      }
+    ];
+
+    let parentLogin = null;
+    for (const candidate of parentCandidates) {
+      const resp = await apiFetch("/api/auth/login", {
+        method: "POST",
+        useCookies: false,
+        json: { email: candidate.email, password: candidate.password, role: "parent" }
+      });
+      if (resp.status === 200) {
+        parentLogin = resp;
+        break;
+      }
+    }
+
+    if (!parentLogin) {
+      const tempParentEmail = `api-test-parent-${Date.now().toString(36)}@local.test`;
+      const tempParentPassword = "ApiParent123!";
+      const registerParent = await apiFetch("/api/auth/register", {
+        method: "POST",
+        useCookies: false,
+        json: {
+          role: "parent",
+          email: tempParentEmail,
+          password: tempParentPassword,
+          name: "API Test Parent",
+          studentEmail: email
+        }
+      });
+      assert.equal(registerParent.status, 201, `Parent register failed: ${registerParent.raw}`);
+
+      parentLogin = await apiFetch("/api/auth/login", {
+        method: "POST",
+        useCookies: false,
+        json: { email: tempParentEmail, password: tempParentPassword, role: "parent" }
+      });
+    }
+
+    assert.equal(parentLogin?.status, 200, "Parent login failed");
+
+    const parentAssignments = await apiFetch("/api/parent/assignments");
+    assert.equal(parentAssignments.status, 200, `GET /api/parent/assignments failed: ${parentAssignments.raw}`);
+    assert.ok(Array.isArray(parentAssignments.body?.data), "Parent assignments should include data array");
+    assert.ok(Array.isArray(parentAssignments.body?.actionItems), "Parent assignments should include actionItems");
+    assert.equal(
+      typeof parentAssignments.body?.estimatedMinutes,
+      "number",
+      "Parent assignments should include estimatedMinutes"
+    );
+    assert.ok(Array.isArray(parentAssignments.body?.parentTips), "Parent assignments should include parentTips");
+
     const teacherCandidates = [
       {
         email: process.env.API_TEST_TEACHER_EMAIL || "teacher@demo.com",
