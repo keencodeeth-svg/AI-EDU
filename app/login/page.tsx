@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Card from "@/components/Card";
+import { trackEvent } from "@/lib/analytics-client";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -26,6 +27,14 @@ export default function LoginPage() {
     admin: "admin@demo.com"
   };
 
+  useEffect(() => {
+    trackEvent({
+      eventName: "login_page_view",
+      page: "/login",
+      props: { entry: "direct" }
+    });
+  }, []);
+
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setLoading(true);
@@ -40,6 +49,17 @@ export default function LoginPage() {
       if (!res.ok) {
         throw new Error(data?.error ?? "登录失败");
       }
+
+      trackEvent({
+        eventName: "login_success",
+        page: "/login",
+        entityId: data.role ?? role,
+        props: {
+          selectedRole: role,
+          actualRole: data.role ?? role
+        }
+      });
+
       if (data.role === "admin") {
         router.push("/admin");
       } else if (data.role === "teacher") {

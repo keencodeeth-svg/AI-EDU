@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import AnalyticsFunnelCard from "@/components/AnalyticsFunnelCard";
 
 export default function AdminPage() {
   return (
@@ -40,12 +41,10 @@ export default function AdminPage() {
         <Card title="学生概览" tag="运营">
           <div className="feature-card">
             <EduIcon name="chart" />
-            <p>本周活跃 128 人，完成诊断 72 人。</p>
+            <p>学习漏斗（登录→练习→提交→周报）。</p>
           </div>
-          <div className="pill-list" style={{ marginTop: 12 }}>
-            <span className="pill">活跃趋势</span>
-            <span className="pill">留存分析</span>
-            <span className="pill">转化漏斗</span>
+          <div style={{ marginTop: 12 }}>
+            <AnalyticsFunnelCard />
           </div>
         </Card>
         <Card title="操作日志" tag="安全">

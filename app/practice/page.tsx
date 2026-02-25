@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Card from "@/components/Card";
 import { GRADE_OPTIONS, SUBJECT_OPTIONS } from "@/lib/constants";
+import { trackEvent } from "@/lib/analytics-client";
 
 type Question = {
   id: string;
@@ -35,6 +36,7 @@ type ExplainPack = {
 
 export default function PracticePage() {
   const searchParams = useSearchParams();
+  const trackedPracticePageView = useRef(false);
   const [subject, setSubject] = useState("math");
   const [grade, setGrade] = useState("4");
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
@@ -63,6 +65,18 @@ export default function PracticePage() {
       .then((res) => res.json())
       .then((data) => setKnowledgePoints(data.data ?? []));
   }, []);
+
+  useEffect(() => {
+    if (trackedPracticePageView.current) return;
+    trackEvent({
+      eventName: "practice_page_view",
+      page: "/practice",
+      subject,
+      grade,
+      props: { mode }
+    });
+    trackedPracticePageView.current = true;
+  }, [subject, grade, mode]);
 
   useEffect(() => {
     const next = searchParams.get("mode");
@@ -101,16 +115,67 @@ export default function PracticePage() {
 
   async function submitAnswer() {
     if (!question) return;
-    const res = await fetch("/api/practice/submit", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ questionId: question.id, answer })
-    });
-    const data = await res.json();
-    setResult({ correct: data.correct, explanation: data.explanation, answer: data.answer });
-    if (mode === "challenge") {
-      setChallengeCount((prev) => prev + 1);
-      setChallengeCorrect((prev) => prev + (data.correct ? 1 : 0));
+    const startedAt = Date.now();
+    try {
+      const res = await fetch("/api/practice/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ questionId: question.id, answer })
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errorMessage = data?.error ?? "提交失败";
+        setError(errorMessage);
+        trackEvent({
+          eventName: "practice_submit_fail",
+          page: "/practice",
+          subject,
+          grade,
+          entityId: question.id,
+          props: {
+            mode,
+            status: res.status,
+            error: errorMessage,
+            durationMs: Date.now() - startedAt
+          }
+        });
+        return;
+      }
+
+      setError(null);
+      setResult({ correct: data.correct, explanation: data.explanation, answer: data.answer });
+      trackEvent({
+        eventName: "practice_submit_success",
+        page: "/practice",
+        subject,
+        grade,
+        entityId: question.id,
+        props: {
+          mode,
+          correct: Boolean(data.correct),
+          durationMs: Date.now() - startedAt
+        }
+      });
+
+      if (mode === "challenge") {
+        setChallengeCount((prev) => prev + 1);
+        setChallengeCorrect((prev) => prev + (data.correct ? 1 : 0));
+      }
+    } catch {
+      setError("提交失败");
+      trackEvent({
+        eventName: "practice_submit_fail",
+        page: "/practice",
+        subject,
+        grade,
+        entityId: question.id,
+        props: {
+          mode,
+          error: "network error",
+          durationMs: Date.now() - startedAt
+        }
+      });
     }
   }
 

@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Card from "@/components/Card";
+import { trackEvent } from "@/lib/analytics-client";
 
 export default function ReportPage() {
   const [report, setReport] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
+  const [trackedReportView, setTrackedReportView] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [chapterFilter, setChapterFilter] = useState("all");
   const [sortMode, setSortMode] = useState("ratio-asc");
@@ -18,6 +20,20 @@ export default function ReportPage() {
       .then((res) => res.json())
       .then((data) => setProfile(data));
   }, []);
+
+  useEffect(() => {
+    if (!report || trackedReportView) return;
+    trackEvent({
+      eventName: "report_weekly_view",
+      page: "/report",
+      props: {
+        hasError: Boolean(report.error),
+        total: report?.stats?.total ?? null,
+        accuracy: report?.stats?.accuracy ?? null
+      }
+    });
+    setTrackedReportView(true);
+  }, [report, trackedReportView]);
 
   const ratioColor = (ratio: number) => {
     const hue = Math.min(120, Math.max(0, Math.round((ratio / 100) * 120)));

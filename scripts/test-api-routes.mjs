@@ -119,6 +119,30 @@ async function run() {
     assert.equal(health.body?.code, 0, "Health response should use standard envelope");
     assert.equal(health.body?.ok, true, "Health response should keep top-level ok=true");
 
+    const invalidAnalytics = await apiFetch("/api/analytics/events", {
+      method: "POST",
+      useCookies: false,
+      json: {}
+    });
+    assert.equal(invalidAnalytics.status, 400, "POST /api/analytics/events should validate body");
+    assert.equal(invalidAnalytics.body?.error, "events required");
+
+    const analytics = await apiFetch("/api/analytics/events", {
+      method: "POST",
+      useCookies: false,
+      json: {
+        events: [
+          {
+            eventName: "api_test_event",
+            page: "/api-test"
+          }
+        ]
+      }
+    });
+    assert.equal(analytics.status, 200, `POST /api/analytics/events failed: ${analytics.raw}`);
+    assert.equal(analytics.body?.accepted, 1, "Analytics accepted count should be 1");
+    assert.equal(analytics.body?.dropped, 0, "Analytics dropped count should be 0");
+
     const unauthNotifications = await apiFetch("/api/notifications", { useCookies: false });
     assert.equal(unauthNotifications.status, 401, "GET /api/notifications should require auth");
     assert.ok(unauthNotifications.body?.error, "Unauthorized response should include error");
@@ -126,6 +150,10 @@ async function run() {
     const unauthAdminLogs = await apiFetch("/api/admin/logs", { useCookies: false });
     assert.equal(unauthAdminLogs.status, 401, "GET /api/admin/logs should require admin auth");
     assert.equal(unauthAdminLogs.body?.error, "unauthorized");
+
+    const unauthFunnel = await apiFetch("/api/analytics/funnel", { useCookies: false });
+    assert.equal(unauthFunnel.status, 401, "GET /api/analytics/funnel should require admin auth");
+    assert.equal(unauthFunnel.body?.error, "unauthorized");
 
     const email = process.env.API_TEST_EMAIL || "api-test-student@local.test";
     const password = process.env.API_TEST_PASSWORD || "ApiTest123!";
@@ -193,6 +221,10 @@ async function run() {
     assert.equal(studentAdminLogs.status, 401, "Student should not access /api/admin/logs");
     assert.equal(studentAdminLogs.body?.error, "unauthorized");
 
+    const studentFunnel = await apiFetch("/api/analytics/funnel");
+    assert.equal(studentFunnel.status, 401, "Student should not access /api/analytics/funnel");
+    assert.equal(studentFunnel.body?.error, "unauthorized");
+
     const adminEmail = process.env.API_TEST_ADMIN_EMAIL || "admin@demo.com";
     const adminPassword = process.env.API_TEST_ADMIN_PASSWORD || "Admin123";
     const adminLogin = await apiFetch("/api/auth/login", {
@@ -207,6 +239,32 @@ async function run() {
     assert.equal(adminLogs.status, 200, `GET /api/admin/logs failed: ${adminLogs.raw}`);
     assert.equal(adminLogs.body?.code, 0, "Admin logs should use standard envelope");
     assert.ok(Array.isArray(adminLogs.body?.data), "Admin logs response should include data array");
+
+    const funnelSessionId = `api-test-funnel-${Date.now().toString(36)}`;
+    const funnelSeed = await apiFetch("/api/analytics/events", {
+      method: "POST",
+      json: {
+        events: [
+          { eventName: "login_page_view", page: "/login", sessionId: funnelSessionId },
+          { eventName: "login_success", page: "/login", sessionId: funnelSessionId },
+          { eventName: "practice_page_view", page: "/practice", sessionId: funnelSessionId },
+          { eventName: "practice_submit_success", page: "/practice", sessionId: funnelSessionId },
+          { eventName: "report_weekly_view", page: "/report", sessionId: funnelSessionId }
+        ]
+      }
+    });
+    assert.equal(funnelSeed.status, 200, `Funnel seed analytics failed: ${funnelSeed.raw}`);
+    assert.equal(funnelSeed.body?.accepted, 5, "Funnel seed should accept 5 events");
+
+    const funnel = await apiFetch("/api/analytics/funnel");
+    assert.equal(funnel.status, 200, `GET /api/analytics/funnel failed: ${funnel.raw}`);
+    assert.ok(Array.isArray(funnel.body?.data?.stages), "Funnel response should include stages");
+    const stages = funnel.body.data.stages;
+    assert.equal(stages.length, 5, "Funnel should include 5 configured stages");
+    assert.ok(stages[0].users >= 1, "Funnel stage1 should have at least one actor");
+    for (let i = 1; i < stages.length; i += 1) {
+      assert.ok(stages[i - 1].users >= stages[i].users, "Funnel stages should be non-increasing");
+    }
 
     const invalidKnowledgePointCreate = await apiFetch("/api/admin/knowledge-points", {
       method: "POST",
