@@ -1,15 +1,48 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
-import { getClassById, getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { createAssignment, getAssignmentProgress, getAssignmentsByClassIds } from "@/lib/assignments";
+import { getClassById, getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { createKnowledgePoint, createQuestion, getKnowledgePoints, getQuestions } from "@/lib/content";
-import type { KnowledgePoint } from "@/lib/types";
+import type { Difficulty, KnowledgePoint } from "@/lib/types";
 import { createNotification } from "@/lib/notifications";
 import { generateQuestionDraft } from "@/lib/ai";
-import type { Difficulty } from "@/lib/types";
 import { getModuleById, getModulesByClass } from "@/lib/modules";
+import { apiSuccess, badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const createAssignmentBodySchema = v.object<{
+  classId: string;
+  title: string;
+  description?: string;
+  dueDate?: string;
+  questionCount?: number;
+  knowledgePointId?: string;
+  mode?: "bank" | "ai";
+  difficulty?: Difficulty;
+  questionType?: string;
+  submissionType?: "quiz" | "upload" | "essay";
+  maxUploads?: number;
+  gradingFocus?: string;
+  moduleId?: string;
+}>(
+  {
+    classId: v.string({ minLength: 1 }),
+    title: v.string({ minLength: 1 }),
+    description: v.optional(v.string({ allowEmpty: true, trim: false })),
+    dueDate: v.optional(v.string({ minLength: 1 })),
+    questionCount: v.optional(v.number({ coerce: true, integer: true, min: 0 })),
+    knowledgePointId: v.optional(v.string({ minLength: 1 })),
+    mode: v.optional(v.enum(["bank", "ai"] as const)),
+    difficulty: v.optional(v.enum(["easy", "medium", "hard"] as const)),
+    questionType: v.optional(v.string({ minLength: 1 })),
+    submissionType: v.optional(v.enum(["quiz", "upload", "essay"] as const)),
+    maxUploads: v.optional(v.number({ coerce: true, integer: true, min: 1, max: 20 })),
+    gradingFocus: v.optional(v.string({ allowEmpty: true, trim: false })),
+    moduleId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
 
 function normalizeDueDate(input?: string) {
   if (!input) {
@@ -42,10 +75,10 @@ function normalizeStem(text: string) {
     .replace(/[，。！？,.!?;:；：、]/g, "");
 }
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classes = await getClassesByTeacher(user.id);
@@ -73,47 +106,34 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request, _context, { requestId }) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    classId?: string;
-    title?: string;
-    description?: string;
-    dueDate?: string;
-    questionCount?: number;
-    knowledgePointId?: string;
-    mode?: "bank" | "ai";
-    difficulty?: Difficulty;
-    questionType?: string;
-    submissionType?: "quiz" | "upload" | "essay";
-    maxUploads?: number;
-    gradingFocus?: string;
-    moduleId?: string;
-  };
+  const body = await parseJson(request, createAssignmentBodySchema);
 
   const submissionType =
     body.submissionType === "upload" ? "upload" : body.submissionType === "essay" ? "essay" : "quiz";
   const questionCount = Number(body.questionCount ?? 0);
-  if (!body.classId || !body.title || (submissionType === "quiz" && questionCount <= 0)) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+
+  if (submissionType === "quiz" && questionCount <= 0) {
+    badRequest("questionCount must be greater than 0 for quiz assignments");
   }
 
   const klass = await getClassById(body.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
 
   if (body.moduleId) {
     const moduleRecord = await getModuleById(body.moduleId);
     if (!moduleRecord || moduleRecord.classId !== klass.id) {
-      return NextResponse.json({ error: "module not found" }, { status: 404 });
+      notFound("module not found");
     }
   }
 
@@ -143,14 +163,14 @@ export async function POST(request: Request) {
     if (!kp) {
       kp =
         (await createKnowledgePoint({
-        subject: klass.subject,
-        grade: klass.grade,
-        title: "综合练习",
-        chapter: "综合"
-      })) ?? undefined;
+          subject: klass.subject,
+          grade: klass.grade,
+          title: "综合练习",
+          chapter: "综合"
+        })) ?? undefined;
     }
     if (!kp) {
-      return NextResponse.json({ error: "暂无可用知识点，请先生成知识点" }, { status: 400 });
+      badRequest("暂无可用知识点，请先生成知识点");
     }
 
     const existing = (await getQuestions()).filter(
@@ -182,7 +202,7 @@ export async function POST(request: Request) {
       }
 
       if (!draft) {
-        return NextResponse.json({ error: `AI 生成失败（第 ${i + 1} 题）` }, { status: 500 });
+        badRequest(`AI 生成失败（第 ${i + 1} 题）`);
       }
 
       const saved = await createQuestion({
@@ -200,7 +220,7 @@ export async function POST(request: Request) {
       });
 
       if (!saved) {
-        return NextResponse.json({ error: "题目保存失败" }, { status: 500 });
+        badRequest("题目保存失败");
       }
       questionIds.push(saved.id);
     }
@@ -222,7 +242,7 @@ export async function POST(request: Request) {
         fallbackMode === "bank"
           ? "AI 未配置且题库数量不足，请先导入题库或配置模型"
           : "题库数量不足";
-      return NextResponse.json({ error: hint }, { status: 400 });
+      badRequest(hint);
     }
 
     const selected = sampleQuestions(pool, questionCount);
@@ -260,9 +280,12 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({
-    data: assignment,
-    fallback: fallbackMode,
-    message: fallbackMode === "bank" ? "AI 未配置，已自动改为题库抽题" : undefined
-  });
-}
+  return apiSuccess(
+    {
+      data: assignment,
+      fallback: fallbackMode,
+      message: fallbackMode === "bank" ? "AI 未配置，已自动改为题库抽题" : undefined
+    },
+    { requestId }
+  );
+});

@@ -1,35 +1,44 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getClassesByTeacher, getClassById, getClassStudents } from "@/lib/classes";
 import { getAssignmentsByClass, getAssignmentProgress } from "@/lib/assignments";
+import { getClassById, getClassesByTeacher, getClassStudents } from "@/lib/classes";
+import { parseSearchParams, v } from "@/lib/api/validation";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const gradebookQuerySchema = v.object<{
+  classId?: string;
+}>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classes = await getClassesByTeacher(user.id);
   if (!classes.length) {
-    return NextResponse.json({ classes: [], class: null, assignments: [], students: [], summary: null });
+    return { classes: [], class: null, assignments: [], students: [], summary: null };
   }
 
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId") ?? classes[0].id;
+  const query = parseSearchParams(request, gradebookQuerySchema);
+  const classId = query.classId ?? classes[0].id;
   const klass = classes.find((item) => item.id === classId) ?? classes[0];
+
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
 
   const assignments = await getAssignmentsByClass(klass.id);
   const students = await getClassStudents(klass.id);
 
   const progressLists = await Promise.all(assignments.map((assignment) => getAssignmentProgress(assignment.id)));
-  const progressMaps = progressLists.map(
-    (list) => new Map(list.map((item) => [item.studentId, item]))
-  );
+  const progressMaps = progressLists.map((list) => new Map(list.map((item) => [item.studentId, item])));
   const now = Date.now();
 
   let totalProgress = 0;
@@ -54,10 +63,7 @@ export async function GET(request: Request) {
     let late = 0;
     let studentScore = 0;
     let studentTotal = 0;
-    const progress: Record<
-      string,
-      { status: string; score: number | null; total: number | null; completedAt: string | null }
-    > = {};
+    const progress: Record<string, { status: string; score: number | null; total: number | null; completedAt: string | null }> = {};
 
     assignments.forEach((assignment, index) => {
       const record = progressMaps[index]?.get(student.id) ?? null;
@@ -150,7 +156,7 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-  return NextResponse.json({
+  return {
     classes,
     class: klass,
     assignments,
@@ -164,5 +170,5 @@ export async function GET(request: Request) {
     },
     distribution,
     trend
-  });
-}
+  };
+});

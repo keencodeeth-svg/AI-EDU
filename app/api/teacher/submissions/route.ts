@@ -1,28 +1,41 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getClassesByTeacher, getClassStudents } from "@/lib/classes";
+import { getAssignmentUploads } from "@/lib/assignment-uploads";
 import {
   getAssignmentsByClass,
   getAssignmentProgress,
   getAssignmentSubmissionsByAssignment
 } from "@/lib/assignments";
-import { getAssignmentUploads } from "@/lib/assignment-uploads";
+import { getClassesByTeacher, getClassStudents } from "@/lib/classes";
+import { parseSearchParams, v } from "@/lib/api/validation";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const submissionsQuerySchema = v.object<{
+  classId?: string;
+  status?: "all" | "completed" | "pending" | "overdue";
+}>(
+  {
+    classId: v.optional(v.string({ minLength: 1 })),
+    status: v.optional(v.enum(["all", "completed", "pending", "overdue"] as const))
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId");
-  const status = searchParams.get("status") ?? "all";
+
+  const query = parseSearchParams(request, submissionsQuerySchema);
+  const classId = query.classId;
+  const status = query.status ?? "all";
 
   const classes = await getClassesByTeacher(user.id);
   const targetClasses = classId ? classes.filter((item) => item.id === classId) : classes;
   if (!targetClasses.length) {
-    return NextResponse.json({ data: [], classes });
+    return { data: [], classes };
   }
 
   const rows: Array<{
@@ -53,9 +66,10 @@ export async function GET(request: Request) {
       const progressMap = new Map(progress.map((item) => [item.studentId, item]));
       const submissions = await getAssignmentSubmissionsByAssignment(assignment.id);
       const submissionMap = new Map(submissions.map((item) => [item.studentId, item]));
-      const uploads = assignment.submissionType === "upload" || assignment.submissionType === "essay"
-        ? await getAssignmentUploads(assignment.id)
-        : [];
+      const uploads =
+        assignment.submissionType === "upload" || assignment.submissionType === "essay"
+          ? await getAssignmentUploads(assignment.id)
+          : [];
       const uploadMap = new Map<string, number>();
       uploads.forEach((upload) => {
         uploadMap.set(upload.studentId, (uploadMap.get(upload.studentId) ?? 0) + 1);
@@ -91,8 +105,7 @@ export async function GET(request: Request) {
     }
   }
 
-  const filtered =
-    status === "all" ? rows : rows.filter((row) => row.status === status);
+  const filtered = status === "all" ? rows : rows.filter((row) => row.status === status);
 
-  return NextResponse.json({ data: filtered, classes });
-}
+  return { data: filtered, classes };
+});

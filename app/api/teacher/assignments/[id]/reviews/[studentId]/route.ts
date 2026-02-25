@@ -1,41 +1,93 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId, getUserById } from "@/lib/auth";
-import { getClassById, getClassStudentIds } from "@/lib/classes";
+import { getAssignmentAIReview } from "@/lib/assignment-ai";
+import { getAssignmentUploads } from "@/lib/assignment-uploads";
 import { getAssignmentById, getAssignmentItems, getAssignmentSubmission } from "@/lib/assignments";
+import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getQuestions } from "@/lib/content";
 import { createNotification } from "@/lib/notifications";
-import { saveReview, getReview } from "@/lib/reviews";
-import { getAssignmentUploads } from "@/lib/assignment-uploads";
-import { getAssignmentAIReview } from "@/lib/assignment-ai";
+import { getReview, saveReview } from "@/lib/reviews";
 import { ensureDefaultRubrics, getReviewRubrics, saveReviewRubrics } from "@/lib/rubrics";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string; studentId: string } }) {
+const reviewBodySchema = v.object<{
+  overallComment?: string;
+  items?: Array<{ questionId: string; wrongTag?: string; comment?: string }>;
+  rubrics?: Array<{ rubricId: string; score: number; comment?: string }>;
+}>(
+  {
+    overallComment: v.optional(v.string({ allowEmpty: true, trim: true })),
+    items: v.optional(
+      v.array(
+        v.object<{
+          questionId: string;
+          wrongTag?: string;
+          comment?: string;
+        }>(
+          {
+            questionId: v.string({ minLength: 1 }),
+            wrongTag: v.optional(v.string({ allowEmpty: true, trim: true })),
+            comment: v.optional(v.string({ allowEmpty: true, trim: true }))
+          },
+          { allowUnknown: false }
+        )
+      )
+    ),
+    rubrics: v.optional(
+      v.array(
+        v.object<{
+          rubricId: string;
+          score: number;
+          comment?: string;
+        }>(
+          {
+            rubricId: v.string({ minLength: 1 }),
+            score: v.number({ coerce: true, min: 0 }),
+            comment: v.optional(v.string({ allowEmpty: true, trim: true }))
+          },
+          { allowUnknown: false }
+        )
+      )
+    )
+  },
+  { allowUnknown: false }
+);
+
+async function assertTeacherAccess(assignmentId: string, studentId: string) {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-
-  const assignmentId = context.params.id;
-  const studentId = context.params.studentId;
 
   const assignment = await getAssignmentById(assignmentId);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
+
   const klass = await getClassById(assignment.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
+
   const studentIds = await getClassStudentIds(klass.id);
   if (!studentIds.includes(studentId)) {
-    return NextResponse.json({ error: "student not in class" }, { status: 404 });
+    notFound("student not in class");
   }
+
+  return { assignment, klass };
+}
+
+export const GET = withApi(async (_request, context) => {
+  const assignmentId = context.params.id;
+  const studentId = context.params.studentId;
+
+  const { assignment, klass } = await assertTeacherAccess(assignmentId, studentId);
 
   const student = await getUserById(studentId);
   if (!student) {
-    return NextResponse.json({ error: "student not found" }, { status: 404 });
+    notFound("student not found");
   }
 
   const submission = await getAssignmentSubmission(assignment.id, studentId);
@@ -70,7 +122,7 @@ export async function GET(_: Request, context: { params: { id: string; studentId
   });
   const reviewRubrics = reviewResult.review ? await getReviewRubrics(reviewResult.review.id) : [];
 
-  return NextResponse.json({
+  return {
     assignment,
     class: klass,
     student: { id: student.id, name: student.name, email: student.email },
@@ -82,35 +134,15 @@ export async function GET(_: Request, context: { params: { id: string; studentId
     reviewItems: reviewResult.items,
     rubrics,
     reviewRubrics
-  });
-}
+  };
+});
 
-export async function POST(request: Request, context: { params: { id: string; studentId: string } }) {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  }
-
+export const POST = withApi(async (request, context) => {
   const assignmentId = context.params.id;
   const studentId = context.params.studentId;
-  const assignment = await getAssignmentById(assignmentId);
-  if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
-  const klass = await getClassById(assignment.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
-  }
-  const studentIds = await getClassStudentIds(klass.id);
-  if (!studentIds.includes(studentId)) {
-    return NextResponse.json({ error: "student not in class" }, { status: 404 });
-  }
 
-  const body = (await request.json()) as {
-    overallComment?: string;
-    items?: Array<{ questionId: string; wrongTag?: string; comment?: string }>;
-    rubrics?: Array<{ rubricId: string; score: number; comment?: string }>;
-  };
+  const { assignment } = await assertTeacherAccess(assignmentId, studentId);
+  const body = await parseJson(request, reviewBodySchema);
 
   const saved = await saveReview({
     assignmentId,
@@ -148,5 +180,5 @@ export async function POST(request: Request, context: { params: { id: string; st
   }
 
   const reviewRubrics = saved.review ? await getReviewRubrics(saved.review.id) : [];
-  return NextResponse.json({ review: saved.review, reviewItems: saved.items, reviewRubrics });
-}
+  return { review: saved.review, reviewItems: saved.items, reviewRubrics };
+});

@@ -1,32 +1,42 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
 import { getAssignmentById, getAssignmentProgress } from "@/lib/assignments";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { createNotification } from "@/lib/notifications";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+const notifyBodySchema = v.object<{
+  target?: "missing" | "low_score" | "all";
+  threshold?: number;
+  message?: string;
+}>(
+  {
+    target: v.optional(v.enum(["missing", "low_score", "all"] as const)),
+    threshold: v.optional(v.number({ coerce: true, min: 0, max: 100 })),
+    message: v.optional(v.string({ allowEmpty: true, trim: true }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
+
   const klass = await getClassById(assignment.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
 
-  const body = (await request.json()) as {
-    target?: "missing" | "low_score" | "all";
-    threshold?: number;
-    message?: string;
-  };
-
+  const body = await parseJson(request, notifyBodySchema);
   const target = body.target ?? "missing";
   const threshold = Number.isFinite(body.threshold) ? Number(body.threshold) : 60;
   const message = body.message?.trim();
@@ -49,6 +59,7 @@ export async function POST(request: Request, context: { params: { id: string } }
 
   let notifyCount = 0;
   let parentCount = 0;
+
   for (const studentId of recipients) {
     await createNotification({
       userId: studentId,
@@ -61,6 +72,7 @@ export async function POST(request: Request, context: { params: { id: string } }
       type: "assignment_reminder"
     });
     notifyCount += 1;
+
     const parents = await getParentsByStudentId(studentId);
     for (const parent of parents) {
       await createNotification({
@@ -77,5 +89,5 @@ export async function POST(request: Request, context: { params: { id: string } }
     }
   }
 
-  return NextResponse.json({ data: { students: notifyCount, parents: parentCount } });
-}
+  return { data: { students: notifyCount, parents: parentCount } };
+});

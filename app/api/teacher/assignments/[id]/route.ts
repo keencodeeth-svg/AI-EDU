@@ -1,26 +1,26 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { getClassById, getClassStudents } from "@/lib/classes";
 import { getAssignmentById, getAssignmentProgress } from "@/lib/assignments";
+import { getClassById, getClassStudents } from "@/lib/classes";
 import { getModuleById } from "@/lib/modules";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignmentId = context.params.id;
   const assignment = await getAssignmentById(assignmentId);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
 
   const klass = await getClassById(assignment.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound();
   }
 
   const students = await getClassStudents(assignment.classId);
@@ -38,10 +38,10 @@ export async function GET(_: Request, context: { params: { id: string } }) {
     };
   });
 
-  return NextResponse.json({
+  return {
     assignment,
     module: assignment.moduleId ? await getModuleById(assignment.moduleId) : null,
     class: klass,
     students: roster
-  });
-}
+  };
+});

@@ -1,19 +1,27 @@
-import { NextResponse } from "next/server";
 import crypto from "crypto";
-import { createSession, createUser, getUserByEmail, setSessionCookie, getTeacherCount } from "@/lib/auth";
+import { createSession, createUser, getTeacherCount, getUserByEmail, setSessionCookie } from "@/lib/auth";
+import { apiSuccess, conflict, forbidden, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
+
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
-  const body = (await request.json()) as {
-    email?: string;
-    password?: string;
-    name?: string;
-    inviteCode?: string;
-  };
+const teacherRegisterSchema = v.object<{
+  email: string;
+  password: string;
+  name: string;
+  inviteCode?: string;
+}>(
+  {
+    email: v.string({ minLength: 1 }),
+    password: v.string({ minLength: 1 }),
+    name: v.string({ minLength: 1 }),
+    inviteCode: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
 
-  if (!body.email || !body.password || !body.name) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
-  }
+export const POST = withApi(async (request, _context, { requestId }) => {
+  const body = await parseJson(request, teacherRegisterSchema);
 
   const expectedInvite = process.env.TEACHER_INVITE_CODE?.trim();
   const inviteList = process.env.TEACHER_INVITE_CODES?.trim();
@@ -23,10 +31,7 @@ export async function POST(request: Request) {
   const normalize = (code?: string) => (code ?? "").replace(/[^a-z0-9]/gi, "").toUpperCase();
   const normalizedInput = normalize(body.inviteCode);
   const allowed = new Set(
-    [
-      expectedInvite,
-      ...(inviteList ? inviteList.split(/[,;\s]+/) : [])
-    ]
+    [expectedInvite, ...(inviteList ? inviteList.split(/[,;\s]+/) : [])]
       .map((item) => normalize(item))
       .filter(Boolean)
   );
@@ -34,18 +39,18 @@ export async function POST(request: Request) {
 
   if (requireInvite) {
     if (!normalizedInput) {
-      return NextResponse.json({ error: "invite code required" }, { status: 403 });
+      forbidden("invite code required");
     }
     if (!allowed.has(normalizedInput)) {
-      return NextResponse.json({ error: "invalid invite code" }, { status: 403 });
+      forbidden("invalid invite code");
     }
   } else if (!allowWithoutInvite) {
-    return NextResponse.json({ error: "invite code required" }, { status: 403 });
+    forbidden("invite code required");
   }
 
   const existing = await getUserByEmail(body.email);
   if (existing) {
-    return NextResponse.json({ error: "email exists" }, { status: 409 });
+    conflict("email exists");
   }
 
   const id = `u-teacher-${crypto.randomBytes(6).toString("hex")}`;
@@ -56,10 +61,23 @@ export async function POST(request: Request) {
     role: "teacher" as const,
     password: `plain:${body.password}`
   };
+
   await createUser(user);
   const session = await createSession(user);
 
-  const response = NextResponse.json({ ok: true, role: "teacher", name: body.name });
+  const response = apiSuccess(
+    {
+      ok: true,
+      role: "teacher",
+      name: body.name
+    },
+    {
+      requestId,
+      status: 201,
+      message: "注册成功"
+    }
+  );
+
   setSessionCookie(response, session.id);
   return response;
-}
+});
