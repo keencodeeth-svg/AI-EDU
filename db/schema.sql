@@ -150,6 +150,17 @@ CREATE TABLE IF NOT EXISTS wrong_review_items (
 CREATE INDEX IF NOT EXISTS wrong_review_items_user_idx ON wrong_review_items (user_id);
 CREATE INDEX IF NOT EXISTS wrong_review_items_next_idx ON wrong_review_items (next_review_at);
 
+CREATE TABLE IF NOT EXISTS teacher_alert_acks (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  alert_id TEXT NOT NULL,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (teacher_id, alert_id)
+);
+
+CREATE INDEX IF NOT EXISTS teacher_alert_acks_teacher_idx ON teacher_alert_acks (teacher_id);
+
 CREATE TABLE IF NOT EXISTS memory_reviews (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

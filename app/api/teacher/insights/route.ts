@@ -3,6 +3,7 @@ import { getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgress } from "@/lib/assignments";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
+import { getTeacherAlerts } from "@/lib/teacher-alerts";
 import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
@@ -66,14 +67,26 @@ export const GET = withApi(async () => {
     .sort((a, b) => a.ratio - b.ratio)
     .slice(0, 5);
 
+  const alertsOverview = await getTeacherAlerts({
+    teacherId: user.id,
+    includeAcknowledged: true
+  });
+
   return {
     summary: {
       classes: classes.length,
       students: studentIds.length,
       assignments: assignments.length,
       completionRate,
-      accuracy
+      accuracy,
+      classRiskScore: alertsOverview.summary.classRiskScore,
+      activeAlerts: alertsOverview.summary.activeAlerts,
+      highRiskAlerts: alertsOverview.summary.highRiskAlerts
     },
-    weakPoints
+    weakPoints,
+    riskClasses: alertsOverview.classRisk.slice(0, 5),
+    riskStudents: alertsOverview.riskStudents.slice(0, 8),
+    riskKnowledgePoints: alertsOverview.riskKnowledgePoints.slice(0, 8),
+    alerts: alertsOverview.alerts.slice(0, 12)
   };
 });

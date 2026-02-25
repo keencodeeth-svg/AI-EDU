@@ -300,6 +300,52 @@ async function run() {
     assert.equal(reviewResult.body?.intervalLevel, 2, "After one correct review, interval should move to level 2");
     assert.equal(typeof reviewResult.body?.nextReviewAt, "string", "Review result should include nextReviewAt");
 
+    const teacherCandidates = [
+      {
+        email: process.env.API_TEST_TEACHER_EMAIL || "teacher@demo.com",
+        password: process.env.API_TEST_TEACHER_PASSWORD || "Teacher123"
+      },
+      {
+        email: process.env.API_TEST_TEACHER_FALLBACK_EMAIL || "teacher1@demo.com",
+        password: process.env.API_TEST_TEACHER_FALLBACK_PASSWORD || "Teacher123"
+      }
+    ];
+    let teacherLogin = null;
+    for (const candidate of teacherCandidates) {
+      const resp = await apiFetch("/api/auth/login", {
+        method: "POST",
+        useCookies: false,
+        json: { email: candidate.email, password: candidate.password, role: "teacher" }
+      });
+      if (resp.status === 200) {
+        teacherLogin = resp;
+        break;
+      }
+    }
+    assert.equal(teacherLogin?.status, 200, "Teacher login failed for both primary and fallback accounts");
+
+    const teacherInsights = await apiFetch("/api/teacher/insights");
+    assert.equal(teacherInsights.status, 200, `GET /api/teacher/insights failed: ${teacherInsights.raw}`);
+    assert.equal(
+      typeof teacherInsights.body?.summary?.classRiskScore,
+      "number",
+      "Teacher insights should include summary.classRiskScore"
+    );
+    assert.ok(Array.isArray(teacherInsights.body?.alerts), "Teacher insights should include alerts");
+
+    const teacherAlerts = await apiFetch("/api/teacher/alerts");
+    assert.equal(teacherAlerts.status, 200, `GET /api/teacher/alerts failed: ${teacherAlerts.raw}`);
+    assert.ok(Array.isArray(teacherAlerts.body?.data?.alerts), "Teacher alerts should include alerts");
+    const firstAlertId = teacherAlerts.body?.data?.alerts?.[0]?.id;
+    if (firstAlertId) {
+      const ackAlert = await apiFetch(`/api/teacher/alerts/${firstAlertId}/ack`, {
+        method: "POST",
+        json: {}
+      });
+      assert.equal(ackAlert.status, 200, `POST /api/teacher/alerts/[id]/ack failed: ${ackAlert.raw}`);
+      assert.equal(ackAlert.body?.data?.status, "acknowledged");
+    }
+
     const adminEmail = process.env.API_TEST_ADMIN_EMAIL || "admin@demo.com";
     const adminPassword = process.env.API_TEST_ADMIN_PASSWORD || "Admin123";
     const adminLogin = await apiFetch("/api/auth/login", {

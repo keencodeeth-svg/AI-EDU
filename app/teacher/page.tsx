@@ -53,6 +53,7 @@ export default function TeacherPage() {
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
+  const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
 
   const [classForm, setClassForm] = useState({ name: "", subject: "math", grade: "4" });
   const [studentForm, setStudentForm] = useState({ classId: "", email: "" });
@@ -231,6 +232,23 @@ export default function TeacherPage() {
     setLoading(false);
   }
 
+  async function acknowledgeAlert(alertId: string) {
+    setAcknowledgingAlertId(alertId);
+    const res = await fetch(`/api/teacher/alerts/${alertId}/ack`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data?.error ?? "确认预警失败");
+      setAcknowledgingAlertId(null);
+      return;
+    }
+    await loadAll();
+    setAcknowledgingAlertId(null);
+  }
+
   async function handleUpdateJoinMode(classId: string, joinMode: "approval" | "auto") {
     await fetch(`/api/teacher/classes/${classId}`, {
       method: "PATCH",
@@ -302,6 +320,18 @@ export default function TeacherPage() {
             <div className="section-title">参与学生</div>
             <p>{insights?.summary?.students ?? 0} 人</p>
           </div>
+          <div className="card">
+            <div className="section-title">班级风险分</div>
+            <p>{insights?.summary?.classRiskScore ?? 0}</p>
+          </div>
+          <div className="card">
+            <div className="section-title">活跃预警</div>
+            <p>{insights?.summary?.activeAlerts ?? 0}</p>
+          </div>
+          <div className="card">
+            <div className="section-title">高风险预警</div>
+            <p>{insights?.summary?.highRiskAlerts ?? 0}</p>
+          </div>
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="section-title">薄弱知识点</div>
@@ -321,6 +351,40 @@ export default function TeacherPage() {
             </div>
           ) : (
             <p>暂无薄弱点数据。</p>
+          )}
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <div className="section-title">教师预警</div>
+          {insights?.alerts?.length ? (
+            <div className="grid" style={{ gap: 8 }}>
+              {insights.alerts.map((item: any) => (
+                <div className="card" key={item.id}>
+                  <div className="section-title">
+                    {item.type === "student-risk" ? "学生风险" : "知识点风险"} · 风险分 {item.riskScore}
+                  </div>
+                  <p>
+                    {item.className} · {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级
+                  </p>
+                  <p>{item.riskReason}</p>
+                  <p style={{ color: "var(--ink-1)" }}>建议动作：{item.recommendedAction}</p>
+                  <div className="cta-row">
+                    {item.status === "acknowledged" ? (
+                      <span className="badge">已确认</span>
+                    ) : (
+                      <button
+                        className="button secondary"
+                        onClick={() => acknowledgeAlert(item.id)}
+                        disabled={acknowledgingAlertId === item.id}
+                      >
+                        {acknowledgingAlertId === item.id ? "确认中..." : "确认预警"}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p>暂无预警。</p>
           )}
         </div>
       </Card>

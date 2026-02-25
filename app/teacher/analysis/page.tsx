@@ -39,6 +39,27 @@ type FavoriteItem = {
   } | null;
 };
 
+type AlertItem = {
+  id: string;
+  type: "student-risk" | "knowledge-risk";
+  classId: string;
+  className: string;
+  subject: string;
+  grade: string;
+  riskScore: number;
+  riskReason: string;
+  recommendedAction: string;
+  status: "active" | "acknowledged";
+};
+
+type AlertSummary = {
+  classRiskScore: number;
+  totalAlerts: number;
+  activeAlerts: number;
+  acknowledgedAlerts: number;
+  highRiskAlerts: number;
+};
+
 export default function TeacherAnalysisPage() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState("");
@@ -48,6 +69,9 @@ export default function TeacherAnalysisPage() {
   const [students, setStudents] = useState<StudentItem[]>([]);
   const [studentId, setStudentId] = useState("");
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
+  const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/teacher/classes")
@@ -69,11 +93,32 @@ export default function TeacherAnalysisPage() {
     setLoading(false);
   }
 
+  async function loadAlerts(targetId: string) {
+    const res = await fetch(`/api/teacher/alerts?classId=${targetId}&includeAcknowledged=true`);
+    const data = await res.json();
+    setAlerts(data?.data?.alerts ?? []);
+    setAlertSummary(data?.data?.summary ?? null);
+  }
+
   useEffect(() => {
     if (classId) {
       loadHeatmap(classId);
+      loadAlerts(classId);
     }
   }, [classId]);
+
+  async function acknowledgeAlert(alertId: string) {
+    setAcknowledgingAlertId(alertId);
+    const res = await fetch(`/api/teacher/alerts/${alertId}/ack`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({})
+    });
+    if (res.ok && classId) {
+      await loadAlerts(classId);
+    }
+    setAcknowledgingAlertId(null);
+  }
 
   useEffect(() => {
     if (!classId) return;
@@ -152,6 +197,51 @@ export default function TeacherAnalysisPage() {
               颜色越偏红表示掌握度越低，可优先安排讲评与补救。
             </div>
           </div>
+        </div>
+      </Card>
+
+      <Card title="教师预警看板" tag="风险">
+        <div className="grid grid-3">
+          <div className="card">
+            <div className="section-title">班级风险分</div>
+            <p>{alertSummary?.classRiskScore ?? 0}</p>
+          </div>
+          <div className="card">
+            <div className="section-title">活跃预警</div>
+            <p>{alertSummary?.activeAlerts ?? 0}</p>
+          </div>
+          <div className="card">
+            <div className="section-title">高风险预警</div>
+            <p>{alertSummary?.highRiskAlerts ?? 0}</p>
+          </div>
+        </div>
+        <div className="grid" style={{ gap: 10, marginTop: 12 }}>
+          {alerts.length === 0 ? <p>当前班级暂无预警。</p> : null}
+          {alerts.slice(0, 12).map((item) => (
+            <div className="card" key={item.id}>
+              <div className="section-title">
+                {item.type === "student-risk" ? "学生风险" : "知识点风险"} · 风险分 {item.riskScore}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
+                {item.className} · {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级
+              </div>
+              <p>{item.riskReason}</p>
+              <p style={{ color: "var(--ink-1)" }}>建议动作：{item.recommendedAction}</p>
+              <div className="cta-row">
+                {item.status === "acknowledged" ? (
+                  <span className="badge">已确认</span>
+                ) : (
+                  <button
+                    className="button secondary"
+                    onClick={() => acknowledgeAlert(item.id)}
+                    disabled={acknowledgingAlertId === item.id}
+                  >
+                    {acknowledgingAlertId === item.id ? "确认中..." : "确认预警"}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       </Card>
 
