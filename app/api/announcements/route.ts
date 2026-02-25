@@ -1,15 +1,25 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
 import { getClassesByStudent, getClassesByTeacher, getClassById, getClassStudentIds } from "@/lib/classes";
 import { createAnnouncement, getAnnouncementsByClassIds } from "@/lib/announcements";
 import { createNotification } from "@/lib/notifications";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const createAnnouncementBodySchema = v.object<{ classId?: string; title?: string; content?: string }>(
+  {
+    classId: v.optional(v.string({ allowEmpty: true, trim: false })),
+    title: v.optional(v.string({ allowEmpty: true, trim: false })),
+    content: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   let classes: Array<{ id: string; name: string; subject: string; grade: string }> = [];
@@ -19,11 +29,11 @@ export async function GET() {
     classes = await getClassesByStudent(user.id);
   } else if (user.role === "parent") {
     if (!user.studentId) {
-      return NextResponse.json({ error: "missing student" }, { status: 400 });
+      badRequest("missing student");
     }
     classes = await getClassesByStudent(user.studentId);
   } else {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classMap = new Map(classes.map((item) => [item.id, item]));
@@ -35,30 +45,33 @@ export async function GET() {
     classGrade: classMap.get(item.classId)?.grade ?? "-"
   }));
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { classId?: string; title?: string; content?: string };
-  if (!body.classId || !body.title || !body.content) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  const body = await parseJson(request, createAnnouncementBodySchema);
+  const classId = body.classId?.trim();
+  const title = body.title?.trim();
+  const content = body.content?.trim();
+  if (!classId || !title || !content) {
+    badRequest("missing fields");
   }
 
-  const klass = await getClassById(body.classId);
+  const klass = await getClassById(classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
 
   const created = await createAnnouncement({
     classId: klass.id,
     authorId: user.id,
-    title: body.title,
-    content: body.content
+    title,
+    content
   });
 
   const studentIds = await getClassStudentIds(klass.id);
@@ -80,5 +93,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ data: created });
-}
+  return { data: created };
+});

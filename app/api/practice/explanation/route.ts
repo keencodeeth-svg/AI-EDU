@@ -1,25 +1,30 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getKnowledgePoints, getQuestions } from "@/lib/content";
 import { generateExplainVariants } from "@/lib/ai";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const explanationBodySchema = v.object<{ questionId: string }>(
+  {
+    questionId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { questionId?: string };
-  if (!body.questionId) {
-    return NextResponse.json({ error: "missing questionId" }, { status: 400 });
-  }
+  const body = await parseJson(request, explanationBodySchema);
 
   const questions = await getQuestions();
   const question = questions.find((q) => q.id === body.questionId);
   if (!question) {
-    return NextResponse.json({ error: "question not found" }, { status: 404 });
+    notFound("question not found");
   }
 
   const kps = await getKnowledgePoints();
@@ -34,5 +39,5 @@ export async function POST(request: Request) {
     knowledgePointTitle: kp?.title
   });
 
-  return NextResponse.json({ data: variants });
-}
+  return { data: variants };
+});

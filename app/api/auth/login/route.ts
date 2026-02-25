@@ -1,4 +1,11 @@
-import { createSession, getUserByEmail, setSessionCookie, verifyPassword } from "@/lib/auth";
+import {
+  createSession,
+  getUserByEmail,
+  hashPassword,
+  setSessionCookie,
+  updateUserPassword,
+  verifyPassword
+} from "@/lib/auth";
 import { addAdminLog } from "@/lib/admin-log";
 import { apiSuccess, forbidden, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
@@ -24,6 +31,16 @@ export const POST = withApi(async (request, _context, { requestId }) => {
 
   if (!user || !verifyPassword(body.password, user.password)) {
     unauthorized("invalid credentials");
+  }
+
+  if (user.password.startsWith("plain:")) {
+    try {
+      const hashed = hashPassword(body.password);
+      await updateUserPassword(user.id, hashed);
+      user.password = hashed;
+    } catch {
+      // keep login available even if background migration fails
+    }
   }
 
   if (body.role && user.role !== body.role) {

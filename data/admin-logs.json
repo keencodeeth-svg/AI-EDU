@@ -1,1 +1,65 @@
-[]
+[
+  {
+    "id": "log-2b5368936341",
+    "createdAt": "2026-02-25T21:09:54.658Z",
+    "adminId": "u-admin-001",
+    "action": "delete_knowledge_point",
+    "entityType": "knowledge_point",
+    "entityId": "kp-14d0d1186aeb",
+    "detail": ""
+  },
+  {
+    "id": "log-cfb9f37c8860",
+    "createdAt": "2026-02-25T21:09:54.646Z",
+    "adminId": "u-admin-001",
+    "action": "delete_question",
+    "entityType": "question",
+    "entityId": "q-01fe4492b543",
+    "detail": ""
+  },
+  {
+    "id": "log-33e4b89da240",
+    "createdAt": "2026-02-25T21:09:54.637Z",
+    "adminId": "u-admin-001",
+    "action": "update_question",
+    "entityType": "question",
+    "entityId": "q-01fe4492b543",
+    "detail": "math 4 kp-14d0d1186aeb"
+  },
+  {
+    "id": "log-d97bb64df7c4",
+    "createdAt": "2026-02-25T21:09:54.407Z",
+    "adminId": "u-admin-001",
+    "action": "create_question",
+    "entityType": "question",
+    "entityId": "q-01fe4492b543",
+    "detail": "math 4 kp-14d0d1186aeb"
+  },
+  {
+    "id": "log-ed8546a52970",
+    "createdAt": "2026-02-25T21:09:54.397Z",
+    "adminId": "u-admin-001",
+    "action": "update_knowledge_point",
+    "entityType": "knowledge_point",
+    "entityId": "kp-14d0d1186aeb",
+    "detail": "math 4 API_TEST_UNIT API_TEST_KP_mm2j2qfj"
+  },
+  {
+    "id": "log-e1a6d0b20ae5",
+    "createdAt": "2026-02-25T21:09:54.173Z",
+    "adminId": "u-admin-001",
+    "action": "create_knowledge_point",
+    "entityType": "knowledge_point",
+    "entityId": "kp-14d0d1186aeb",
+    "detail": "math 4 API_TEST_UNIT API_TEST_KP_mm2j2qfj"
+  },
+  {
+    "id": "log-cc223dd5ef29",
+    "createdAt": "2026-02-25T21:09:53.960Z",
+    "adminId": "u-admin-001",
+    "action": "admin_login",
+    "entityType": "auth",
+    "entityId": "u-admin-001",
+    "detail": "admin@demo.com"
+  }
+]

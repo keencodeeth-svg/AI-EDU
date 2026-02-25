@@ -1,22 +1,32 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, updateClassSettings } from "@/lib/classes";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+const updateClassBodySchema = v.object<{
+  joinMode?: "approval" | "auto";
+}>(
+  {
+    joinMode: v.optional(v.enum(["approval", "auto"] as const))
+  },
+  { allowUnknown: false }
+);
+
+export const PATCH = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classId = context.params.id;
   const klass = await getClassById(classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  const body = (await request.json()) as { joinMode?: "approval" | "auto" };
+  const body = await parseJson(request, updateClassBodySchema);
   const updated = await updateClassSettings(classId, { joinMode: body.joinMode });
-  return NextResponse.json({ data: updated });
-}
+  return { data: updated };
+});

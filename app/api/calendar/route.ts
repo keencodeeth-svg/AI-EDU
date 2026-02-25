@@ -1,9 +1,9 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgressByStudent } from "@/lib/assignments";
 import { getAnnouncementsByClassIds } from "@/lib/announcements";
 import { getCorrectionTasksByUser } from "@/lib/corrections";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +15,10 @@ function inWindow(date: string) {
   return time >= start && time <= end;
 }
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const items: Array<{
@@ -60,7 +60,7 @@ export async function GET() {
   } else if (user.role === "student" || user.role === "parent") {
     const studentId = user.role === "parent" ? user.studentId : user.id;
     if (!studentId) {
-      return NextResponse.json({ error: "missing student" }, { status: 400 });
+      badRequest("missing student");
     }
     const classes = await getClassesByStudent(studentId);
     const classMap = new Map(classes.map((item) => [item.id, item]));
@@ -104,10 +104,10 @@ export async function GET() {
       });
     });
   } else {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   items.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-  return NextResponse.json({ data: items });
-}
+  return { data: items };
+});

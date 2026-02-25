@@ -1,17 +1,17 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getQuestions, getKnowledgePoints } from "@/lib/content";
 import { getFavoritesByUser } from "@/lib/favorites";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "parent") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   if (!user.studentId) {
-    return NextResponse.json({ error: "missing student" }, { status: 400 });
+    badRequest("missing student");
   }
 
   const favorites = await getFavoritesByUser(user.studentId);
@@ -38,5 +38,5 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});

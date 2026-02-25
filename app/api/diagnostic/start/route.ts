@@ -1,23 +1,32 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getDiagnosticQuestions } from "@/lib/progress";
 import { getStudentProfile } from "@/lib/profiles";
+import { unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const diagnosticStartBodySchema = v.object<{ subject?: string; grade?: string }>(
+  {
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { subject?: string; grade?: string };
+  const body = await parseJson(request, diagnosticStartBodySchema);
   const subject = body.subject ?? "math";
   const profile = await getStudentProfile(user.id);
   const grade = body.grade ?? profile?.grade ?? (user.grade ?? "4");
 
   const questions = await getDiagnosticQuestions(subject, grade, 10);
 
-  return NextResponse.json({
+  return {
     subject,
     grade,
     questions: questions.map((q) => ({
@@ -26,5 +35,5 @@ export async function POST(request: Request) {
       options: q.options,
       knowledgePointId: q.knowledgePointId
     }))
-  });
-}
+  };
+});

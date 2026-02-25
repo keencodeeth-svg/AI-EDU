@@ -1,48 +1,46 @@
-import { NextResponse } from "next/server";
 import { createKnowledgePoint, getKnowledgePoints } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
-import type { Subject } from "@/lib/types";
-import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { createKnowledgePointBodySchema, isAllowedSubject } from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_SUBJECTS: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
-
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  return NextResponse.json({ data: await getKnowledgePoints() });
-}
+  const data = await getKnowledgePoints();
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    title?: string;
-    chapter?: string;
-    unit?: string;
-  };
+  const body = await parseJson(request, createKnowledgePointBodySchema);
+  const subject = body.subject?.trim();
+  const grade = body.grade?.trim();
+  const title = body.title?.trim();
+  const chapter = body.chapter?.trim();
 
-  if (!body.subject || !body.grade || !body.title || !body.chapter) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  if (!subject || !grade || !title || !chapter) {
+    badRequest("missing fields");
   }
-  if (!ALLOWED_SUBJECTS.includes(body.subject as Subject)) {
-    return NextResponse.json({ error: "invalid subject" }, { status: 400 });
+  if (!isAllowedSubject(subject)) {
+    badRequest("invalid subject");
   }
 
+  const unit = body.unit?.trim();
   const next = await createKnowledgePoint({
-    subject: body.subject as Subject,
-    grade: body.grade,
-    title: body.title,
-    chapter: body.chapter,
-    unit: body.unit && body.unit.trim().length ? body.unit.trim() : "未分单元"
+    subject,
+    grade,
+    title,
+    chapter,
+    unit: unit ? unit : "未分单元"
   });
 
   if (next) {
@@ -55,5 +53,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ data: next });
-}
+  return { data: next };
+});

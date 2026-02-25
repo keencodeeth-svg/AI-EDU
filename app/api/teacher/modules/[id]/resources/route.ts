@@ -1,61 +1,78 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById } from "@/lib/classes";
 import { addModuleResource, deleteModuleResource, getModuleById, getModuleResources } from "@/lib/modules";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+const moduleResourceBodySchema = v.object<{
+  title: string;
+  resourceType: "file" | "link";
+  fileName?: string;
+  mimeType?: string;
+  size?: number;
+  contentBase64?: string;
+  linkUrl?: string;
+}>(
+  {
+    title: v.string({ minLength: 1 }),
+    resourceType: v.enum(["file", "link"] as const),
+    fileName: v.optional(v.string({ minLength: 1 })),
+    mimeType: v.optional(v.string({ minLength: 1 })),
+    size: v.optional(v.number({ coerce: true, integer: true, min: 0 })),
+    contentBase64: v.optional(v.string({ minLength: 1 })),
+    linkUrl: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
+
+const deleteResourceBodySchema = v.object<{ resourceId: string }>(
+  {
+    resourceId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const moduleId = context.params.id;
   const moduleRecord = await getModuleById(moduleId);
   if (!moduleRecord) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const klass = await getClassById(moduleRecord.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const resources = await getModuleResources(moduleId);
-  return NextResponse.json({ data: resources });
-}
+  return { data: resources };
+});
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const moduleId = context.params.id;
   const moduleRecord = await getModuleById(moduleId);
   if (!moduleRecord) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const klass = await getClassById(moduleRecord.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  const body = (await request.json()) as {
-    title?: string;
-    resourceType?: "file" | "link";
-    fileName?: string;
-    mimeType?: string;
-    size?: number;
-    contentBase64?: string;
-    linkUrl?: string;
-  };
-
-  if (!body.title || !body.resourceType) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
-  }
+  const body = await parseJson(request, moduleResourceBodySchema);
   if (body.resourceType === "file" && !body.contentBase64) {
-    return NextResponse.json({ error: "missing file" }, { status: 400 });
+    badRequest("missing file");
   }
   if (body.resourceType === "link" && !body.linkUrl) {
-    return NextResponse.json({ error: "missing link" }, { status: 400 });
+    badRequest("missing link");
   }
 
   const created = await addModuleResource({
@@ -68,27 +85,24 @@ export async function POST(request: Request, context: { params: { id: string } }
     contentBase64: body.contentBase64,
     linkUrl: body.linkUrl
   });
-  return NextResponse.json({ data: created });
-}
+  return { data: created };
+});
 
-export async function DELETE(request: Request, context: { params: { id: string } }) {
+export const DELETE = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const moduleId = context.params.id;
   const moduleRecord = await getModuleById(moduleId);
   if (!moduleRecord) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const klass = await getClassById(moduleRecord.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
-  const body = (await request.json()) as { resourceId?: string };
-  if (!body.resourceId) {
-    return NextResponse.json({ error: "missing resource" }, { status: 400 });
-  }
+  const body = await parseJson(request, deleteResourceBodySchema);
   await deleteModuleResource(body.resourceId);
-  return NextResponse.json({ ok: true });
-}
+  return { ok: true };
+});

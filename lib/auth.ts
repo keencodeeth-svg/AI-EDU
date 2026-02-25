@@ -104,6 +104,12 @@ export function verifyPassword(input: string, stored: string) {
   return crypto.timingSafeEqual(hashBuf, derivedBuf);
 }
 
+export function hashPassword(input: string) {
+  const salt = crypto.randomBytes(16).toString("hex");
+  const hash = crypto.scryptSync(input, salt, 64).toString("hex");
+  return `${salt}:${hash}`;
+}
+
 export async function createUser(user: User) {
   if (!isDbEnabled()) {
     const users = await getUsers();
@@ -187,6 +193,7 @@ export function setSessionCookie(response: Response, token: string) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
+      secure: process.env.NODE_ENV === "production",
       maxAge: SESSION_TTL_DAYS * 24 * 60 * 60
     });
   }
@@ -199,6 +206,7 @@ export function clearSessionCookie(response: Response) {
       httpOnly: true,
       sameSite: "lax",
       path: "/",
+      secure: process.env.NODE_ENV === "production",
       maxAge: 0
     });
   }
@@ -258,6 +266,22 @@ export async function getParentsByStudentId(studentId: string) {
   }
   const rows = await query<DbUser>("SELECT * FROM users WHERE role = 'parent' AND student_id = $1", [studentId]);
   return rows.map(mapUser);
+}
+
+export async function updateUserPassword(userId: string, password: string) {
+  if (!isDbEnabled()) {
+    const users = await getUsers();
+    const index = users.findIndex((item) => item.id === userId);
+    if (index === -1) return false;
+    users[index] = { ...users[index], password };
+    await saveUsers(users);
+    return true;
+  }
+  const rows = await query<{ id: string }>("UPDATE users SET password = $2 WHERE id = $1 RETURNING id", [
+    userId,
+    password
+  ]);
+  return rows.length > 0;
 }
 
 export function getSessionCookieName() {

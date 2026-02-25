@@ -1,10 +1,18 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getUsers } from "@/lib/auth";
 import { getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { getDiscussionById, getDiscussionReplies } from "@/lib/discussions";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const discussionParamsSchema = v.object<{ id: string }>(
+  {
+    id: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
 
 async function getAccessibleClassIds(role: string, userId: string) {
   if (role === "teacher") {
@@ -24,23 +32,28 @@ async function getAccessibleClassIds(role: string, userId: string) {
   return [];
 }
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const topic = await getDiscussionById(context.params.id);
+
+  const params = parseParams(context.params, discussionParamsSchema);
+  const topic = await getDiscussionById(params.id);
   if (!topic) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
+
   const accessible = await getAccessibleClassIds(user.role, user.id);
   if (!accessible.includes(topic.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
+
   const replies = await getDiscussionReplies(topic.id);
   const users = await getUsers();
   const userMap = new Map(users.map((item) => [item.id, item]));
-  return NextResponse.json({
+
+  return {
     topic: {
       ...topic,
       authorName: topic.authorId ? userMap.get(topic.authorId)?.name ?? "老师" : "老师"
@@ -49,5 +62,5 @@ export async function GET(_: Request, context: { params: { id: string } }) {
       ...reply,
       authorName: reply.authorId ? userMap.get(reply.authorId)?.name ?? "成员" : "成员"
     }))
-  });
-}
+  };
+});

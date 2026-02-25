@@ -1,16 +1,29 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getThreadMessages } from "@/lib/inbox";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+const threadParamsSchema = v.object<{ id: string }>(
+  {
+    id: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const data = await getThreadMessages(context.params.id, user.id);
+  if (!user) {
+    unauthorized();
+  }
+
+  const params = parseParams(context.params, threadParamsSchema);
+  const data = await getThreadMessages(params.id, user.id);
   const isParticipant = data.participants.some((p) => p.id === user.id);
   if (!isParticipant) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
-  return NextResponse.json({ data });
-}
+
+  return { data };
+});

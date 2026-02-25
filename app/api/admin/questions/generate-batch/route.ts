@@ -1,14 +1,15 @@
-import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/guard";
 import { createQuestion, getKnowledgePoints, getQuestions } from "@/lib/content";
 import { generateQuestionDraft } from "@/lib/ai";
-import type { Subject, Difficulty } from "@/lib/types";
 import { addAdminLog } from "@/lib/admin-log";
-import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import {
+  generateBatchBodySchema,
+  isAllowedSubject,
+  normalizeDifficulty
+} from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
-
-const ALLOWED_SUBJECTS: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
-const ALLOWED_DIFFICULTY: Difficulty[] = ["easy", "medium", "hard"];
 
 function normalizeStem(text: string) {
   return text
@@ -26,53 +27,47 @@ function shuffle<T>(arr: T[]) {
   return copy;
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    count?: number;
-    chapter?: string;
-    difficulty?: Difficulty;
-  };
+  const body = await parseJson(request, generateBatchBodySchema);
+  const subject = body.subject?.trim();
+  const grade = body.grade?.trim();
+  const chapter = body.chapter?.trim();
 
-  if (!body.subject || !body.grade) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  if (!subject || !grade) {
+    badRequest("missing fields");
   }
 
-  if (!ALLOWED_SUBJECTS.includes(body.subject as Subject)) {
-    return NextResponse.json({ error: "invalid subject" }, { status: 400 });
+  if (!isAllowedSubject(subject)) {
+    badRequest("invalid subject");
   }
 
-  const subject = body.subject as Subject;
-  const difficulty = ALLOWED_DIFFICULTY.includes(body.difficulty as Difficulty)
-    ? (body.difficulty as Difficulty)
-    : "medium";
+  const difficulty = normalizeDifficulty(body.difficulty);
 
   const allKps = await getKnowledgePoints();
   const available = allKps.filter((kp) => {
     if (kp.subject !== subject) return false;
-    if (kp.grade !== body.grade) return false;
-    if (body.chapter && kp.chapter !== body.chapter) return false;
+    if (kp.grade !== grade) return false;
+    if (chapter && kp.chapter !== chapter) return false;
     return true;
   });
 
   if (!available.length) {
-    return NextResponse.json({ error: "no knowledge points" }, { status: 400 });
+    badRequest("no knowledge points");
   }
 
   const total = Math.min(Math.max(Number(body.count) || 10, 10), 50);
   const kpList = shuffle(available);
 
-  const existing = (await getQuestions()).filter((q) => q.subject === subject && q.grade === body.grade);
+  const existing = (await getQuestions()).filter((q) => q.subject === subject && q.grade === grade);
   const existingStems = new Set(existing.map((q) => normalizeStem(q.stem)));
   const createdStems = new Set<string>();
 
-  const created: any[] = [];
+  const created: Array<{ id: string }> = [];
   const failed: { index: number; reason: string }[] = [];
 
   for (let i = 0; i < total; i += 1) {
@@ -84,7 +79,7 @@ export async function POST(request: Request) {
       attempts += 1;
       const next = await generateQuestionDraft({
         subject,
-        grade: body.grade,
+        grade,
         knowledgePointTitle: kp.title,
         chapter: kp.chapter,
         difficulty
@@ -105,7 +100,7 @@ export async function POST(request: Request) {
 
     const next = await createQuestion({
       subject,
-      grade: body.grade,
+      grade,
       knowledgePointId: kp.id,
       stem: draft.stem,
       options: draft.options,
@@ -133,5 +128,5 @@ export async function POST(request: Request) {
     detail: `count=${total}, created=${created.length}, failed=${failed.length}`
   });
 
-  return NextResponse.json({ created, failed });
-}
+  return { created, failed };
+});

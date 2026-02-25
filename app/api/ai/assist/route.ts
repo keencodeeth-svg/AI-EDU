@@ -1,5 +1,6 @@
-import { NextResponse } from "next/server";
 import { generateAssistAnswer } from "@/lib/ai";
+import { badRequest, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
 type AssistRequest = {
@@ -9,24 +10,34 @@ type AssistRequest = {
   knowledgePoint?: string;
 };
 
-export async function POST(request: Request) {
-  const body = (await request.json()) as AssistRequest;
+const assistBodySchema = v.object<AssistRequest>(
+  {
+    question: v.string({ minLength: 1 }),
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    knowledgePoint: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
 
-  if (!body?.question) {
-    return NextResponse.json({ error: "question is required" }, { status: 400 });
+export const POST = withApi(async (request) => {
+  const body = await parseJson(request, assistBodySchema);
+
+  if (!body.question?.trim()) {
+    badRequest("question is required");
   }
 
   const response = await generateAssistAnswer({
-    question: body.question,
+    question: body.question.trim(),
     subject: body.subject,
     grade: body.grade
   });
 
-  return NextResponse.json({
+  return {
     answer: response.answer,
     steps: response.steps,
     hints: response.hints,
     source: response.sources,
     provider: response.provider
-  });
-}
+  };
+});

@@ -1,5 +1,12 @@
 import crypto from "crypto";
-import { createSession, createUser, getAdminCount, getUserByEmail, setSessionCookie } from "@/lib/auth";
+import {
+  createSession,
+  createUser,
+  getAdminCount,
+  getUserByEmail,
+  hashPassword,
+  setSessionCookie
+} from "@/lib/auth";
 import { apiSuccess, conflict, forbidden, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -46,7 +53,7 @@ export const POST = withApi(async (request, _context, { requestId }) => {
     email: body.email,
     name: body.name,
     role: "admin" as const,
-    password: `plain:${body.password}`
+    password: hashPassword(body.password)
   };
 
   await createUser(user);

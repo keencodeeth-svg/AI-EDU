@@ -1,15 +1,15 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getFocusSummary } from "@/lib/focus";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const data = await getFocusSummary(user.id);
-  return NextResponse.json({ data });
-}
+  return { data };
+});

@@ -1,27 +1,38 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { generateAssistAnswer } from "@/lib/ai";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const coachBodySchema = v.object<{
+  question: string;
+  subject?: string;
+  grade?: string;
+  studentAnswer?: string;
+}>(
+  {
+    question: v.string({ minLength: 1 }),
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    studentAnswer: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    question?: string;
-    subject?: string;
-    grade?: string;
-    studentAnswer?: string;
-  };
-  if (!body.question) {
-    return NextResponse.json({ error: "missing question" }, { status: 400 });
+  const body = await parseJson(request, coachBodySchema);
+  if (!body.question?.trim()) {
+    badRequest("missing question");
   }
 
   const assist = await generateAssistAnswer({
-    question: body.question,
+    question: body.question.trim(),
     subject: body.subject,
     grade: body.grade
   });
@@ -36,7 +47,7 @@ export async function POST(request: Request) {
     ? `我看到你的思路：${body.studentAnswer}。我们先对照已知条件和关键公式，再把步骤拆成 2-3 步。`
     : null;
 
-  return NextResponse.json({
+  return {
     data: {
       answer: assist.answer,
       steps: assist.steps,
@@ -45,5 +56,5 @@ export async function POST(request: Request) {
       feedback,
       provider: assist.provider
     }
-  });
-}
+  };
+});

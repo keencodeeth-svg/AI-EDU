@@ -1,10 +1,33 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getUsers } from "@/lib/auth";
 import { getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { createDiscussionTopic, getDiscussionTopicsByClassIds } from "@/lib/discussions";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const discussionsQuerySchema = v.object<{ classId?: string }>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
+
+const createTopicBodySchema = v.object<{
+  classId?: string;
+  title?: string;
+  content?: string;
+  pinned?: boolean;
+}>(
+  {
+    classId: v.optional(v.string({ allowEmpty: true, trim: false })),
+    title: v.optional(v.string({ allowEmpty: true, trim: false })),
+    content: v.optional(v.string({ allowEmpty: true, trim: false })),
+    pinned: v.optional(v.boolean())
+  },
+  { allowUnknown: false }
+);
 
 async function getAccessibleClassIds(role: string, userId: string) {
   if (role === "teacher") {
@@ -24,17 +47,19 @@ async function getAccessibleClassIds(role: string, userId: string) {
   return [];
 }
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId");
+
+  const query = parseSearchParams(request, discussionsQuerySchema);
+  const classId = query.classId;
   const accessible = await getAccessibleClassIds(user.role, user.id);
   if (!accessible.length) {
-    return NextResponse.json({ data: [] });
+    return { data: [] };
   }
+
   const classIds = classId && accessible.includes(classId) ? [classId] : accessible;
   const topics = await getDiscussionTopicsByClassIds(classIds);
   const users = await getUsers();
@@ -43,33 +68,36 @@ export async function GET(request: Request) {
     ...topic,
     authorName: topic.authorId ? userMap.get(topic.authorId)?.name ?? "老师" : "老师"
   }));
-  return NextResponse.json({ data });
-}
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const body = (await request.json()) as {
-    classId?: string;
-    title?: string;
-    content?: string;
-    pinned?: boolean;
-  };
-  if (!body.classId || !body.title || !body.content) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+
+  const body = await parseJson(request, createTopicBodySchema);
+  const classId = body.classId?.trim();
+  const title = body.title?.trim();
+  const content = body.content?.trim();
+
+  if (!classId || !title || !content) {
+    badRequest("missing fields");
   }
+
   const accessible = await getAccessibleClassIds(user.role, user.id);
-  if (!accessible.includes(body.classId)) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+  if (!accessible.includes(classId)) {
+    notFound("class not found");
   }
+
   const topic = await createDiscussionTopic({
-    classId: body.classId,
+    classId,
     authorId: user.id,
-    title: body.title,
-    content: body.content,
+    title,
+    content,
     pinned: body.pinned
   });
-  return NextResponse.json({ data: topic });
-}
+
+  return { data: topic };
+});

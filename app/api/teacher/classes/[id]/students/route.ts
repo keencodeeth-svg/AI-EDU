@@ -1,47 +1,52 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getUserByEmail } from "@/lib/auth";
 import { addStudentToClass, getClassById, getClassStudents } from "@/lib/classes";
 import { createAssignmentProgress, getAssignmentsByClass } from "@/lib/assignments";
 import { createNotification } from "@/lib/notifications";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+const addStudentBodySchema = v.object<{ email: string }>(
+  {
+    email: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classId = context.params.id;
   const klass = await getClassById(classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const students = await getClassStudents(classId);
-  return NextResponse.json({ data: students });
-}
+  return { data: students };
+});
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classId = context.params.id;
   const klass = await getClassById(classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  const body = (await request.json()) as { email?: string };
-  if (!body.email) {
-    return NextResponse.json({ error: "missing email" }, { status: 400 });
-  }
+  const body = await parseJson(request, addStudentBodySchema);
 
   const student = await getUserByEmail(body.email);
   if (!student || student.role !== "student") {
-    return NextResponse.json({ error: "student not found" }, { status: 404 });
+    notFound("student not found");
   }
 
   const added = await addStudentToClass(classId, student.id);
@@ -58,5 +63,5 @@ export async function POST(request: Request, context: { params: { id: string } }
     });
   }
 
-  return NextResponse.json({ added });
-}
+  return { added };
+});

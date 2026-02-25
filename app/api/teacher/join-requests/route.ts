@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getUserById } from "@/lib/auth";
 import { getClassesByTeacher, getJoinRequestsByTeacher, getClassById } from "@/lib/classes";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const requests = await getJoinRequestsByTeacher(user.id);
@@ -29,5 +29,5 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});

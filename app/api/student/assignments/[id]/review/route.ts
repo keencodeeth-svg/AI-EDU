@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentById, getAssignmentItems, getAssignmentSubmission } from "@/lib/assignments";
@@ -6,25 +5,26 @@ import { getQuestions } from "@/lib/content";
 import { getReview } from "@/lib/reviews";
 import { getAssignmentAIReview } from "@/lib/assignment-ai";
 import { getAssignmentRubrics, getReviewRubrics } from "@/lib/rubrics";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignmentId = context.params.id;
   const assignment = await getAssignmentById(assignmentId);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const classes = await getClassesByStudent(user.id);
   const classIds = new Set(classes.map((item) => item.id));
   if (!classIds.has(assignment.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const submission = await getAssignmentSubmission(assignment.id, user.id);
@@ -53,7 +53,7 @@ export async function GET(_: Request, context: { params: { id: string } }) {
   const aiReview = await getAssignmentAIReview(assignment.id, user.id);
   const rubrics = await getAssignmentRubrics(assignment.id);
   const reviewRubrics = reviewResult.review ? await getReviewRubrics(reviewResult.review.id) : [];
-  return NextResponse.json({
+  return {
     assignment,
     submission,
     questions: details,
@@ -62,5 +62,5 @@ export async function GET(_: Request, context: { params: { id: string } }) {
     aiReview,
     rubrics,
     reviewRubrics
-  });
-}
+  };
+});

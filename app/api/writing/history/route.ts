@@ -1,15 +1,15 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getWritingSubmissionsByUser } from "@/lib/writing";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const list = await getWritingSubmissionsByUser(user.id);
-  return NextResponse.json({ data: list });
-}
+  return { data: list };
+});

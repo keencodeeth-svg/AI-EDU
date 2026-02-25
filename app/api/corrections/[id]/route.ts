@@ -1,22 +1,38 @@
-import { NextResponse } from "next/server";
 import { getStudentContext } from "@/lib/user-context";
 import { updateCorrectionTask } from "@/lib/corrections";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseParams, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+const correctionParamsSchema = v.object<{ id: string }>(
+  {
+    id: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+const updateCorrectionBodySchema = v.object<{ status?: "pending" | "completed" }>(
+  {
+    status: v.optional(v.enum(["pending", "completed"] as const))
+  },
+  { allowUnknown: false }
+);
+
+export const PATCH = withApi(async (request, context) => {
   const student = await getStudentContext();
   if (!student) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { status?: "pending" | "completed" };
+  const params = parseParams(context.params, correctionParamsSchema);
+  const body = await parseJson(request, updateCorrectionBodySchema);
   if (!body.status) {
-    return NextResponse.json({ error: "status required" }, { status: 400 });
+    badRequest("status required");
   }
 
-  const next = await updateCorrectionTask({ id: context.params.id, userId: student.id, status: body.status });
+  const next = await updateCorrectionTask({ id: params.id, userId: student.id, status: body.status });
   if (!next) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
-  return NextResponse.json({ data: next });
-}
+  return { data: next };
+});

@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { createUser, getUserByEmail, getUserById } from "@/lib/auth";
+import { createUser, getUserByEmail, getUserById, hashPassword } from "@/lib/auth";
 import { SUBJECT_OPTIONS } from "@/lib/constants";
 import { getStudentProfileByObserverCode, upsertStudentProfile } from "@/lib/profiles";
 import { apiSuccess, badRequest, conflict, notFound, withApi } from "@/lib/api/http";
@@ -48,7 +48,7 @@ export const POST = withApi(async (request, _context, { requestId }) => {
       name: body.name,
       role: "student",
       grade: body.grade,
-      password: `plain:${body.password}`
+      password: hashPassword(body.password)
     });
 
     await upsertStudentProfile({
@@ -95,7 +95,7 @@ export const POST = withApi(async (request, _context, { requestId }) => {
     name: body.name,
     role: "parent",
     studentId: student.id,
-    password: `plain:${body.password}`
+    password: hashPassword(body.password)
   });
 
   return apiSuccess(

@@ -1,16 +1,16 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgress } from "@/lib/assignments";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classes = await getClassesByTeacher(user.id);
@@ -66,7 +66,7 @@ export async function GET() {
     .sort((a, b) => a.ratio - b.ratio)
     .slice(0, 5);
 
-  return NextResponse.json({
+  return {
     summary: {
       classes: classes.length,
       students: studentIds.length,
@@ -75,5 +75,5 @@ export async function GET() {
       accuracy
     },
     weakPoints
-  });
-}
+  };
+});

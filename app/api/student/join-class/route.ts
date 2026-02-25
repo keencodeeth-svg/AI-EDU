@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import {
   addStudentToClass,
@@ -9,29 +8,38 @@ import {
 } from "@/lib/classes";
 import { createAssignmentProgress, getAssignmentsByClass } from "@/lib/assignments";
 import { createNotification } from "@/lib/notifications";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const joinClassBodySchema = v.object<{ code?: string }>(
+  {
+    code: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { code?: string };
+  const body = await parseJson(request, joinClassBodySchema);
   const code = body.code?.trim().toUpperCase();
   if (!code) {
-    return NextResponse.json({ error: "missing code" }, { status: 400 });
+    badRequest("missing code");
   }
 
   const klass = await getClassByJoinCode(code);
   if (!klass) {
-    return NextResponse.json({ error: "邀请码无效" }, { status: 404 });
+    notFound("邀请码无效");
   }
 
   const memberIds = await getClassStudentIds(klass.id);
   if (memberIds.includes(user.id)) {
-    return NextResponse.json({ status: "joined", message: "你已在班级中" });
+    return { status: "joined", message: "你已在班级中" };
   }
 
   if (klass.joinMode === "auto") {
@@ -46,13 +54,13 @@ export async function POST(request: Request) {
       content: `你已加入班级「${klass.name}」`,
       type: "class"
     });
-    return NextResponse.json({ status: "joined", message: "已加入班级" });
+    return { status: "joined", message: "已加入班级" };
   }
 
   const existing = await getJoinRequestsByStudent(user.id);
   const pending = existing.find((item) => item.classId === klass.id && item.status === "pending");
   if (pending) {
-    return NextResponse.json({ status: "pending", message: "已提交加入申请" });
+    return { status: "pending", message: "已提交加入申请" };
   }
 
   const requestRecord = await createJoinRequest(klass.id, user.id);
@@ -71,5 +79,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ status: requestRecord.status, message: "已提交加入申请" });
-}
+  return { status: requestRecord.status, message: "已提交加入申请" };
+});

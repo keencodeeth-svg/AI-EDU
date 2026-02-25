@@ -1,27 +1,36 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById } from "@/lib/classes";
 import { getKnowledgePoints } from "@/lib/content";
 import { generateLessonOutline } from "@/lib/ai";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const lessonOutlineBodySchema = v.object<{
+  classId?: string;
+  subject?: string;
+  grade?: string;
+  topic: string;
+  knowledgePointIds?: string[];
+}>(
+  {
+    classId: v.optional(v.string({ minLength: 1 })),
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    topic: v.string({ minLength: 1 }),
+    knowledgePointIds: v.optional(v.array(v.string({ minLength: 1 })))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    classId?: string;
-    subject?: string;
-    grade?: string;
-    topic?: string;
-    knowledgePointIds?: string[];
-  };
-  if (!body.topic) {
-    return NextResponse.json({ error: "missing topic" }, { status: 400 });
-  }
+  const body = await parseJson(request, lessonOutlineBodySchema);
 
   let subject = body.subject ?? "math";
   let grade = body.grade ?? "4";
@@ -30,7 +39,7 @@ export async function POST(request: Request) {
   if (body.classId) {
     const klass = await getClassById(body.classId);
     if (!klass || klass.teacherId !== user.id) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
+      notFound("not found");
     }
     subject = klass.subject;
     grade = klass.grade;
@@ -62,7 +71,7 @@ export async function POST(request: Request) {
       blackboardSteps: ["写出关键概念", "列出解题步骤", "标注易错点", "总结方法"]
     };
 
-  return NextResponse.json({
+  return {
     data: {
       className,
       subject,
@@ -70,5 +79,5 @@ export async function POST(request: Request) {
       topic: body.topic,
       outline
     }
-  });
-}
+  };
+});

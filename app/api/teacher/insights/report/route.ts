@@ -1,27 +1,35 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds, getClassesByTeacher } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgress } from "@/lib/assignments";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
 import { generateLearningReport } from "@/lib/ai";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const reportBodySchema = v.object<{ classId?: string }>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { classId?: string };
+  const body = await parseJson(request, reportBodySchema);
   const classId = body.classId ?? "";
 
-  let targetClasses = [];
+  let targetClasses: Awaited<ReturnType<typeof getClassesByTeacher>> = [];
   if (classId) {
     const klass = await getClassById(classId);
     if (!klass || klass.teacherId !== user.id) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
+      notFound("not found");
     }
     targetClasses = [klass];
   } else {
@@ -86,7 +94,7 @@ export async function POST(request: Request) {
       reminders: weakPoints.map((item) => `重点关注：${item.title}`)
     };
 
-  return NextResponse.json({
+  return {
     data: {
       classId: classId || "all",
       summary: {
@@ -99,5 +107,5 @@ export async function POST(request: Request) {
       weakPoints,
       report
     }
-  });
-}
+  };
+});

@@ -1,0 +1,344 @@
+import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
+import { once } from "node:events";
+import process from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
+
+const port = Number(process.env.API_TEST_PORT || 3210);
+const baseUrl = `http://127.0.0.1:${port}`;
+const cookieJar = new Map();
+
+function parseJsonSafely(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function updateCookieJar(response) {
+  const getSetCookie = response.headers.getSetCookie;
+  const rawCookies =
+    typeof getSetCookie === "function"
+      ? getSetCookie.call(response.headers)
+      : response.headers.get("set-cookie")
+        ? [response.headers.get("set-cookie")]
+        : [];
+
+  rawCookies.forEach((raw) => {
+    const first = String(raw).split(";")[0]?.trim();
+    if (!first || !first.includes("=")) return;
+    const [name, ...rest] = first.split("=");
+    cookieJar.set(name, rest.join("="));
+  });
+}
+
+function buildCookieHeader() {
+  return Array.from(cookieJar.entries())
+    .map(([name, value]) => `${name}=${value}`)
+    .join("; ");
+}
+
+async function apiFetch(path, options = {}) {
+  const { json, useCookies = true, ...rest } = options;
+  const headers = new Headers(rest.headers ?? {});
+
+  if (json !== undefined) {
+    headers.set("content-type", "application/json");
+  }
+  if (useCookies) {
+    const cookie = buildCookieHeader();
+    if (cookie) {
+      headers.set("cookie", cookie);
+    }
+  }
+
+  const response = await fetch(`${baseUrl}${path}`, {
+    ...rest,
+    headers,
+    body: json !== undefined ? JSON.stringify(json) : rest.body
+  });
+
+  updateCookieJar(response);
+  const text = await response.text();
+  const body = parseJsonSafely(text);
+  return { status: response.status, body, raw: text };
+}
+
+async function waitForServerReady(timeoutMs = 90000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const response = await fetch(`${baseUrl}/api/health`);
+      if (response.ok) return;
+    } catch {
+      // retry
+    }
+    await delay(500);
+  }
+  throw new Error(`Server not ready in ${timeoutMs}ms`);
+}
+
+async function stopServer(server) {
+  if (server.exitCode !== null) return;
+  server.kill("SIGTERM");
+  try {
+    await Promise.race([once(server, "exit"), delay(5000)]);
+  } catch {
+    // ignore
+  }
+  if (server.exitCode === null) {
+    server.kill("SIGKILL");
+    await once(server, "exit");
+  }
+}
+
+async function run() {
+  const server = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
+    cwd: process.cwd(),
+    env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  let serverLog = "";
+  server.stdout.on("data", (chunk) => {
+    serverLog += chunk.toString();
+  });
+  server.stderr.on("data", (chunk) => {
+    serverLog += chunk.toString();
+  });
+
+  let createdKnowledgePointId = null;
+  let createdQuestionId = null;
+
+  try {
+    await waitForServerReady();
+
+    const health = await apiFetch("/api/health", { useCookies: false });
+    assert.equal(health.status, 200, `GET /api/health failed: ${health.raw}`);
+    assert.equal(health.body?.code, 0, "Health response should use standard envelope");
+    assert.equal(health.body?.ok, true, "Health response should keep top-level ok=true");
+
+    const unauthNotifications = await apiFetch("/api/notifications", { useCookies: false });
+    assert.equal(unauthNotifications.status, 401, "GET /api/notifications should require auth");
+    assert.ok(unauthNotifications.body?.error, "Unauthorized response should include error");
+
+    const unauthAdminLogs = await apiFetch("/api/admin/logs", { useCookies: false });
+    assert.equal(unauthAdminLogs.status, 401, "GET /api/admin/logs should require admin auth");
+    assert.equal(unauthAdminLogs.body?.error, "unauthorized");
+
+    const email = process.env.API_TEST_EMAIL || "api-test-student@local.test";
+    const password = process.env.API_TEST_PASSWORD || "ApiTest123!";
+
+    let login = await apiFetch("/api/auth/login", {
+      method: "POST",
+      json: { email, password, role: "student" }
+    });
+
+    if (login.status !== 200) {
+      const register = await apiFetch("/api/auth/register", {
+        method: "POST",
+        useCookies: false,
+        json: {
+          role: "student",
+          email,
+          password,
+          name: "API Test Student",
+          grade: "4"
+        }
+      });
+      assert.equal(register.status, 201, `Register failed: ${register.raw}`);
+
+      login = await apiFetch("/api/auth/login", {
+        method: "POST",
+        json: { email, password, role: "student" }
+      });
+    }
+
+    assert.equal(login.status, 200, `Login failed: ${login.raw}`);
+    assert.ok(cookieJar.has("mvp_session"), "Login should set mvp_session cookie");
+
+    const invalidNotification = await apiFetch("/api/notifications", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidNotification.status, 400, "POST /api/notifications should validate body");
+    assert.equal(invalidNotification.body?.error, "missing id");
+
+    const createCorrection = await apiFetch("/api/corrections", {
+      method: "POST",
+      json: { questionIds: ["q-non-existent-for-test"] }
+    });
+    assert.equal(createCorrection.status, 200, `POST /api/corrections failed: ${createCorrection.raw}`);
+    assert.ok(Array.isArray(createCorrection.body?.created), "Response should keep top-level created");
+    assert.ok(Array.isArray(createCorrection.body?.skipped), "Response should keep top-level skipped");
+
+    const listCorrections = await apiFetch("/api/corrections");
+    assert.equal(listCorrections.status, 200, `GET /api/corrections failed: ${listCorrections.raw}`);
+    assert.ok(Array.isArray(listCorrections.body?.data), "Corrections response should include data array");
+    assert.ok(listCorrections.body?.summary && typeof listCorrections.body.summary === "object");
+
+    const classList = await apiFetch("/api/classes");
+    assert.equal(classList.status, 200, `GET /api/classes failed: ${classList.raw}`);
+    assert.ok(Array.isArray(classList.body?.data), "Classes response should include data array");
+
+    const invalidThread = await apiFetch("/api/inbox/threads", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidThread.status, 400, "POST /api/inbox/threads should validate body");
+    assert.equal(invalidThread.body?.error, "missing fields");
+
+    const studentAdminLogs = await apiFetch("/api/admin/logs");
+    assert.equal(studentAdminLogs.status, 401, "Student should not access /api/admin/logs");
+    assert.equal(studentAdminLogs.body?.error, "unauthorized");
+
+    const adminEmail = process.env.API_TEST_ADMIN_EMAIL || "admin@demo.com";
+    const adminPassword = process.env.API_TEST_ADMIN_PASSWORD || "Admin123";
+    const adminLogin = await apiFetch("/api/auth/login", {
+      method: "POST",
+      useCookies: false,
+      json: { email: adminEmail, password: adminPassword, role: "admin" }
+    });
+    assert.equal(adminLogin.status, 200, `Admin login failed: ${adminLogin.raw}`);
+    assert.ok(cookieJar.has("mvp_session"), "Admin login should set mvp_session cookie");
+
+    const adminLogs = await apiFetch("/api/admin/logs?limit=5");
+    assert.equal(adminLogs.status, 200, `GET /api/admin/logs failed: ${adminLogs.raw}`);
+    assert.equal(adminLogs.body?.code, 0, "Admin logs should use standard envelope");
+    assert.ok(Array.isArray(adminLogs.body?.data), "Admin logs response should include data array");
+
+    const invalidKnowledgePointCreate = await apiFetch("/api/admin/knowledge-points", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidKnowledgePointCreate.status, 400, "POST /api/admin/knowledge-points should validate body");
+    assert.equal(invalidKnowledgePointCreate.body?.error, "missing fields");
+
+    const invalidQuestionCreate = await apiFetch("/api/admin/questions", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidQuestionCreate.status, 400, "POST /api/admin/questions should validate body");
+    assert.equal(invalidQuestionCreate.body?.error, "missing fields");
+
+    const invalidQuestionImport = await apiFetch("/api/admin/questions/import", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidQuestionImport.status, 400, "POST /api/admin/questions/import should validate body");
+    assert.equal(invalidQuestionImport.body?.error, "items required");
+
+    const suffix = Date.now().toString(36);
+    const createKnowledgePoint = await apiFetch("/api/admin/knowledge-points", {
+      method: "POST",
+      json: {
+        subject: "math",
+        grade: "4",
+        title: `API_TEST_KP_${suffix}`,
+        chapter: "API_TEST_CHAPTER",
+        unit: "API_TEST_UNIT"
+      }
+    });
+    assert.equal(createKnowledgePoint.status, 200, `Create knowledge point failed: ${createKnowledgePoint.raw}`);
+    createdKnowledgePointId = createKnowledgePoint.body?.data?.id ?? null;
+    assert.ok(createdKnowledgePointId, "Knowledge point creation should return data.id");
+
+    const patchKnowledgePoint = await apiFetch(`/api/admin/knowledge-points/${createdKnowledgePointId}`, {
+      method: "PATCH",
+      json: { chapter: "API_TEST_CHAPTER_UPDATED" }
+    });
+    assert.equal(
+      patchKnowledgePoint.status,
+      200,
+      `PATCH /api/admin/knowledge-points/[id] failed: ${patchKnowledgePoint.raw}`
+    );
+    assert.equal(
+      patchKnowledgePoint.body?.data?.chapter,
+      "API_TEST_CHAPTER_UPDATED",
+      "Knowledge point patch should update chapter"
+    );
+
+    const createQuestion = await apiFetch("/api/admin/questions", {
+      method: "POST",
+      json: {
+        subject: "math",
+        grade: "4",
+        knowledgePointId: createdKnowledgePointId,
+        stem: `API_TEST_QUESTION_${suffix}`,
+        options: ["A", "B", "C", "D"],
+        answer: "A",
+        explanation: "test",
+        difficulty: "medium",
+        questionType: "choice",
+        tags: ["api-test"],
+        abilities: ["comprehension"]
+      }
+    });
+    assert.equal(createQuestion.status, 200, `Create question failed: ${createQuestion.raw}`);
+    createdQuestionId = createQuestion.body?.data?.id ?? null;
+    assert.ok(createdQuestionId, "Question creation should return data.id");
+
+    const patchQuestion = await apiFetch(`/api/admin/questions/${createdQuestionId}`, {
+      method: "PATCH",
+      json: { explanation: "patched-by-api-test" }
+    });
+    assert.equal(patchQuestion.status, 200, `PATCH /api/admin/questions/[id] failed: ${patchQuestion.raw}`);
+    assert.equal(
+      patchQuestion.body?.data?.explanation,
+      "patched-by-api-test",
+      "Question patch should update explanation"
+    );
+
+    const deleteQuestion = await apiFetch(`/api/admin/questions/${createdQuestionId}`, {
+      method: "DELETE"
+    });
+    assert.equal(deleteQuestion.status, 200, `DELETE /api/admin/questions/[id] failed: ${deleteQuestion.raw}`);
+    assert.equal(deleteQuestion.body?.ok, true, "Delete question should return ok=true");
+    createdQuestionId = null;
+
+    const deleteKnowledgePoint = await apiFetch(`/api/admin/knowledge-points/${createdKnowledgePointId}`, {
+      method: "DELETE"
+    });
+    assert.equal(
+      deleteKnowledgePoint.status,
+      200,
+      `DELETE /api/admin/knowledge-points/[id] failed: ${deleteKnowledgePoint.raw}`
+    );
+    assert.equal(deleteKnowledgePoint.body?.ok, true, "Delete knowledge point should return ok=true");
+    createdKnowledgePointId = null;
+
+    console.log("API integration tests passed.");
+  } catch (error) {
+    console.error("API integration tests failed.");
+    if (serverLog.trim()) {
+      console.error("--- server log ---");
+      console.error(serverLog.slice(-8000));
+      console.error("--- end server log ---");
+    }
+    throw error;
+  } finally {
+    try {
+      if (createdQuestionId) {
+        await apiFetch(`/api/admin/questions/${createdQuestionId}`, { method: "DELETE" });
+      }
+    } catch {
+      // cleanup best effort
+    }
+
+    try {
+      if (createdKnowledgePointId) {
+        await apiFetch(`/api/admin/knowledge-points/${createdKnowledgePointId}`, { method: "DELETE" });
+      }
+    } catch {
+      // cleanup best effort
+    }
+
+    await stopServer(server);
+  }
+}
+
+run().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

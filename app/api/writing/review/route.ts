@@ -1,9 +1,25 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { generateWritingFeedback } from "@/lib/ai";
 import { addWritingSubmission } from "@/lib/writing";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const writingReviewBodySchema = v.object<{
+  subject?: string;
+  grade?: string;
+  title?: string;
+  content?: string;
+}>(
+  {
+    subject: v.optional(v.string({ allowEmpty: true, trim: false })),
+    grade: v.optional(v.string({ allowEmpty: true, trim: false })),
+    title: v.optional(v.string({ allowEmpty: true, trim: false })),
+    content: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
 
 function fallbackFeedback(content: string) {
   const length = content.trim().length;
@@ -21,38 +37,38 @@ function fallbackFeedback(content: string) {
   };
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    title?: string;
-    content?: string;
-  };
-  if (!body.content || !body.subject || !body.grade) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  const body = await parseJson(request, writingReviewBodySchema);
+  const subject = body.subject?.trim();
+  const grade = body.grade?.trim();
+  const title = body.title?.trim() || undefined;
+  const content = body.content?.trim();
+
+  if (!content || !subject || !grade) {
+    badRequest("missing fields");
   }
 
   const feedback =
     (await generateWritingFeedback({
-      subject: body.subject,
-      grade: body.grade,
-      title: body.title,
-      content: body.content
-    })) ?? fallbackFeedback(body.content);
+      subject,
+      grade,
+      title,
+      content
+    })) ?? fallbackFeedback(content);
 
   const submission = await addWritingSubmission({
     userId: user.id,
-    subject: body.subject,
-    grade: body.grade,
-    title: body.title,
-    content: body.content,
+    subject,
+    grade,
+    title,
+    content,
     feedback
   });
 
-  return NextResponse.json({ data: submission });
-}
+  return { data: submission };
+});

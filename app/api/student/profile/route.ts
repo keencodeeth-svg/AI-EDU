@@ -1,32 +1,43 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getStudentProfile, upsertStudentProfile } from "@/lib/profiles";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const updateProfileBodySchema = v.object<{
+  grade?: string;
+  subjects?: string[];
+  target?: string;
+  school?: string;
+}>(
+  {
+    grade: v.optional(v.string({ minLength: 1 })),
+    subjects: v.optional(v.array(v.string({ minLength: 1 }))),
+    target: v.optional(v.string({ allowEmpty: true, trim: false })),
+    school: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const profile = await getStudentProfile(user.id);
-  return NextResponse.json({ data: profile });
-}
+  return { data: profile };
+});
 
-export async function PUT(request: Request) {
+export const PUT = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    grade?: string;
-    subjects?: string[];
-    target?: string;
-    school?: string;
-  };
+  const body = await parseJson(request, updateProfileBodySchema);
 
   if (!body.grade || !body.subjects?.length) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+    badRequest("missing fields");
   }
 
   const profile = await upsertStudentProfile({
@@ -37,5 +48,5 @@ export async function PUT(request: Request) {
     school: body.school ?? ""
   });
 
-  return NextResponse.json({ data: profile });
-}
+  return { data: profile };
+});

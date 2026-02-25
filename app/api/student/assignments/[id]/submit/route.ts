@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
@@ -11,29 +10,60 @@ import {
 import { getQuestions } from "@/lib/content";
 import { addAttempt } from "@/lib/progress";
 import { getAssignmentUploads } from "@/lib/assignment-uploads";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+const passthrough = (value: unknown) => value;
+
+const submitBodySchema = v.object<{
+  answers?: unknown;
+  submissionText?: string;
+}>(
+  {
+    answers: v.optional(passthrough),
+    submissionText: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+function normalizeAnswers(input: unknown) {
+  if (input === undefined) return {} as Record<string, string>;
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    badRequest("answers must be an object");
+  }
+
+  const answers: Record<string, string> = {};
+  for (const [questionId, value] of Object.entries(input as Record<string, unknown>)) {
+    if (typeof value !== "string") {
+      badRequest(`answers.${questionId} must be a string`);
+    }
+    answers[questionId] = value;
+  }
+  return answers;
+}
+
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignmentId = context.params.id;
   const assignment = await getAssignmentById(assignmentId);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const classes = await getClassesByStudent(user.id);
   const classIds = new Set(classes.map((item) => item.id));
   if (!classIds.has(assignment.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  const body = (await request.json()) as { answers?: Record<string, string>; submissionText?: string };
-  const answers = body.answers ?? {};
+  const body = await parseJson(request, submitBodySchema);
+  const answers = normalizeAnswers(body.answers);
 
   const items = await getAssignmentItems(assignment.id);
   const questions = await getQuestions();
@@ -55,10 +85,10 @@ export async function POST(request: Request, context: { params: { id: string } }
   const hasText = Boolean(body.submissionText?.trim());
 
   if (isUpload && !hasUploads) {
-    return NextResponse.json({ error: "请先上传作业文件" }, { status: 400 });
+    badRequest("请先上传作业文件");
   }
   if (isEssay && !hasUploads && !hasText) {
-    return NextResponse.json({ error: "请填写作文内容或上传作业图片" }, { status: 400 });
+    badRequest("请填写作文内容或上传作业图片");
   }
 
   if (!isUpload && !isEssay) {
@@ -109,10 +139,10 @@ export async function POST(request: Request, context: { params: { id: string } }
     submissionText: body.submissionText
   });
 
-  return NextResponse.json({
+  return {
     score: isUpload || isEssay ? 0 : score,
     total: isUpload || isEssay ? 0 : items.length,
     details,
     submissionText: body.submissionText
-  });
-}
+  };
+});

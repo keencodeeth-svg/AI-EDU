@@ -1,37 +1,42 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentById } from "@/lib/assignments";
 import { getAssignmentUploads } from "@/lib/assignment-uploads";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request, context: { params: { id: string } }) {
+const assignmentUploadsQuerySchema = v.object<{ studentId: string }>(
+  {
+    studentId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const { searchParams } = new URL(request.url);
-  const studentId = searchParams.get("studentId");
-  if (!studentId) {
-    return NextResponse.json({ error: "missing studentId" }, { status: 400 });
-  }
+  const query = parseSearchParams(request, assignmentUploadsQuerySchema);
+  const studentId = query.studentId;
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const klass = await getClassById(assignment.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const studentIds = await getClassStudentIds(klass.id);
   if (!studentIds.includes(studentId)) {
-    return NextResponse.json({ error: "student not in class" }, { status: 404 });
+    notFound("student not in class");
   }
 
   const uploads = await getAssignmentUploads(assignment.id, studentId);
-  return NextResponse.json({ data: uploads });
-}
+  return { data: uploads };
+});

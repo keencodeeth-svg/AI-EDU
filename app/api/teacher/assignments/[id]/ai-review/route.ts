@@ -1,36 +1,41 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentById, getAssignmentSubmission } from "@/lib/assignments";
 import { getAssignmentUploads } from "@/lib/assignment-uploads";
 import { generateHomeworkReview } from "@/lib/ai";
 import { upsertAssignmentAIReview } from "@/lib/assignment-ai";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+const assignmentAiReviewBodySchema = v.object<{ studentId: string }>(
+  {
+    studentId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { studentId?: string };
-  if (!body.studentId) {
-    return NextResponse.json({ error: "missing studentId" }, { status: 400 });
-  }
+  const body = await parseJson(request, assignmentAiReviewBodySchema);
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const klass = await getClassById(assignment.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const studentIds = await getClassStudentIds(klass.id);
   if (!studentIds.includes(body.studentId)) {
-    return NextResponse.json({ error: "student not in class" }, { status: 404 });
+    notFound("student not in class");
   }
 
   const uploads = await getAssignmentUploads(assignment.id, body.studentId);
@@ -39,13 +44,13 @@ export async function POST(request: Request, context: { params: { id: string } }
   const submissionText = submission?.submissionText?.trim();
 
   if (assignment.submissionType === "quiz") {
-    return NextResponse.json({ error: "该作业为在线题目，不支持 AI 批改" }, { status: 400 });
+    badRequest("该作业为在线题目，不支持 AI 批改");
   }
   if (assignment.submissionType === "upload" && !hasUploads) {
-    return NextResponse.json({ error: "学生未上传作业" }, { status: 400 });
+    badRequest("学生未上传作业");
   }
   if (assignment.submissionType === "essay" && !hasUploads && !submissionText) {
-    return NextResponse.json({ error: "学生未提交作文内容或附件" }, { status: 400 });
+    badRequest("学生未提交作文内容或附件");
   }
 
   const review = await generateHomeworkReview({
@@ -70,5 +75,5 @@ export async function POST(request: Request, context: { params: { id: string } }
     provider: review.provider
   });
 
-  return NextResponse.json({ data: saved });
-}
+  return { data: saved };
+});

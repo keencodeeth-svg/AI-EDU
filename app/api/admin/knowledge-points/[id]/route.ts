@@ -1,26 +1,66 @@
-import { NextResponse } from "next/server";
 import { deleteKnowledgePoint, updateKnowledgePoint } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
+import type { KnowledgePoint } from "@/lib/types";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import {
+  adminIdParamsSchema,
+  isAllowedSubject,
+  updateKnowledgePointBodySchema
+} from "@/lib/api/schemas/admin";
+import { parseJson, parseParams } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+export const PATCH = withApi(async (request, context) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
+  }
+  const params = parseParams(context.params, adminIdParamsSchema);
+  const body = await parseJson(request, updateKnowledgePointBodySchema);
+
+  const updates: Partial<KnowledgePoint> = {};
+
+  if (body.subject !== undefined) {
+    const subject = body.subject.trim();
+    if (!subject || !isAllowedSubject(subject)) {
+      badRequest("invalid subject");
+    }
+    updates.subject = subject;
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    title?: string;
-    chapter?: string;
-    unit?: string;
-  };
+  if (body.grade !== undefined) {
+    const grade = body.grade.trim();
+    if (!grade) {
+      badRequest("grade cannot be empty");
+    }
+    updates.grade = grade;
+  }
 
-  const next = await updateKnowledgePoint(context.params.id, body as any);
+  if (body.title !== undefined) {
+    const title = body.title.trim();
+    if (!title) {
+      badRequest("title cannot be empty");
+    }
+    updates.title = title;
+  }
+
+  if (body.chapter !== undefined) {
+    const chapter = body.chapter.trim();
+    if (!chapter) {
+      badRequest("chapter cannot be empty");
+    }
+    updates.chapter = chapter;
+  }
+
+  if (body.unit !== undefined) {
+    const unit = body.unit.trim();
+    updates.unit = unit || "未分单元";
+  }
+
+  const next = await updateKnowledgePoint(params.id, updates);
   if (!next) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   await addAdminLog({
@@ -31,27 +71,28 @@ export async function PATCH(request: Request, context: { params: { id: string } 
     detail: `${next.subject} ${next.grade} ${next.unit ?? "未分单元"} ${next.title}`
   });
 
-  return NextResponse.json({ data: next });
-}
+  return { data: next };
+});
 
-export async function DELETE(_: Request, context: { params: { id: string } }) {
+export const DELETE = withApi(async (_request, context) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
+  const params = parseParams(context.params, adminIdParamsSchema);
 
-  const ok = await deleteKnowledgePoint(context.params.id);
+  const ok = await deleteKnowledgePoint(params.id);
   if (!ok) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   await addAdminLog({
     adminId: user.id,
     action: "delete_knowledge_point",
     entityType: "knowledge_point",
-    entityId: context.params.id,
+    entityId: params.id,
     detail: ""
   });
 
-  return NextResponse.json({ ok: true });
-}
+  return { ok: true };
+});

@@ -1,25 +1,33 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds, getClassesByTeacher } from "@/lib/classes";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const heatmapQuerySchema = v.object<{ classId?: string }>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const url = new URL(request.url);
-  const classId = url.searchParams.get("classId") || "";
+  const query = parseSearchParams(request, heatmapQuerySchema);
+  const classId = query.classId ?? "";
 
-  let targetClasses = [];
+  let targetClasses: Awaited<ReturnType<typeof getClassesByTeacher>> = [];
   if (classId) {
     const klass = await getClassById(classId);
     if (!klass || klass.teacherId !== user.id) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
+      notFound("not found");
     }
     targetClasses = [klass];
   } else {
@@ -61,11 +69,11 @@ export async function GET(request: Request) {
     })
     .sort((a, b) => a.ratio - b.ratio);
 
-  return NextResponse.json({
+  return {
     data: {
       classId: classId || "all",
       classes: targetClasses.map((item) => ({ id: item.id, name: item.name })),
       items
     }
-  });
-}
+  };
+});

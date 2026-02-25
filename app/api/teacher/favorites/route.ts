@@ -1,26 +1,31 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getQuestions, getKnowledgePoints } from "@/lib/content";
 import { getFavoritesByUser } from "@/lib/favorites";
 import { isStudentInTeacherClasses } from "@/lib/classes";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const favoritesQuerySchema = v.object<{ studentId: string }>(
+  {
+    studentId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const { searchParams } = new URL(request.url);
-  const studentId = searchParams.get("studentId");
-  if (!studentId) {
-    return NextResponse.json({ error: "missing studentId" }, { status: 400 });
-  }
+  const query = parseSearchParams(request, favoritesQuerySchema);
+  const studentId = query.studentId;
 
   const allowed = await isStudentInTeacherClasses(user.id, studentId);
   if (!allowed) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const favorites = await getFavoritesByUser(studentId);
@@ -47,5 +52,5 @@ export async function GET(request: Request) {
     };
   });
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});

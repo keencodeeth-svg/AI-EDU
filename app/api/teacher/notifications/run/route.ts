@@ -1,22 +1,31 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
 import { getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentsByClass, getAssignmentProgress } from "@/lib/assignments";
 import { getRulesByClassIds } from "@/lib/notification-rules";
 import { createNotification } from "@/lib/notifications";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const runNotificationBodySchema = v.object<{ classId?: string }>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const body = (await request.json().catch(() => ({}))) as { classId?: string };
+
+  const body = await parseJson(request, runNotificationBodySchema);
   const classes = await getClassesByTeacher(user.id);
   const targetClasses = body.classId ? classes.filter((item) => item.id === body.classId) : classes;
   if (!targetClasses.length) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
 
   const rules = await getRulesByClassIds(targetClasses.map((item) => item.id));
@@ -71,5 +80,5 @@ export async function POST(request: Request) {
     }
   }
 
-  return NextResponse.json({ data: { students: sentStudents, parents: sentParents } });
-}
+  return { data: { students: sentStudents, parents: sentParents } };
+});

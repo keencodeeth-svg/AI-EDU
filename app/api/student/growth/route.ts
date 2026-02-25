@@ -1,15 +1,15 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUser } from "@/lib/progress";
 import { getAssignmentSubmissionsByStudent } from "@/lib/assignments";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const attempts = await getAttemptsByUser(user.id);
@@ -71,7 +71,7 @@ export async function GET() {
     submittedAt: item.submittedAt
   }));
 
-  return NextResponse.json({
+  return {
     summary: {
       totalAttempts: total,
       accuracy,
@@ -82,5 +82,5 @@ export async function GET() {
     subjects,
     weakPoints,
     assignments
-  });
-}
+  };
+});

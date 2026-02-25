@@ -1,10 +1,26 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { addDiscussionReply, getDiscussionById } from "@/lib/discussions";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const replyParamsSchema = v.object<{ id: string }>(
+  {
+    id: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+const replyBodySchema = v.object<{ content?: string; parentId?: string }>(
+  {
+    content: v.optional(v.string({ allowEmpty: true, trim: false })),
+    parentId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: false }
+);
 
 async function getAccessibleClassIds(role: string, userId: string) {
   if (role === "teacher") {
@@ -24,28 +40,35 @@ async function getAccessibleClassIds(role: string, userId: string) {
   return [];
 }
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const topic = await getDiscussionById(context.params.id);
+
+  const params = parseParams(context.params, replyParamsSchema);
+  const topic = await getDiscussionById(params.id);
   if (!topic) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
+
   const accessible = await getAccessibleClassIds(user.role, user.id);
   if (!accessible.includes(topic.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
-  const body = (await request.json()) as { content?: string; parentId?: string };
-  if (!body.content) {
-    return NextResponse.json({ error: "missing content" }, { status: 400 });
+
+  const body = await parseJson(request, replyBodySchema);
+  const content = body.content?.trim();
+  if (!content) {
+    badRequest("missing content");
   }
+
   const reply = await addDiscussionReply({
     discussionId: topic.id,
     authorId: user.id,
-    content: body.content,
+    content,
     parentId: body.parentId
   });
-  return NextResponse.json({ data: reply });
-}
+
+  return { data: reply };
+});

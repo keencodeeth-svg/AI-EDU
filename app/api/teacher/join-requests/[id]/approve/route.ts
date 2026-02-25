@@ -1,4 +1,3 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
 import {
   addStudentToClass,
@@ -8,25 +7,26 @@ import {
 } from "@/lib/classes";
 import { createAssignmentProgress, getAssignmentsByClass } from "@/lib/assignments";
 import { createNotification } from "@/lib/notifications";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(_: Request, context: { params: { id: string } }) {
+export const POST = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const requestId = context.params.id;
   const requests = await getJoinRequestsByTeacher(user.id);
   const record = requests.find((item) => item.id === requestId);
   if (!record) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const klass = await getClassById(record.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   await decideJoinRequest(record.id, "approved");
@@ -54,5 +54,5 @@ export async function POST(_: Request, context: { params: { id: string } }) {
     });
   }
 
-  return NextResponse.json({ ok: true });
-}
+  return { ok: true };
+});

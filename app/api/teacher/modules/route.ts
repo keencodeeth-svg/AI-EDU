@@ -1,47 +1,63 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassesByTeacher } from "@/lib/classes";
 import { createModule, getModulesByClass } from "@/lib/modules";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const modulesQuerySchema = v.object<{ classId?: string }>(
+  {
+    classId: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
+
+const createModuleBodySchema = v.object<{
+  classId: string;
+  title: string;
+  description?: string;
+  parentId?: string;
+  orderIndex?: number;
+}>(
+  {
+    classId: v.string({ minLength: 1 }),
+    title: v.string({ minLength: 1 }),
+    description: v.optional(v.string({ allowEmpty: true, trim: false })),
+    parentId: v.optional(v.string({ minLength: 1 })),
+    orderIndex: v.optional(v.number({ coerce: true, integer: true, min: 0 }))
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId") ?? "";
+  const query = parseSearchParams(request, modulesQuerySchema);
+  const classId = query.classId ?? "";
   if (!classId) {
     const classes = await getClassesByTeacher(user.id);
-    return NextResponse.json({ data: [], classes });
+    return { data: [], classes };
   }
   const klass = await getClassById(classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
   const modules = await getModulesByClass(classId);
-  return NextResponse.json({ data: modules });
-}
+  return { data: modules };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const body = (await request.json()) as {
-    classId?: string;
-    title?: string;
-    description?: string;
-    parentId?: string;
-    orderIndex?: number;
-  };
-  if (!body.classId || !body.title) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
-  }
+  const body = await parseJson(request, createModuleBodySchema);
   const klass = await getClassById(body.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
   const created = await createModule({
     classId: body.classId,
@@ -50,5 +66,5 @@ export async function POST(request: Request) {
     parentId: body.parentId,
     orderIndex: body.orderIndex
   });
-  return NextResponse.json({ data: created });
-}
+  return { data: created };
+});

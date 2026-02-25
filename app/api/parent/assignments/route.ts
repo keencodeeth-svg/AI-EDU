@@ -1,23 +1,23 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getUserById } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentProgressByStudent, getAssignmentsByClassIds } from "@/lib/assignments";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "parent") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   if (!user.studentId) {
-    return NextResponse.json({ error: "missing student" }, { status: 400 });
+    badRequest("missing student");
   }
 
   const student = await getUserById(user.studentId);
   if (!student) {
-    return NextResponse.json({ error: "student not found" }, { status: 404 });
+    notFound("student not found");
   }
 
   const classes = await getClassesByStudent(user.studentId);
@@ -60,7 +60,7 @@ export async function GET() {
     .filter(Boolean)
     .join("\n");
 
-  return NextResponse.json({
+  return {
     student: { id: student.id, name: student.name },
     data,
     summary: {
@@ -70,5 +70,5 @@ export async function GET() {
       completed: completed.length
     },
     reminderText
-  });
-}
+  };
+});

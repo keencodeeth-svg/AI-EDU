@@ -1,9 +1,31 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getQuestions } from "@/lib/content";
 import { generateQuestionCheck } from "@/lib/ai";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const questionCheckBodySchema = v.object<{
+  questionId?: string;
+  stem?: string;
+  options?: string[];
+  answer?: string;
+  explanation?: string;
+  subject?: string;
+  grade?: string;
+}>(
+  {
+    questionId: v.optional(v.string({ minLength: 1 })),
+    stem: v.optional(v.string({ allowEmpty: true, trim: false })),
+    options: v.optional(v.array(v.string({ allowEmpty: true, trim: false }))),
+    answer: v.optional(v.string({ allowEmpty: true, trim: false })),
+    explanation: v.optional(v.string({ allowEmpty: true, trim: false })),
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
 
 function basicCheck(payload: {
   stem: string;
@@ -30,21 +52,13 @@ function basicCheck(payload: {
   return { issues, risk };
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    questionId?: string;
-    stem?: string;
-    options?: string[];
-    answer?: string;
-    explanation?: string;
-    subject?: string;
-    grade?: string;
-  };
+  const body = await parseJson(request, questionCheckBodySchema);
 
   let stem = body.stem ?? "";
   let options = Array.isArray(body.options) ? body.options : [];
@@ -56,7 +70,7 @@ export async function POST(request: Request) {
   if (body.questionId) {
     const question = (await getQuestions()).find((q) => q.id === body.questionId);
     if (!question) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
+      notFound("not found");
     }
     stem = question.stem;
     options = question.options;
@@ -67,7 +81,7 @@ export async function POST(request: Request) {
   }
 
   if (!stem || !options.length || !answer) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+    badRequest("missing fields");
   }
 
   const base = basicCheck({ stem, options, answer, explanation });
@@ -83,12 +97,12 @@ export async function POST(request: Request) {
   const issues = [...base.issues, ...(ai?.issues ?? [])];
   const risk = ai?.risk ?? base.risk;
 
-  return NextResponse.json({
+  return {
     data: {
       issues,
       risk,
       suggestedAnswer: ai?.suggestedAnswer,
       notes: ai?.notes
     }
-  });
-}
+  };
+});

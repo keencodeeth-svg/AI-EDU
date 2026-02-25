@@ -1,25 +1,34 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getKnowledgePoints, getQuestions } from "@/lib/content";
 import { generateVariantDrafts, generateWrongExplanation } from "@/lib/ai";
 import { getPracticeQuestions } from "@/lib/progress";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const variantsBodySchema = v.object<{
+  questionId: string;
+  studentAnswer?: string;
+}>(
+  {
+    questionId: v.string({ minLength: 1 }),
+    studentAnswer: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { questionId?: string; studentAnswer?: string };
-  if (!body.questionId) {
-    return NextResponse.json({ error: "missing questionId" }, { status: 400 });
-  }
+  const body = await parseJson(request, variantsBodySchema);
 
   const question = (await getQuestions()).find((q) => q.id === body.questionId);
   if (!question) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const kp = (await getKnowledgePoints()).find((item) => item.id === question.knowledgePointId);
@@ -55,7 +64,7 @@ export async function POST(request: Request) {
     }));
   }
 
-  return NextResponse.json({
+  return {
     data: {
       explanation:
         wrongExplanation ?? {
@@ -64,5 +73,5 @@ export async function POST(request: Request) {
         },
       variants
     }
-  });
-}
+  };
+});

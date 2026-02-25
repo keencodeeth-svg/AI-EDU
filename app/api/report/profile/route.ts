@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
 import { getStudentContext } from "@/lib/user-context";
 import { getStudentProfile } from "@/lib/profiles";
 import { getKnowledgeProfile } from "@/lib/progress";
+import { unauthorized, withApi } from "@/lib/api/http";
 export const dynamic = "force-dynamic";
 
 const SUBJECT_LABEL: Record<string, string> = {
@@ -10,10 +10,10 @@ const SUBJECT_LABEL: Record<string, string> = {
   english: "英语"
 };
 
-export async function GET() {
+export const GET = withApi(async () => {
   const student = await getStudentContext();
   if (!student) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const profile = await getStudentProfile(student.id);
@@ -51,8 +51,8 @@ export async function GET() {
     };
   });
 
-  return NextResponse.json({
+  return {
     student: { id: student.id, name: student.name, grade: student.grade },
     subjects: grouped
-  });
-}
+  };
+});

@@ -1,26 +1,32 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
 import { generateWrongReviewScript } from "@/lib/ai";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const wrongReviewBodySchema = v.object<{ classId: string; rangeDays?: number }>(
+  {
+    classId: v.string({ minLength: 1 }),
+    rangeDays: v.optional(v.number({ coerce: true, integer: true, min: 1 }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { classId?: string; rangeDays?: number };
-  if (!body.classId) {
-    return NextResponse.json({ error: "missing classId" }, { status: 400 });
-  }
+  const body = await parseJson(request, wrongReviewBodySchema);
 
   const klass = await getClassById(body.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const rangeDays = Math.max(3, Math.min(Number(body.rangeDays) || 7, 60));
@@ -64,7 +70,7 @@ export async function POST(request: Request) {
       reminders: ["强调审题与条件匹配", "提醒步骤书写规范", "布置对应巩固练习"]
     };
 
-  return NextResponse.json({
+  return {
     data: {
       className: klass.name,
       subject: klass.subject,
@@ -73,5 +79,5 @@ export async function POST(request: Request) {
       wrongPoints: ranked,
       script
     }
-  });
-}
+  };
+});

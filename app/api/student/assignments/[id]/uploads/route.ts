@@ -1,54 +1,54 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentById } from "@/lib/assignments";
 import { addAssignmentUpload, deleteAssignmentUpload, getAssignmentUploads } from "@/lib/assignment-uploads";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
 const MAX_SIZE_MB = 3;
 const ALLOWED_TYPES = ["image/png", "image/jpeg", "image/webp", "application/pdf"];
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   if (assignment.submissionType !== "upload" && assignment.submissionType !== "essay") {
-    return NextResponse.json({ error: "该作业不支持上传" }, { status: 400 });
+    badRequest("该作业不支持上传");
   }
 
   const classes = await getClassesByStudent(user.id);
   if (!classes.find((item) => item.id === assignment.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const uploads = await getAssignmentUploads(assignment.id, user.id);
-  return NextResponse.json({ data: uploads });
-}
+  return { data: uploads };
+});
 
-export async function POST(request: Request, context: { params: { id: string } }) {
+export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   if (assignment.submissionType !== "upload" && assignment.submissionType !== "essay") {
-    return NextResponse.json({ error: "该作业不支持上传" }, { status: 400 });
+    badRequest("该作业不支持上传");
   }
 
   const classes = await getClassesByStudent(user.id);
   if (!classes.find((item) => item.id === assignment.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const formData = await request.formData();
@@ -57,7 +57,7 @@ export async function POST(request: Request, context: { params: { id: string } }
   const uploaded = await getAssignmentUploads(assignment.id, user.id);
   const maxUploads = assignment.maxUploads ?? 3;
   if (uploaded.length + picked.length > maxUploads) {
-    return NextResponse.json({ error: `最多上传 ${maxUploads} 份文件` }, { status: 400 });
+    badRequest(`最多上传 ${maxUploads} 份文件`);
   }
 
   const saved = [];
@@ -66,11 +66,11 @@ export async function POST(request: Request, context: { params: { id: string } }
       continue;
     }
     if (!ALLOWED_TYPES.includes(entry.type)) {
-      return NextResponse.json({ error: `不支持的文件类型：${entry.type}` }, { status: 400 });
+      badRequest(`不支持的文件类型：${entry.type}`);
     }
     const sizeMb = entry.size / (1024 * 1024);
     if (sizeMb > MAX_SIZE_MB) {
-      return NextResponse.json({ error: `单个文件不能超过 ${MAX_SIZE_MB}MB` }, { status: 400 });
+      badRequest(`单个文件不能超过 ${MAX_SIZE_MB}MB`);
     }
     const buffer = Buffer.from(await entry.arrayBuffer());
     const base64 = buffer.toString("base64");
@@ -85,34 +85,34 @@ export async function POST(request: Request, context: { params: { id: string } }
     if (record) saved.push(record);
   }
 
-  return NextResponse.json({ data: saved });
-}
+  return { data: saved };
+});
 
-export async function DELETE(request: Request, context: { params: { id: string } }) {
+export const DELETE = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const { searchParams } = new URL(request.url);
   const uploadId = searchParams.get("uploadId");
   if (!uploadId) {
-    return NextResponse.json({ error: "missing uploadId" }, { status: 400 });
+    badRequest("missing uploadId");
   }
 
   const assignment = await getAssignmentById(context.params.id);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   if (assignment.submissionType !== "upload" && assignment.submissionType !== "essay") {
-    return NextResponse.json({ error: "该作业不支持上传" }, { status: 400 });
+    badRequest("该作业不支持上传");
   }
 
   const classes = await getClassesByStudent(user.id);
   if (!classes.find((item) => item.id === assignment.classId)) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const removed = await deleteAssignmentUpload(uploadId, user.id);
-  return NextResponse.json({ removed });
-}
+  return { removed };
+});

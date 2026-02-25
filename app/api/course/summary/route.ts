@@ -1,12 +1,20 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassesByStudent } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { getAssignmentsByClass } from "@/lib/assignments";
 import { getModulesByClass } from "@/lib/modules";
 import { getCourseFilesByClassIds } from "@/lib/course-files";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const summaryQuerySchema = v.object<{ classId: string }>(
+  {
+    classId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
 
 async function canAccessClass(userId: string, role: string, classId: string) {
   const klass = await getClassById(classId);
@@ -27,19 +35,17 @@ async function canAccessClass(userId: string, role: string, classId: string) {
   return null;
 }
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId");
-  if (!classId) {
-    return NextResponse.json({ error: "missing classId" }, { status: 400 });
-  }
+
+  const query = parseSearchParams(request, summaryQuerySchema);
+  const classId = query.classId;
   const klass = await canAccessClass(user.id, user.role, classId);
   if (!klass) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const assignments = await getAssignmentsByClass(classId);
@@ -57,12 +63,12 @@ export async function GET(request: Request) {
   const modules = await getModulesByClass(classId);
   const files = await getCourseFilesByClassIds([classId]);
 
-  return NextResponse.json({
+  return {
     class: klass,
     summary: {
       moduleCount: modules.length,
       resourceCount: files.length,
       upcomingAssignments: upcoming
     }
-  });
-}
+  };
+});

@@ -1,27 +1,38 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { addFocusSession } from "@/lib/focus";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const focusSessionBodySchema = v.object<{
+  durationMinutes?: number;
+  mode?: "focus" | "break";
+  startedAt?: string;
+  endedAt?: string;
+}>(
+  {
+    durationMinutes: v.optional(v.number({ coerce: true, integer: true, min: 0 })),
+    mode: v.optional(v.enum(["focus", "break"] as const)),
+    startedAt: v.optional(v.string({ allowEmpty: true, trim: false })),
+    endedAt: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    durationMinutes?: number;
-    mode?: "focus" | "break";
-    startedAt?: string;
-    endedAt?: string;
-  };
+  const body = await parseJson(request, focusSessionBodySchema);
 
   const duration = Math.max(1, Math.min(Number(body.durationMinutes) || 0, 180));
   const mode = body.mode === "break" ? "break" : "focus";
 
   if (!duration) {
-    return NextResponse.json({ error: "invalid duration" }, { status: 400 });
+    badRequest("invalid duration");
   }
 
   const record = await addFocusSession({
@@ -32,5 +43,5 @@ export async function POST(request: Request) {
     endedAt: body.endedAt
   });
 
-  return NextResponse.json({ data: record });
-}
+  return { data: record };
+});

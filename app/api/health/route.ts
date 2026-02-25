@@ -1,10 +1,10 @@
-import { NextResponse } from "next/server";
+import { withApi } from "@/lib/api/http";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return NextResponse.json({
+export const GET = withApi(async () => {
+  return {
     ok: true,
     service: "k12-ai-tutor",
     ts: new Date().toISOString()
-  });
-}
+  };
+});

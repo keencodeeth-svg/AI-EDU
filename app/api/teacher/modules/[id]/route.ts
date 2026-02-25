@@ -1,31 +1,42 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById } from "@/lib/classes";
 import { getModuleById, updateModule } from "@/lib/modules";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function PUT(request: Request, context: { params: { id: string } }) {
+const updateModuleBodySchema = v.object<{
+  title?: string;
+  description?: string;
+  parentId?: string;
+  orderIndex?: number;
+}>(
+  {
+    title: v.optional(v.string({ minLength: 1 })),
+    description: v.optional(v.string({ allowEmpty: true, trim: false })),
+    parentId: v.optional(v.string({ minLength: 1 })),
+    orderIndex: v.optional(v.number({ coerce: true, integer: true, min: 0 }))
+  },
+  { allowUnknown: false }
+);
+
+export const PUT = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const moduleId = context.params.id;
   const moduleRecord = await getModuleById(moduleId);
   if (!moduleRecord) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
   const klass = await getClassById(moduleRecord.classId);
   if (!klass || klass.teacherId !== user.id) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  const body = (await request.json()) as {
-    title?: string;
-    description?: string;
-    parentId?: string | null;
-    orderIndex?: number;
-  };
+  const body = await parseJson(request, updateModuleBodySchema);
 
   const updated = await updateModule({
     id: moduleId,
@@ -34,5 +45,5 @@ export async function PUT(request: Request, context: { params: { id: string } })
     parentId: body.parentId,
     orderIndex: body.orderIndex
   });
-  return NextResponse.json({ data: updated });
-}
+  return { data: updated };
+});

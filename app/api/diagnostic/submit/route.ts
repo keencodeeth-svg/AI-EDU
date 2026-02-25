@@ -1,24 +1,45 @@
-import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { getKnowledgePoints, getQuestions } from "@/lib/content";
 import { addAttempt, generateStudyPlan } from "@/lib/progress";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const diagnosticSubmitBodySchema = v.object<{
+  subject?: string;
+  grade?: string;
+  answers?: { questionId: string; answer: string; reason?: string }[];
+}>(
+  {
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    answers: v.optional(
+      v.array(
+        v.object<{ questionId: string; answer: string; reason?: string }>(
+          {
+            questionId: v.string({ minLength: 1 }),
+            answer: v.string({ minLength: 1 }),
+            reason: v.optional(v.string({ allowEmpty: true, trim: false }))
+          },
+          { allowUnknown: false }
+        )
+      )
+    )
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    answers?: { questionId: string; answer: string; reason?: string }[];
-  };
+  const body = await parseJson(request, diagnosticSubmitBodySchema);
 
   if (!body.subject || !body.grade || !body.answers?.length) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+    badRequest("missing fields");
   }
 
   const questions = await getQuestions();
@@ -55,7 +76,7 @@ export async function POST(request: Request) {
 
   const plan = await generateStudyPlan(user.id, body.subject);
 
-  return NextResponse.json({
+  return {
     total: body.answers.length,
     correct: correctCount,
     accuracy: Math.round((correctCount / body.answers.length) * 100),
@@ -68,5 +89,5 @@ export async function POST(request: Request) {
       accuracy: stat.total === 0 ? 0 : Math.round((stat.correct / stat.total) * 100)
     })),
     wrongReasons: Array.from(wrongReasons.entries()).map(([reason, count]) => ({ reason, count }))
-  });
-}
+  };
+});

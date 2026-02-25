@@ -1,29 +1,29 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentById, getAssignmentItems, getAssignmentProgressForStudent } from "@/lib/assignments";
 import { getQuestions } from "@/lib/content";
 import { getModuleById } from "@/lib/modules";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { id: string } }) {
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const assignmentId = context.params.id;
   const assignment = await getAssignmentById(assignmentId);
   if (!assignment) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const classes = await getClassesByStudent(user.id);
   const classMap = new Map(classes.map((item) => [item.id, item]));
   const klass = classMap.get(assignment.classId);
   if (!klass) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const items = await getAssignmentItems(assignment.id);
@@ -40,11 +40,11 @@ export async function GET(_: Request, context: { params: { id: string } }) {
 
   const progress = await getAssignmentProgressForStudent(assignment.id, user.id);
 
-  return NextResponse.json({
+  return {
     assignment,
     module: assignment.moduleId ? await getModuleById(assignment.moduleId) : null,
     class: { id: klass.id, name: klass.name, subject: klass.subject, grade: klass.grade },
     questions: payloadQuestions,
     progress
-  });
-}
+  };
+});

@@ -1,13 +1,13 @@
-import { NextResponse } from "next/server";
 import { getStudentContext } from "@/lib/user-context";
 import { getStudentProfile } from "@/lib/profiles";
 import { getDailyAccuracy, getStatsBetween, getWeakKnowledgePoints, getWeeklyStats } from "@/lib/progress";
+import { unauthorized, withApi } from "@/lib/api/http";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const student = await getStudentContext();
   if (!student) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const stats = await getWeeklyStats(student.id);
@@ -54,12 +54,12 @@ export async function GET() {
     suggestions.push(`优先巩固：${weakPoints[0].title}。`);
   }
 
-  return NextResponse.json({
+  return {
     student: { id: student.id, name: student.name, grade: student.grade },
     stats,
     previousStats,
     trend,
     weakPoints,
     suggestions
-  });
-}
+  };
+});

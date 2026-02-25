@@ -1,36 +1,31 @@
-import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/guard";
 import { createKnowledgePoint, getKnowledgePoints } from "@/lib/content";
 import { addAdminLog } from "@/lib/admin-log";
-import type { Subject } from "@/lib/types";
-import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import {
+  importTreeBodySchema,
+  isAllowedSubject
+} from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
-
-const ALLOWED_SUBJECTS: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
 
 function normalizeKey(unit: string, chapter: string, title: string) {
   return `${unit}`.toLowerCase().replace(/\s+/g, "") + "|" + `${chapter}`.toLowerCase().replace(/\s+/g, "") + "|" + `${title}`.toLowerCase().replace(/\s+/g, "");
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    items?: {
-      subject: string;
-      grade: string;
-      units: { title: string; chapters: { title: string; points: { title: string }[] }[] }[];
-    }[];
-  };
+  const body = await parseJson(request, importTreeBodySchema);
 
   if (!body.items?.length) {
-    return NextResponse.json({ error: "items required" }, { status: 400 });
+    badRequest("items required");
   }
 
-  const created: any[] = [];
+  const created: Array<{ id: string }> = [];
   const skipped: { index: number; reason: string }[] = [];
 
   const existing = await getKnowledgePoints();
@@ -40,27 +35,44 @@ export async function POST(request: Request) {
 
   let index = 0;
   for (const item of body.items) {
-    if (!ALLOWED_SUBJECTS.includes(item.subject as Subject)) {
+    const subject = item.subject?.trim();
+    const grade = item.grade?.trim();
+    if (!subject || !grade) {
+      skipped.push({ index, reason: "missing fields" });
+      index += 1;
+      continue;
+    }
+
+    if (!isAllowedSubject(subject)) {
       skipped.push({ index, reason: "invalid subject" });
       index += 1;
       continue;
     }
 
-    for (const unit of item.units) {
-      const unitTitle = unit.title || "未分单元";
-      for (const chapter of unit.chapters || []) {
-        for (const point of chapter.points || []) {
-          const key = normalizeKey(unitTitle, chapter.title, point.title);
+    const units = item.units ?? [];
+    for (const unit of units) {
+      const unitTitle = unit.title?.trim() || "未分单元";
+      for (const chapter of unit.chapters ?? []) {
+        const chapterTitle = chapter.title?.trim() || "未归类";
+        for (const point of chapter.points ?? []) {
+          const pointTitle = point.title?.trim();
+          if (!pointTitle) {
+            skipped.push({ index, reason: "missing title" });
+            index += 1;
+            continue;
+          }
+
+          const key = normalizeKey(unitTitle, chapterTitle, pointTitle);
           if (existingKeys.has(key)) {
             skipped.push({ index, reason: "已存在" });
             index += 1;
             continue;
           }
           const next = await createKnowledgePoint({
-            subject: item.subject as Subject,
-            grade: item.grade,
-            title: point.title,
-            chapter: chapter.title,
+            subject,
+            grade,
+            title: pointTitle,
+            chapter: chapterTitle,
             unit: unitTitle
           });
           if (!next) {
@@ -86,5 +98,5 @@ export async function POST(request: Request) {
     detail: `created=${created.length}, skipped=${skipped.length}`
   });
 
-  return NextResponse.json({ created, skipped });
-}
+  return { created, skipped };
+});

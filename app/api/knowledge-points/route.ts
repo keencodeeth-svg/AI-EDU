@@ -1,7 +1,7 @@
-import { NextResponse } from "next/server";
 import { getKnowledgePoints } from "@/lib/content";
+import { withApi } from "@/lib/api/http";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  return NextResponse.json({ data: await getKnowledgePoints() });
-}
+export const GET = withApi(async () => {
+  return { data: await getKnowledgePoints() };
+});

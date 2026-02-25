@@ -1,64 +1,64 @@
-import { NextResponse } from "next/server";
 import { createQuestion, getQuestions } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
-import type { Subject, Difficulty } from "@/lib/types";
-import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import {
+  createQuestionBodySchema,
+  isAllowedSubject,
+  normalizeDifficulty,
+  trimStringArray
+} from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-const ALLOWED_SUBJECTS: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
-const ALLOWED_DIFFICULTY: Difficulty[] = ["easy", "medium", "hard"];
-
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  return NextResponse.json({ data: await getQuestions() });
-}
+  const data = await getQuestions();
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    knowledgePointId?: string;
-    stem?: string;
-    options?: string[];
-    answer?: string;
-    explanation?: string;
-    difficulty?: Difficulty;
-    questionType?: string;
-    tags?: string[];
-    abilities?: string[];
-  };
+  const body = await parseJson(request, createQuestionBodySchema);
+  const subject = body.subject?.trim();
+  const grade = body.grade?.trim();
+  const knowledgePointId = body.knowledgePointId?.trim();
+  const stem = body.stem?.trim();
+  const answer = body.answer?.trim();
+  const explanation = body.explanation?.trim() ?? "";
+  const questionType = body.questionType?.trim() || "choice";
 
-  if (!body.subject || !body.grade || !body.knowledgePointId || !body.stem || !body.options || !body.answer) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  if (!subject || !grade || !knowledgePointId || !stem || !body.options || !answer) {
+    badRequest("missing fields");
   }
-  if (!ALLOWED_SUBJECTS.includes(body.subject as Subject)) {
-    return NextResponse.json({ error: "invalid subject" }, { status: 400 });
+  if (!isAllowedSubject(subject)) {
+    badRequest("invalid subject");
   }
-  const difficulty = ALLOWED_DIFFICULTY.includes(body.difficulty as Difficulty)
-    ? (body.difficulty as Difficulty)
-    : "medium";
+  const difficulty = normalizeDifficulty(body.difficulty);
+
+  const options = trimStringArray(body.options);
+  const tags = trimStringArray(body.tags);
+  const abilities = trimStringArray(body.abilities);
 
   const next = await createQuestion({
-    subject: body.subject as Subject,
-    grade: body.grade,
-    knowledgePointId: body.knowledgePointId,
-    stem: body.stem,
-    options: body.options,
-    answer: body.answer,
-    explanation: body.explanation ?? "",
+    subject,
+    grade,
+    knowledgePointId,
+    stem,
+    options,
+    answer,
+    explanation,
     difficulty,
-    questionType: body.questionType ?? "choice",
-    tags: body.tags ?? [],
-    abilities: body.abilities ?? []
+    questionType,
+    tags,
+    abilities
   });
 
   if (next) {
@@ -71,5 +71,5 @@ export async function POST(request: Request) {
     });
   }
 
-  return NextResponse.json({ data: next });
-}
+  return { data: next };
+});

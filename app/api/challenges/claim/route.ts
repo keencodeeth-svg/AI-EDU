@@ -1,22 +1,31 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { claimChallenge, getChallengePoints, getChallengeStatus } from "@/lib/challenges";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const claimChallengeBodySchema = v.object<{ taskId?: string }>(
+  {
+    taskId: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { taskId?: string };
-  if (!body.taskId) {
-    return NextResponse.json({ error: "missing taskId" }, { status: 400 });
+  const body = await parseJson(request, claimChallengeBodySchema);
+  const taskId = body.taskId?.trim();
+  if (!taskId) {
+    badRequest("missing taskId");
   }
 
-  const result = await claimChallenge(user.id, body.taskId);
+  const result = await claimChallenge(user.id, taskId);
   const tasks = await getChallengeStatus(user.id);
   const points = await getChallengePoints(user.id);
-  return NextResponse.json({ data: { tasks, points, result } });
-}
+  return { data: { tasks, points, result } };
+});

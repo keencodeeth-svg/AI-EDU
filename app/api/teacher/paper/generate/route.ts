@@ -1,11 +1,37 @@
-import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById } from "@/lib/classes";
 import { getKnowledgePoints, getQuestions } from "@/lib/content";
 import { generateQuestionDraft } from "@/lib/ai";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const generatePaperBodySchema = v.object<{
+  classId?: string;
+  subject?: string;
+  grade?: string;
+  knowledgePointIds?: string[];
+  difficulty?: "easy" | "medium" | "hard" | "all";
+  questionType?: string;
+  durationMinutes?: number;
+  questionCount?: number;
+  mode?: "bank" | "ai";
+}>(
+  {
+    classId: v.optional(v.string({ minLength: 1 })),
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    knowledgePointIds: v.optional(v.array(v.string({ minLength: 1 }))),
+    difficulty: v.optional(v.enum(["easy", "medium", "hard", "all"] as const)),
+    questionType: v.optional(v.string({ minLength: 1 })),
+    durationMinutes: v.optional(v.number({ coerce: true, integer: true, min: 0 })),
+    questionCount: v.optional(v.number({ coerce: true, integer: true, min: 0 })),
+    mode: v.optional(v.enum(["bank", "ai"] as const))
+  },
+  { allowUnknown: false }
+);
 
 function shuffle<T>(items: T[]) {
   const copy = [...items];
@@ -16,23 +42,23 @@ function shuffle<T>(items: T[]) {
   return copy;
 }
 
-export async function POST(request: Request) {
+type GeneratedQuestion = {
+  id: string;
+  stem: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+  knowledgePointId: string;
+  source: "bank" | "ai";
+};
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    classId?: string;
-    subject?: string;
-    grade?: string;
-    knowledgePointIds?: string[];
-    difficulty?: string;
-    questionType?: string;
-    durationMinutes?: number;
-    questionCount?: number;
-    mode?: "bank" | "ai";
-  };
+  const body = await parseJson(request, generatePaperBodySchema);
 
   let subject = body.subject ?? "math";
   let grade = body.grade ?? "4";
@@ -41,7 +67,7 @@ export async function POST(request: Request) {
   if (body.classId) {
     const klass = await getClassById(body.classId);
     if (!klass || klass.teacherId !== user.id) {
-      return NextResponse.json({ error: "not found" }, { status: 404 });
+      notFound("not found");
     }
     subject = klass.subject;
     grade = klass.grade;
@@ -57,7 +83,10 @@ export async function POST(request: Request) {
   count = Math.max(1, Math.min(count, 50));
 
   const knowledgePointIds = Array.isArray(body.knowledgePointIds) ? body.knowledgePointIds : [];
-  const difficulty = body.difficulty && body.difficulty !== "all" ? body.difficulty : undefined;
+  const difficulty =
+    body.difficulty && body.difficulty !== "all"
+      ? (body.difficulty as "easy" | "medium" | "hard")
+      : undefined;
   const questionType = body.questionType && body.questionType !== "all" ? body.questionType : undefined;
 
   const questions = (await getQuestions()).filter((q) => {
@@ -69,15 +98,7 @@ export async function POST(request: Request) {
   });
 
   const selected = shuffle(questions).slice(0, count);
-  let generated: Array<{
-    id: string;
-    stem: string;
-    options: string[];
-    answer: string;
-    explanation: string;
-    knowledgePointId: string;
-    source: "bank" | "ai";
-  }> = selected.map((item) => ({ ...item, source: "bank" as const }));
+  let generated: GeneratedQuestion[] = selected.map((item) => ({ ...item, source: "bank" as const }));
 
   if ((body.mode ?? "bank") === "ai" && generated.length < count) {
     const missing = count - generated.length;
@@ -94,7 +115,7 @@ export async function POST(request: Request) {
         grade,
         knowledgePointTitle: kp.title,
         chapter: kp.chapter,
-        difficulty: (difficulty as any) ?? "medium",
+        difficulty: difficulty ?? "medium",
         questionType: questionType ?? "choice"
       });
       if (!draft) continue;
@@ -118,7 +139,7 @@ export async function POST(request: Request) {
     unit: kpMap.get(item.knowledgePointId)?.unit ?? ""
   }));
 
-  return NextResponse.json({
+  return {
     data: {
       subject,
       grade,
@@ -127,5 +148,5 @@ export async function POST(request: Request) {
       durationMinutes,
       questions: result
     }
-  });
-}
+  };
+});

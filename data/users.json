@@ -4,7 +4,7 @@
     "email": "admin@demo.com",
     "name": "管理员",
     "role": "admin",
-    "password": "plain:Admin123"
+    "password": "8f586eaf897299bc602527e19c835362:f58691803945daaa6dc6c4556f623802c0dc9ce3b0039bd8f0f7635325c5231c553be7746e25a95300f2edf8983a8cc259b09d1a23cbc27a9e0283ffc7b08fbf"
   },
   {
     "id": "u-student-001",
@@ -12,7 +12,7 @@
     "name": "小星",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "d1bba6a13c6e5ad3aa8c0d1c54e09b5b:77c7da5beab142157d3ab4d6aff87f400d999388f2bbc16864c652fc111034d4e317a40bb0d87e48e912b9904be965ccc92c3f1c06338eec5d3f7ecd1213e456"
   },
   {
     "id": "u-parent-001",
@@ -20,28 +20,28 @@
     "name": "星妈",
     "role": "parent",
     "studentId": "u-student-001",
-    "password": "plain:Parent123"
+    "password": "7107faec3d6808f3020e437f4eea293b:cec00474e49dc7d64119aef497517796096dc8b9a58881d35d11b5c09616ca4a4d5237fdd2d87f6692b40fd8b45975510ca9b54b3870da79a9c83a019eeb214c"
   },
   {
     "id": "u-teacher-001",
     "email": "teacher@demo.com",
     "name": "刘老师",
     "role": "teacher",
-    "password": "plain:Teacher123"
+    "password": "70d7d4a258ca904f3064f201026b7cb5:b4f3b7a8e0fc513b9fb519ef2c7cfb3223a4721ba8043cd1c7170fe7044f8ff5055d316884f8180183b3c119911505704e5322a56a3f6e17b74d1d29414569ac"
   },
   {
     "id": "u-teacher-bulk-001",
     "email": "teacher1@demo.com",
     "name": "老师1",
     "role": "teacher",
-    "password": "plain:Teacher123"
+    "password": "252e92862016b1e3854685e7692c2710:cecd6e1d46dba12718241d5786daf21bd6e9408762cbca8971a39d57f7d892dd70d6c5300ffa6bf66ea9f757aba70cae88f5ed4168f582fe7b698801fc251125"
   },
   {
     "id": "u-teacher-bulk-002",
     "email": "teacher2@demo.com",
     "name": "老师2",
     "role": "teacher",
-    "password": "plain:Teacher123"
+    "password": "f866ff0f218be07c253841b9d798b47b:bc2d7d6dd7bc4ff3b99d8f61f946e262691e84983572df9f161c67a92ff50a87634ffbaed5f114bf2b2b4cf83cc78f3ce7370a1d079fdad414b1f573d1478006"
   },
   {
     "id": "u-student-bulk-001",
@@ -49,7 +49,7 @@
     "name": "学生1",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "444db2d849906f46dae9a84a1cc9c7b8:b195b5531fe49f1ad1c39509c95bf6fc2d479b84e59dc15e9792ea86a70844f8dd99cd931a73a339043a1245a929cf8430476cf5fa7e2c1f68e798a9a45e2902"
   },
   {
     "id": "u-student-bulk-002",
@@ -57,7 +57,7 @@
     "name": "学生2",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "9e3ec8478a224552b14069537789b0b2:d64758c11af9d4680eebf53a1459fd1133c0bb5b5c36734a687105a5c626e5596e0c8ed426ab0645f690700a19afba6981d4243d6838fa5a4507103634ece3aa"
   },
   {
     "id": "u-student-bulk-003",
@@ -65,7 +65,7 @@
     "name": "学生3",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "fa8ee8f94b3ed04a9acb61dfee259dd5:6bc10036c90bc90c1bf0d4c110034f80deb97700bddf085cb1b974e651d3be1ea1c2cd4d96cec94675c07599ff2bff95765c4787e89badbf1e67ea2b0672bc81"
   },
   {
     "id": "u-student-bulk-004",
@@ -73,7 +73,7 @@
     "name": "学生4",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "ad772996fd01d8920b418daa0a41e9c3:180c7b2c8451b13b4cca400b112623d5d7c2f73dc835cf40d89a0257fd718b2c111480c168f870084906a6831edacd4c8b6b174737d1ae7d1ba898587e67de40"
   },
   {
     "id": "u-student-bulk-005",
@@ -81,7 +81,7 @@
     "name": "学生5",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "31119d044208fff04d1804bfa1fdd4f1:4d369122fe3f5ee95c54a7770ac3122b632c4243018172733c3714e8a471a06cd04ad13e0263ab347cd5b5520ac08d7560d297ac915fd1cc87d205400ec68092"
   },
   {
     "id": "u-student-bulk-006",
@@ -89,7 +89,7 @@
     "name": "学生6",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "14e87c581b61abae2546b4e8b9bc0c2d:d42ac15a5f845ae1b3f096e884f90a0aab431630fb6ce792c01bc81b3cc1bb03a585c7e1ddb45d1c1dbd6c0da489f267c723d12cb129d3a02dc140401ed1ff32"
   },
   {
     "id": "u-student-bulk-007",
@@ -97,7 +97,7 @@
     "name": "学生7",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "18c0a6d13dd286abb79ddb1419e4b29e:58a46efb1282bf25b0595c46dc3280ea45a7441bca5c5a023c9e847f2c534f8399e92ff8c808433ddb5b894a44cd61192f17fef9b26f432ba554669e559c247d"
   },
   {
     "id": "u-student-bulk-008",
@@ -105,7 +105,7 @@
     "name": "学生8",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "cd224367f06146a9a72c037cb702162d:ad9a5a4d8817d9e4017fcb2a45f5fb2f63852bf9217996122dca390edee0cfaacca70672e22b6672e9287e03d031afc4e62df3ee39c02e0481b11e45d9e18e1a"
   },
   {
     "id": "u-student-bulk-009",
@@ -113,7 +113,7 @@
     "name": "学生9",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "ef257a7b7f3d5155d31d4e5ee2b1f655:30ba78a03ead0b8f13a009c509787bec24b2db9c435fc1c526f6c2c6f72466f65a42b34fe5aa67cb6e755947adb45613fbbb8e8a1155469f31985fd03cadefbc"
   },
   {
     "id": "u-student-bulk-010",
@@ -121,7 +121,7 @@
     "name": "学生10",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "da864a82688712c3cf3b7e2c6cce30d9:9490989ed47435cdeb3fdb878746e23c762dac4d756044b9269d6b03566d6b0f2c3e9a22f0d30a9633eb1daeafcafc78623b8a171878e92d046e7e2beb3bbb5a"
   },
   {
     "id": "u-student-bulk-011",
@@ -129,7 +129,7 @@
     "name": "学生11",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "8afbd6f667f07aa845001b48f7a7b949:79e150af604d754ecbf7c8b09f29d706061c73357de6f4cd64abd8db82011cbc769c2843e7b701ea77b9044762bca24ceb8af6c95ebbf8f5a9e9d6773c42fd52"
   },
   {
     "id": "u-student-bulk-012",
@@ -137,7 +137,7 @@
     "name": "学生12",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "597ad400dfea9cf2789e802ce7e4b5a2:0585030dd5d8046399507f03ec0307c4a309d83476a32134b1b7c693b40d38e46f332d07a50bfc4a7916eec8a2760c79928845596bbc960c66f4f5e2e130a26a"
   },
   {
     "id": "u-student-bulk-013",
@@ -145,7 +145,7 @@
     "name": "学生13",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "9863001030f88e1782cab21266667a2e:12883b55998e7bc3db511eb594a4905348726e7dd21a3c68758f149aa0b22e89be7782f2486be8d433101536985ac38011d590db408684ed227e3d84767dcd62"
   },
   {
     "id": "u-student-bulk-014",
@@ -153,7 +153,7 @@
     "name": "学生14",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "3e84c285f300399ec1ad72da3a67b3ed:0fbc6275838d5b64cd6170ced7c466604d458b091584c3856966833c292a133f311dabaea7a625f3868c6a6ad45fe0d568a4089f05de99eacf47ef8515fdcf3b"
   },
   {
     "id": "u-student-bulk-015",
@@ -161,7 +161,7 @@
     "name": "学生15",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "f1122d9f684b3d3641ee17bdfed27401:36b039f00c63d75dd1fbb42c0a6ade4daca7304c94cf7fc5660280e9671ec0d445fa3e73a09b915b41806397f02569761a9ef59779c07b73d3dd09a9c4bfebf5"
   },
   {
     "id": "u-student-bulk-016",
@@ -169,7 +169,7 @@
     "name": "学生16",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "a3a854e66a55dfeb2a0da8a19007c0fc:d0b2382ba9fec5115f10f72fa0eeb2477814ea1506de821e7c9ec3f1f0bea6e6d4b1c4441445ecc30033e96c31b25abe92e46102aebf32c823d49f46537a532b"
   },
   {
     "id": "u-student-bulk-017",
@@ -177,7 +177,7 @@
     "name": "学生17",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "b3cb87774c67e12e7fbedbb07d4025c0:e661218d6b6c3d5bbb774618a24d3088ca22101666a743093000d620e68310d524390cdc8412df3ccdeb240fb04651c5535152f2dd0a84b88aab7e19c6409c6d"
   },
   {
     "id": "u-student-bulk-018",
@@ -185,7 +185,7 @@
     "name": "学生18",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "5c61fc3ce2c12346b08afb10c661c825:b364efc9048856ed9ac2303598d781176e685b1a925a6ef3318774b027862e65fb26145a58767c5e572f81bbb8b130266f2d419ec7a59652fe99049af2d6ba01"
   },
   {
     "id": "u-student-bulk-019",
@@ -193,7 +193,7 @@
     "name": "学生19",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "1d8431c257310b078d80b5624c3bd316:d9c61a39d011aaa6b72434bbc866e357476931b10dde11c8344e676324265f1d92394c788c1f2e0416bbffd1abe9aed48646954b8f730a72235cdc205650aa97"
   },
   {
     "id": "u-student-bulk-020",
@@ -201,7 +201,7 @@
     "name": "学生20",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "a77c1a3f75d9e3b52495b16a0a96d967:e585da181d8185d935dcc272cffbe0d70d7bd36fb0c7e7d46cefb73bad7c5cdda89e29b8a93ae282c6ab1e70a191277f9bc382e8e5856e53785bb68aec1710d9"
   },
   {
     "id": "u-student-bulk-021",
@@ -209,7 +209,7 @@
     "name": "学生21",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "c4ff2ab33f6296443b4d3d05d7cfeaaa:9f65024143c28c325abe744a86b7ac64329004afae7f71bcc37d1cf26b3957a7a860e154135305398c0ca6e6dd9eb04e8fb48b0f56575da9cb0eb5b39fca31cc"
   },
   {
     "id": "u-student-bulk-022",
@@ -217,7 +217,7 @@
     "name": "学生22",
     "role": "student",
     "grade": "4",
-    "password": "plain:Student123"
+    "password": "77fd9be275c878f7d27f7e53c3205f63:8b83dcb9e9f9c3a8fbbe49866b27e4faf672130b55cb88c2e6481dfbe221e4d308bfcba6209b7aa9346354ff8c935c70e200058a95c9daafd2ad7c6593242ea3"
   },
   {
     "id": "u-student-bulk-023",
@@ -225,7 +225,7 @@
     "name": "学生23",
     "role": "student",
     "grade": "7",
-    "password": "plain:Student123"
+    "password": "2cdd796469444dc2960503e5e7c68585:f4bd88c3c4f4d23d8900d0e2648b3564840f1a413d194bced9750f17ff84b3149310fdbec173b85450258bb3e938c4ebff03e235604fec5dd1efa345d55907af"
   },
   {
     "id": "u-student-bulk-024",
@@ -233,7 +233,7 @@
     "name": "学生24",
     "role": "student",
     "grade": "10",
-    "password": "plain:Student123"
+    "password": "7c01e2fc07162c0260ad6a8771c90e09:b04c0e78aa4ed12c50ac2e6591e25fd9560abec2a472e5f6a5e515505ae769d9e2062d213305b6d037acb02cb42103327e72a3ac3472d8b7dfec99dab5a05e57"
   },
   {
     "id": "u-parent-bulk-001",
@@ -241,7 +241,7 @@
     "name": "家长1",
     "role": "parent",
     "studentId": "u-student-bulk-001",
-    "password": "plain:Parent123"
+    "password": "d4a8e4d37a0703da487638c82255bca6:c10844e01fbb9d486274b3217c3c56475190dec6160e4c36677052f6eed434e26dcece05c22fdb9e6ace0a9a89d718eb6476c3c77e98c40b20404f8862eace3c"
   },
   {
     "id": "u-parent-bulk-002",
@@ -249,7 +249,7 @@
     "name": "家长2",
     "role": "parent",
     "studentId": "u-student-bulk-002",
-    "password": "plain:Parent123"
+    "password": "cefa1b58b019dbde9912055acfc413d4:99db2a03676c0b012337bc143650515142fbe2b8d3173698b9084103a691cee13a99707bfd1da96e2565948e5241c26cc28532f8e02fa10e8644d715f1cf19a7"
   },
   {
     "id": "u-parent-bulk-003",
@@ -257,7 +257,7 @@
     "name": "家长3",
     "role": "parent",
     "studentId": "u-student-bulk-003",
-    "password": "plain:Parent123"
+    "password": "bc8db94ff6c540f6b8ef39aa5f361430:6f07441a1dbb5ad7ec61f554d104de770a4b602f6941742d8c6bccd71149015c5a560eb99e477650e1f18d8e819b0faa859e18ee3421237e467ea3e3ccd3002e"
   },
   {
     "id": "u-parent-bulk-004",
@@ -265,7 +265,7 @@
     "name": "家长4",
     "role": "parent",
     "studentId": "u-student-bulk-004",
-    "password": "plain:Parent123"
+    "password": "d4cbcce47dd3a1fc67b24140c925e570:42fb4a8e44753de343705aa38025e66e8a1c801fa7338cf1f3efb53cec0a6dc29bd96cdc77b4cd272d97cde3bcb06d4c872da9fe7b0b8ed149f2700865365dcd"
   },
   {
     "id": "u-parent-bulk-005",
@@ -273,7 +273,7 @@
     "name": "家长5",
     "role": "parent",
     "studentId": "u-student-bulk-005",
-    "password": "plain:Parent123"
+    "password": "7cb7b0bea60a759dfee959b58ea02b39:f3016f4c3ef99e8d48e40538abaf19475341fb6a94729a72a2514f768d96987a5c76bc7dea91a74c0172861fa0dbd987a04fffbba2f85e5f75d3d6c2871d83e6"
   },
   {
     "id": "u-parent-bulk-006",
@@ -281,7 +281,7 @@
     "name": "家长6",
     "role": "parent",
     "studentId": "u-student-bulk-006",
-    "password": "plain:Parent123"
+    "password": "daddf22d6e551d4c04ab561b404c7595:f485621a25900467b0026e331bd4e615c7b9fdb146d61564d60bbcfd11fd81bcf84fcf072bc0527a24c150e9a633f06abd09aa8b0fec16d0e7c91ec0aadfc699"
   },
   {
     "id": "u-parent-bulk-007",
@@ -289,7 +289,7 @@
     "name": "家长7",
     "role": "parent",
     "studentId": "u-student-bulk-007",
-    "password": "plain:Parent123"
+    "password": "77cf993cd559ef9f3babe02b78aaad5e:f80310d09ec4f94dc719340547c50f02b0dfe26e1b21a86d4317287746d80337c656f2f85318792e1d0dcadd90756ca41787b7f93cd4c17cc2415944669b3a36"
   },
   {
     "id": "u-parent-bulk-008",
@@ -297,7 +297,7 @@
     "name": "家长8",
     "role": "parent",
     "studentId": "u-student-bulk-008",
-    "password": "plain:Parent123"
+    "password": "7cc9f39df1d83b7a01dd4109949eb4b3:db97be9dd190a73f8c2b37c8bbb418f6f0f6e6b31dd69b8909774c1b2f01682839f779ebd299fd65edec34bcbc6e5a7b9ff23e0f2c106e69690e719a12fd5efe"
   },
   {
     "id": "u-9cbdec477750",
@@ -305,6 +305,6 @@
     "name": "1",
     "role": "student",
     "grade": "4",
-    "password": "plain:11"
+    "password": "ca3517869a86d7627007982ee934e7dc:09596378fce156c461afb47409d00fcfb76acc68db5dca9ff690c5e1398f1394a16b3f409b581d61cdfe32569dacc80e315ca384311f98c3075a151e37630fe3"
   }
 ]

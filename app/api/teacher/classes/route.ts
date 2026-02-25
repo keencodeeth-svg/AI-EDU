@@ -1,16 +1,30 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { createClass, getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import type { Subject } from "@/lib/types";
 import { getAssignmentsByClass } from "@/lib/assignments";
 import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+const createClassBodySchema = v.object<{
+  name: string;
+  subject: string;
+  grade: string;
+}>(
+  {
+    name: v.string({ minLength: 1 }),
+    subject: v.string({ minLength: 1 }),
+    grade: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const classes = await getClassesByTeacher(user.id);
@@ -26,22 +40,19 @@ export async function GET() {
     })
   );
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { name?: string; subject?: string; grade?: string };
-  if (!body.name || !body.subject || !body.grade) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
-  }
+  const body = await parseJson(request, createClassBodySchema);
   const allowedSubjects: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
   if (!allowedSubjects.includes(body.subject as Subject)) {
-    return NextResponse.json({ error: "invalid subject" }, { status: 400 });
+    badRequest("invalid subject");
   }
 
   const created = await createClass({
@@ -51,5 +62,5 @@ export async function POST(request: Request) {
     teacherId: user.id
   });
 
-  return NextResponse.json({ data: created });
-}
+  return { data: created };
+});

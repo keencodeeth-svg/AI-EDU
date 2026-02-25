@@ -1,33 +1,61 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { deleteHistoryItem, updateHistoryItem } from "@/lib/ai-history";
+import { deleteHistoryItem, getHistoryByUser, updateHistoryItem } from "@/lib/ai-history";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseParams, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function PATCH(request: Request, context: { params: { id: string } }) {
+const historyParamsSchema = v.object<{ id: string }>(
+  {
+    id: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+const updateHistoryBodySchema = v.object<{ favorite?: boolean; tags?: string[] }>(
+  {
+    favorite: v.optional(v.boolean()),
+    tags: v.optional(v.array(v.string({ minLength: 1 })))
+  },
+  { allowUnknown: false }
+);
+
+export const PATCH = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { favorite?: boolean; tags?: string[] };
-  const next = await updateHistoryItem(context.params.id, body as any);
+  const params = parseParams(context.params, historyParamsSchema);
+  const body = await parseJson(request, updateHistoryBodySchema);
+  const ownsRecord = (await getHistoryByUser(user.id)).some((item) => item.id === params.id);
+  if (!ownsRecord) {
+    notFound("not found");
+  }
+
+  const next = await updateHistoryItem(params.id, body);
   if (!next) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  return NextResponse.json({ data: next });
-}
+  return { data: next };
+});
 
-export async function DELETE(_: Request, context: { params: { id: string } }) {
+export const DELETE = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const ok = await deleteHistoryItem(context.params.id);
+  const params = parseParams(context.params, historyParamsSchema);
+  const ownsRecord = (await getHistoryByUser(user.id)).some((item) => item.id === params.id);
+  if (!ownsRecord) {
+    notFound("not found");
+  }
+
+  const ok = await deleteHistoryItem(params.id);
   if (!ok) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
-  return NextResponse.json({ ok: true });
-}
+  return { ok: true };
+});

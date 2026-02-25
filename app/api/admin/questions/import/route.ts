@@ -1,58 +1,66 @@
-import { NextResponse } from "next/server";
 import { createQuestion } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
-import type { Difficulty } from "@/lib/types";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import {
+  importQuestionBodySchema,
+  isAllowedSubject,
+  normalizeDifficulty,
+  trimStringArray
+} from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    items?: {
-      subject?: string;
-      grade?: string;
-      knowledgePointId?: string;
-      stem?: string;
-      options?: string[];
-      answer?: string;
-      explanation?: string;
-      difficulty?: Difficulty;
-      questionType?: string;
-      tags?: string[];
-      abilities?: string[];
-    }[];
-  };
+  const body = await parseJson(request, importQuestionBodySchema);
 
   if (!body.items?.length) {
-    return NextResponse.json({ error: "items required" }, { status: 400 });
+    badRequest("items required");
   }
 
   const created: string[] = [];
   const failed: { index: number; reason: string }[] = [];
 
   for (const [index, item] of body.items.entries()) {
-    if (!item.subject || !item.grade || !item.knowledgePointId || !item.stem || !item.options?.length || !item.answer) {
+    const subject = item.subject?.trim();
+    const grade = item.grade?.trim();
+    const knowledgePointId = item.knowledgePointId?.trim();
+    const stem = item.stem?.trim();
+    const answer = item.answer?.trim();
+    const options = trimStringArray(item.options);
+
+    if (!subject || !grade || !knowledgePointId || !stem || !options.length || !answer) {
       failed.push({ index, reason: "missing fields" });
       continue;
     }
+
+    if (!isAllowedSubject(subject)) {
+      failed.push({ index, reason: "invalid subject" });
+      continue;
+    }
+
+    const difficulty = normalizeDifficulty(item.difficulty);
+
     const next = await createQuestion({
-      subject: item.subject as any,
-      grade: item.grade,
-      knowledgePointId: item.knowledgePointId,
-      stem: item.stem,
-      options: item.options,
-      answer: item.answer,
-      explanation: item.explanation ?? "",
-      difficulty: item.difficulty ?? "medium",
-      questionType: item.questionType ?? "choice",
-      tags: item.tags ?? [],
-      abilities: item.abilities ?? []
+      subject,
+      grade,
+      knowledgePointId,
+      stem,
+      options,
+      answer,
+      explanation: item.explanation?.trim() ?? "",
+      difficulty,
+      questionType: item.questionType?.trim() || "choice",
+      tags: trimStringArray(item.tags),
+      abilities: trimStringArray(item.abilities)
     });
     if (next?.id) created.push(next.id);
+    else failed.push({ index, reason: "save failed" });
   }
 
   await addAdminLog({
@@ -63,5 +71,5 @@ export async function POST(request: Request) {
     detail: `created=${created.length}, failed=${failed.length}`
   });
 
-  return NextResponse.json({ created: created.length, failed });
-}
+  return { created: created.length, failed };
+});

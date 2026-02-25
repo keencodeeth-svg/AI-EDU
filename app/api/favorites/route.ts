@@ -1,22 +1,39 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getQuestions, getKnowledgePoints } from "@/lib/content";
 import { getFavoritesByUser, upsertFavorite } from "@/lib/favorites";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
+const favoritesQuerySchema = v.object<{ includeQuestion?: string }>(
+  {
+    includeQuestion: v.optional(v.string({ minLength: 1 }))
+  },
+  { allowUnknown: true }
+);
+
+const createFavoriteBodySchema = v.object<{ questionId?: string; tags?: string[]; note?: string }>(
+  {
+    questionId: v.optional(v.string({ allowEmpty: true, trim: false })),
+    tags: v.optional(v.array(v.string({ allowEmpty: true, trim: false }))),
+    note: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const { searchParams } = new URL(request.url);
-  const includeQuestion = searchParams.get("includeQuestion") === "1";
+  const query = parseSearchParams(request, favoritesQuerySchema);
+  const includeQuestion = query.includeQuestion === "1";
 
   const favorites = await getFavoritesByUser(user.id);
   if (!includeQuestion) {
-    return NextResponse.json({ data: favorites });
+    return { data: favorites };
   }
 
   const questions = await getQuestions();
@@ -42,18 +59,19 @@ export async function GET(request: Request) {
     };
   });
 
-  return NextResponse.json({ data });
-}
+  return { data };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { questionId?: string; tags?: string[]; note?: string };
-  if (!body.questionId) {
-    return NextResponse.json({ error: "missing questionId" }, { status: 400 });
+  const body = await parseJson(request, createFavoriteBodySchema);
+  const questionId = body.questionId?.trim();
+  if (!questionId) {
+    badRequest("missing questionId");
   }
 
   const tags = Array.isArray(body.tags)
@@ -62,10 +80,10 @@ export async function POST(request: Request) {
 
   const record = await upsertFavorite({
     userId: user.id,
-    questionId: body.questionId,
+    questionId,
     tags,
     note: body.note
   });
 
-  return NextResponse.json({ data: record });
-}
+  return { data: record };
+});

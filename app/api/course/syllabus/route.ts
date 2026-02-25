@@ -1,10 +1,35 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassesByStudent } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { getSyllabusByClass, upsertSyllabus } from "@/lib/syllabus";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
+
+const syllabusQuerySchema = v.object<{ classId: string }>(
+  {
+    classId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+const upsertSyllabusBodySchema = v.object<{
+  classId?: string;
+  summary?: string;
+  objectives?: string;
+  gradingPolicy?: string;
+  scheduleText?: string;
+}>(
+  {
+    classId: v.optional(v.string({ allowEmpty: true, trim: false })),
+    summary: v.optional(v.string({ allowEmpty: true, trim: false })),
+    objectives: v.optional(v.string({ allowEmpty: true, trim: false })),
+    gradingPolicy: v.optional(v.string({ allowEmpty: true, trim: false })),
+    scheduleText: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
 
 async function canAccessClass(userId: string, role: string, classId: string) {
   const klass = await getClassById(classId);
@@ -25,49 +50,46 @@ async function canAccessClass(userId: string, role: string, classId: string) {
   return null;
 }
 
-export async function GET(request: Request) {
+export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const { searchParams } = new URL(request.url);
-  const classId = searchParams.get("classId");
-  if (!classId) {
-    return NextResponse.json({ error: "missing classId" }, { status: 400 });
-  }
+
+  const query = parseSearchParams(request, syllabusQuerySchema);
+  const classId = query.classId;
   const klass = await canAccessClass(user.id, user.role, classId);
   if (!klass) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
-  const syllabus = await getSyllabusByClass(classId);
-  return NextResponse.json({ data: syllabus, class: klass });
-}
 
-export async function POST(request: Request) {
+  const syllabus = await getSyllabusByClass(classId);
+  return { data: syllabus, class: klass };
+});
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "teacher") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
-  const body = (await request.json()) as {
-    classId?: string;
-    summary?: string;
-    objectives?: string;
-    gradingPolicy?: string;
-    scheduleText?: string;
-  };
-  if (!body.classId) {
-    return NextResponse.json({ error: "missing classId" }, { status: 400 });
+
+  const body = await parseJson(request, upsertSyllabusBodySchema);
+  const classId = body.classId?.trim();
+  if (!classId) {
+    badRequest("missing classId");
   }
-  const klass = await canAccessClass(user.id, user.role, body.classId);
+
+  const klass = await canAccessClass(user.id, user.role, classId);
   if (!klass) {
-    return NextResponse.json({ error: "class not found" }, { status: 404 });
+    notFound("class not found");
   }
+
   const syllabus = await upsertSyllabus({
-    classId: body.classId,
+    classId,
     summary: body.summary ?? "",
     objectives: body.objectives ?? "",
     gradingPolicy: body.gradingPolicy ?? "",
     scheduleText: body.scheduleText ?? ""
   });
-  return NextResponse.json({ data: syllabus });
-}
+  return { data: syllabus };
+});

@@ -1,56 +1,56 @@
-import { NextResponse } from "next/server";
 import { requireRole } from "@/lib/guard";
 import { createKnowledgePoint, getKnowledgePoints } from "@/lib/content";
 import { generateKnowledgeTreeDraft } from "@/lib/ai";
 import { addAdminLog } from "@/lib/admin-log";
-import type { Subject } from "@/lib/types";
-import { SUBJECT_OPTIONS } from "@/lib/constants";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import {
+  generateKnowledgeTreeBodySchema,
+  isAllowedSubject
+} from "@/lib/api/schemas/admin";
+import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
-
-const ALLOWED_SUBJECTS: Subject[] = SUBJECT_OPTIONS.map((item) => item.value as Subject);
 
 function normalizeKey(unit: string, chapter: string, title: string) {
   return `${unit}`.toLowerCase().replace(/\s+/g, "") + "|" + `${chapter}`.toLowerCase().replace(/\s+/g, "") + "|" + `${title}`.toLowerCase().replace(/\s+/g, "");
 }
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const user = await requireRole("admin");
   if (!user) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    edition?: string;
-    volume?: string;
-    unitCount?: number;
-  };
+  const body = await parseJson(request, generateKnowledgeTreeBodySchema);
+  const subject = body.subject?.trim();
+  const grade = body.grade?.trim();
+  const edition = body.edition?.trim() || "人教版";
+  const volume = body.volume?.trim() || "上册";
 
-  if (!body.subject || !body.grade) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  if (!subject || !grade) {
+    badRequest("missing fields");
   }
-  if (!ALLOWED_SUBJECTS.includes(body.subject as Subject)) {
-    return NextResponse.json({ error: "invalid subject" }, { status: 400 });
+  if (!isAllowedSubject(subject)) {
+    badRequest("invalid subject");
   }
 
-  const subject = body.subject as Subject;
   const draft = await generateKnowledgeTreeDraft({
     subject,
-    grade: body.grade,
-    edition: body.edition ?? "人教版",
-    volume: body.volume ?? "上册",
+    grade,
+    edition,
+    volume,
     unitCount: body.unitCount
   });
 
   if (!draft) {
-    return NextResponse.json({ error: "AI 生成失败，请检查模型配置" }, { status: 400 });
+    badRequest("AI 生成失败，请检查模型配置");
   }
 
-  const existing = (await getKnowledgePoints()).filter((kp) => kp.subject === subject && kp.grade === body.grade);
+  const existing = (await getKnowledgePoints()).filter(
+    (kp) => kp.subject === subject && kp.grade === grade
+  );
   const existingKeys = new Set(existing.map((kp) => normalizeKey(kp.unit ?? "未分单元", kp.chapter, kp.title)));
 
-  const created: any[] = [];
+  const created: Array<{ id: string }> = [];
   const skipped: { index: number; reason: string }[] = [];
 
   let index = 0;
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
         }
         const next = await createKnowledgePoint({
           subject,
-          grade: body.grade,
+          grade,
           title: point.title,
           chapter: chapter.title,
           unit: unit.title
@@ -92,5 +92,5 @@ export async function POST(request: Request) {
     detail: `created=${created.length}, skipped=${skipped.length}`
   });
 
-  return NextResponse.json({ created, skipped });
-}
+  return { created, skipped };
+});

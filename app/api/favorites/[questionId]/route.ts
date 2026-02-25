@@ -1,46 +1,65 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getFavoriteByUserQuestion, removeFavorite, upsertFavorite } from "@/lib/favorites";
+import { unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, parseParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_: Request, context: { params: { questionId: string } }) {
+const favoriteParamsSchema = v.object<{ questionId: string }>(
+  {
+    questionId: v.string({ minLength: 1 })
+  },
+  { allowUnknown: true }
+);
+
+const updateFavoriteBodySchema = v.object<{ tags?: string[]; note?: string }>(
+  {
+    tags: v.optional(v.array(v.string({ allowEmpty: true, trim: false }))),
+    note: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
+
+export const GET = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const favorite = await getFavoriteByUserQuestion(user.id, context.params.questionId);
-  return NextResponse.json({ data: favorite });
-}
+  const params = parseParams(context.params, favoriteParamsSchema);
+  const favorite = await getFavoriteByUserQuestion(user.id, params.questionId);
+  return { data: favorite };
+});
 
-export async function PATCH(request: Request, context: { params: { questionId: string } }) {
+export const PATCH = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { tags?: string[]; note?: string };
+  const params = parseParams(context.params, favoriteParamsSchema);
+  const body = await parseJson(request, updateFavoriteBodySchema);
   const tags = Array.isArray(body.tags)
     ? body.tags.map((item) => String(item).trim()).filter(Boolean)
     : undefined;
 
   const record = await upsertFavorite({
     userId: user.id,
-    questionId: context.params.questionId,
+    questionId: params.questionId,
     tags,
     note: body.note
   });
 
-  return NextResponse.json({ data: record });
-}
+  return { data: record };
+});
 
-export async function DELETE(_: Request, context: { params: { questionId: string } }) {
+export const DELETE = withApi(async (_request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const removed = await removeFavorite(user.id, context.params.questionId);
-  return NextResponse.json({ removed });
-}
+  const params = parseParams(context.params, favoriteParamsSchema);
+  const removed = await removeFavorite(user.id, params.questionId);
+  return { removed };
+});

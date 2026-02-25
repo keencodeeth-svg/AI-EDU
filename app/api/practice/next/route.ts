@@ -1,23 +1,35 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { getAdaptiveQuestions, getPracticeQuestions, getWrongQuestionIds } from "@/lib/progress";
 import { getDueReviewQuestions } from "@/lib/memory";
 import { getQuestions } from "@/lib/content";
 import { getStudentProfile } from "@/lib/profiles";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
+
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const nextQuestionBodySchema = v.object<{
+  subject?: string;
+  grade?: string;
+  knowledgePointId?: string;
+  mode?: "normal" | "challenge" | "timed" | "wrong" | "adaptive" | "review";
+}>(
+  {
+    subject: v.optional(v.string({ minLength: 1 })),
+    grade: v.optional(v.string({ minLength: 1 })),
+    knowledgePointId: v.optional(v.string({ minLength: 1 })),
+    mode: v.optional(v.enum(["normal", "challenge", "timed", "wrong", "adaptive", "review"] as const))
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as {
-    subject?: string;
-    grade?: string;
-    knowledgePointId?: string;
-    mode?: string;
-  };
+  const body = await parseJson(request, nextQuestionBodySchema);
   const subject = body.subject ?? "math";
   const profile = await getStudentProfile(user.id);
   const grade = body.grade ?? profile?.grade ?? (user.grade ?? "4");
@@ -52,15 +64,15 @@ export async function POST(request: Request) {
   const question = questions[Math.floor(Math.random() * questions.length)];
 
   if (!question) {
-    return NextResponse.json({ error: "no questions" }, { status: 404 });
+    notFound("no questions");
   }
 
-  return NextResponse.json({
+  return {
     question: {
       id: question.id,
       stem: question.stem,
       options: question.options,
       knowledgePointId: question.knowledgePointId
     }
-  });
-}
+  };
+});

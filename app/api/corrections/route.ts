@@ -1,8 +1,17 @@
-import { NextResponse } from "next/server";
 import { getStudentContext } from "@/lib/user-context";
 import { getCorrectionTasksByUser, addCorrectionTasks } from "@/lib/corrections";
 import { getQuestions } from "@/lib/content";
+import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
+
+const createCorrectionsBodySchema = v.object<{ questionIds?: string[]; dueDate?: string }>(
+  {
+    questionIds: v.optional(v.array(v.string({ allowEmpty: true, trim: false }))),
+    dueDate: v.optional(v.string({ allowEmpty: true, trim: false }))
+  },
+  { allowUnknown: false }
+);
 
 function parseDueDate(input?: string) {
   if (!input) {
@@ -22,10 +31,10 @@ function parseDueDate(input?: string) {
   return due.toISOString();
 }
 
-export async function GET() {
+export const GET = withApi(async () => {
   const student = await getStudentContext();
   if (!student) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
   const tasks = await getCorrectionTasksByUser(student.id);
@@ -40,7 +49,7 @@ export async function GET() {
     return diff >= 0 && diff <= 2 * 24 * 60 * 60 * 1000;
   });
 
-  return NextResponse.json({
+  return {
     data: tasks.map((task) => ({
       ...task,
       question: questionMap.get(task.questionId) ?? null
@@ -51,19 +60,19 @@ export async function GET() {
       dueSoon: dueSoon.length,
       completed: tasks.filter((t) => t.status === "completed").length
     }
-  });
-}
+  };
+});
 
-export async function POST(request: Request) {
+export const POST = withApi(async (request) => {
   const student = await getStudentContext();
   if (!student) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { questionIds?: string[]; dueDate?: string };
+  const body = await parseJson(request, createCorrectionsBodySchema);
   const questionIds = Array.isArray(body.questionIds) ? body.questionIds.filter(Boolean) : [];
   if (!questionIds.length) {
-    return NextResponse.json({ error: "questionIds required" }, { status: 400 });
+    badRequest("questionIds required");
   }
 
   const uniqueIds = Array.from(new Set(questionIds));
@@ -74,5 +83,5 @@ export async function POST(request: Request) {
     dueDate
   });
 
-  return NextResponse.json(result);
-}
+  return result;
+});

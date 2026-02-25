@@ -1,24 +1,34 @@
-import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { getCurrentUser } from "@/lib/auth";
 import { getQuestions } from "@/lib/content";
 import { addAttempt } from "@/lib/progress";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
+
 export const dynamic = "force-dynamic";
 
-export async function POST(request: Request) {
+const submitBodySchema = v.object<{
+  questionId: string;
+  answer: string;
+}>(
+  {
+    questionId: v.string({ minLength: 1 }),
+    answer: v.string({ minLength: 1 })
+  },
+  { allowUnknown: false }
+);
+
+export const POST = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
 
-  const body = (await request.json()) as { questionId?: string; answer?: string };
-  if (!body.questionId || !body.answer) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
-  }
+  const body = await parseJson(request, submitBodySchema);
 
   const question = (await getQuestions()).find((q) => q.id === body.questionId);
   if (!question) {
-    return NextResponse.json({ error: "not found" }, { status: 404 });
+    notFound("not found");
   }
 
   const correct = body.answer === question.answer;
@@ -33,9 +43,9 @@ export async function POST(request: Request) {
     createdAt: new Date().toISOString()
   });
 
-  return NextResponse.json({
+  return {
     correct,
     answer: question.answer,
     explanation: question.explanation
-  });
-}
+  };
+});

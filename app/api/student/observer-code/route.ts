@@ -1,23 +1,23 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { ensureObserverCode, rotateObserverCode } from "@/lib/profiles";
+import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const code = await ensureObserverCode(user.id);
-  return NextResponse.json({ data: { code } });
-}
+  return { data: { code } };
+});
 
-export async function POST() {
+export const POST = withApi(async () => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    unauthorized();
   }
   const code = await rotateObserverCode(user.id);
-  return NextResponse.json({ data: { code } });
-}
+  return { data: { code } };
+});

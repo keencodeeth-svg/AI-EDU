@@ -1,41 +1,62 @@
-import { NextResponse } from "next/server";
 import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
-import { getClassById, getClassStudentIds, getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
+import { getClassById, getClassStudentIds, getClassesByStudent } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { createThread, getThreadsForUser } from "@/lib/inbox";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
-  const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const data = await getThreadsForUser(user.id);
-  return NextResponse.json({ data });
-}
+const createThreadBodySchema = v.object<{
+  subject?: string;
+  content?: string;
+  recipientIds?: string[];
+  classId?: string;
+  includeParents?: boolean;
+}>(
+  {
+    subject: v.optional(v.string({ allowEmpty: true, trim: false })),
+    content: v.optional(v.string({ allowEmpty: true, trim: false })),
+    recipientIds: v.optional(v.array(v.string({ minLength: 1 }))),
+    classId: v.optional(v.string({ minLength: 1 })),
+    includeParents: v.optional(v.boolean())
+  },
+  { allowUnknown: false }
+);
 
-export async function POST(request: Request) {
+export const GET = withApi(async () => {
   const user = await getCurrentUser();
-  if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-  const body = (await request.json()) as {
-    subject?: string;
-    content?: string;
-    recipientIds?: string[];
-    classId?: string;
-    includeParents?: boolean;
-  };
-  if (!body.subject || !body.content) {
-    return NextResponse.json({ error: "missing fields" }, { status: 400 });
+  if (!user) {
+    unauthorized();
+  }
+  const data = await getThreadsForUser(user.id);
+  return { data };
+});
+
+export const POST = withApi(async (request) => {
+  const user = await getCurrentUser();
+  if (!user) {
+    unauthorized();
+  }
+
+  const body = await parseJson(request, createThreadBodySchema);
+  const subject = body.subject?.trim();
+  const content = body.content?.trim();
+  if (!subject || !content) {
+    badRequest("missing fields");
   }
 
   let recipientIds = (body.recipientIds ?? []).filter(Boolean);
 
   if (body.classId) {
     const klass = await getClassById(body.classId);
-    if (!klass) return NextResponse.json({ error: "class not found" }, { status: 404 });
+    if (!klass) {
+      notFound("class not found");
+    }
 
     if (user.role === "teacher") {
       if (klass.teacherId !== user.id) {
-        return NextResponse.json({ error: "class not found" }, { status: 404 });
+        notFound("class not found");
       }
       const studentIds = await getClassStudentIds(klass.id);
       recipientIds = studentIds;
@@ -56,30 +77,30 @@ export async function POST(request: Request) {
             ? await getClassesByStudent(student.id)
             : [];
       if (!classes.find((item) => item.id === klass.id)) {
-        return NextResponse.json({ error: "class not found" }, { status: 404 });
+        notFound("class not found");
       }
       if (!klass.teacherId) {
-        return NextResponse.json({ error: "class has no teacher" }, { status: 400 });
+        badRequest("class has no teacher");
       }
       recipientIds = [klass.teacherId];
     }
   }
 
   if (!recipientIds.length) {
-    return NextResponse.json({ error: "missing recipients" }, { status: 400 });
+    badRequest("missing recipients");
   }
 
   const uniqueRecipients = Array.from(new Set(recipientIds.filter((id) => id !== user.id)));
   if (!uniqueRecipients.length) {
-    return NextResponse.json({ error: "invalid recipients" }, { status: 400 });
+    badRequest("invalid recipients");
   }
 
   const result = await createThread({
-    subject: body.subject,
+    subject,
     senderId: user.id,
     recipientIds: uniqueRecipients,
-    content: body.content
+    content
   });
 
-  return NextResponse.json({ data: result });
-}
+  return { data: result };
+});
