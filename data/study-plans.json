@@ -10,5 +10,143 @@
         "dueDate": "2026-02-23T11:58:50.075Z"
       }
     ]
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "math",
+    "createdAt": "2026-02-25T11:57:11.177Z",
+    "items": [
+      {
+        "knowledgePointId": "math-g4-fractions-meaning",
+        "targetCount": 5,
+        "dueDate": "2026-02-25T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-math-4-1",
+        "targetCount": 5,
+        "dueDate": "2026-02-26T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-math-4-2",
+        "targetCount": 5,
+        "dueDate": "2026-02-27T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-math-4-3",
+        "targetCount": 5,
+        "dueDate": "2026-02-28T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-math-7-1",
+        "targetCount": 5,
+        "dueDate": "2026-03-01T11:57:11.177Z"
+      }
+    ]
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "chinese",
+    "createdAt": "2026-02-25T11:57:11.177Z",
+    "items": [
+      {
+        "knowledgePointId": "chinese-g5-reading",
+        "targetCount": 5,
+        "dueDate": "2026-02-25T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-chinese-4-1",
+        "targetCount": 5,
+        "dueDate": "2026-02-26T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-chinese-4-2",
+        "targetCount": 5,
+        "dueDate": "2026-02-27T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-chinese-4-3",
+        "targetCount": 5,
+        "dueDate": "2026-02-28T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-chinese-7-1",
+        "targetCount": 5,
+        "dueDate": "2026-03-01T11:57:11.177Z"
+      }
+    ]
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "english",
+    "createdAt": "2026-02-25T11:57:11.177Z",
+    "items": [
+      {
+        "knowledgePointId": "english-g3-phonics",
+        "targetCount": 5,
+        "dueDate": "2026-02-25T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-english-4-1",
+        "targetCount": 5,
+        "dueDate": "2026-02-26T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-english-4-2",
+        "targetCount": 5,
+        "dueDate": "2026-02-27T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-english-4-3",
+        "targetCount": 5,
+        "dueDate": "2026-02-28T11:57:11.177Z"
+      },
+      {
+        "knowledgePointId": "kp-english-7-1",
+        "targetCount": 5,
+        "dueDate": "2026-03-01T11:57:11.177Z"
+      }
+    ]
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "science",
+    "createdAt": "2026-02-25T11:57:11.177Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "physics",
+    "createdAt": "2026-02-25T11:57:11.177Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "chemistry",
+    "createdAt": "2026-02-25T11:57:11.178Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "biology",
+    "createdAt": "2026-02-25T11:57:11.178Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "history",
+    "createdAt": "2026-02-25T11:57:11.178Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "geography",
+    "createdAt": "2026-02-25T11:57:11.178Z",
+    "items": []
+  },
+  {
+    "userId": "u-9cbdec477750",
+    "subject": "politics",
+    "createdAt": "2026-02-25T11:57:11.178Z",
+    "items": []
   }
 ]

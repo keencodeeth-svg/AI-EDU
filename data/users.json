@@ -298,5 +298,13 @@
     "role": "parent",
     "studentId": "u-student-bulk-008",
     "password": "plain:Parent123"
+  },
+  {
+    "id": "u-9cbdec477750",
+    "email": "11",
+    "name": "1",
+    "role": "student",
+    "grade": "4",
+    "password": "plain:11"
   }
 ]
