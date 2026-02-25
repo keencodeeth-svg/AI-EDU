@@ -14,6 +14,15 @@ type Question = {
   knowledgePointId: string;
 };
 
+type WrongBookItem = Question & {
+  weaknessRank?: number | null;
+  lastAttemptAt?: string | null;
+  nextReviewAt?: string | null;
+  intervalLevel?: number | null;
+  intervalLabel?: string | null;
+  lastReviewResult?: "correct" | "wrong" | null;
+};
+
 type CorrectionTask = {
   id: string;
   questionId: string;
@@ -31,6 +40,37 @@ type Summary = {
   completed: number;
 };
 
+type ReviewQueueItem = {
+  id: string;
+  questionId: string;
+  intervalLevel: number;
+  intervalLabel: string;
+  nextReviewAt: string | null;
+  lastReviewResult: "correct" | "wrong" | null;
+  lastReviewAt: string | null;
+  reviewCount: number;
+  status: "active" | "completed";
+  question: {
+    id: string;
+    stem: string;
+    options: string[];
+    subject: string;
+    grade: string;
+    knowledgePointId: string;
+  } | null;
+};
+
+type ReviewQueueData = {
+  summary: {
+    totalActive: number;
+    dueToday: number;
+    overdue: number;
+    upcoming: number;
+  };
+  today: ReviewQueueItem[];
+  upcoming: ReviewQueueItem[];
+};
+
 function toDateInputValue(date: Date) {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -38,11 +78,25 @@ function toDateInputValue(date: Date) {
   return `${year}-${month}-${day}`;
 }
 
+function formatDate(value?: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleDateString("zh-CN");
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "-";
+  return new Date(value).toLocaleString("zh-CN");
+}
+
 export default function WrongBookPage() {
-  const [list, setList] = useState<Question[]>([]);
+  const [list, setList] = useState<WrongBookItem[]>([]);
   const [tasks, setTasks] = useState<CorrectionTask[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
+  const [reviewQueue, setReviewQueue] = useState<ReviewQueueData | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [reviewAnswers, setReviewAnswers] = useState<Record<string, string>>({});
+  const [reviewSubmitting, setReviewSubmitting] = useState<Record<string, boolean>>({});
+  const [reviewMessages, setReviewMessages] = useState<Record<string, string>>({});
   const [message, setMessage] = useState<string | null>(null);
   const [errors, setErrors] = useState<string[]>([]);
 
@@ -55,12 +109,18 @@ export default function WrongBookPage() {
   const [dueDate, setDueDate] = useState(defaultDueDate);
 
   async function load() {
-    const [wrongRes, taskRes] = await Promise.all([fetch("/api/wrong-book"), fetch("/api/corrections")]);
+    const [wrongRes, taskRes, queueRes] = await Promise.all([
+      fetch("/api/wrong-book"),
+      fetch("/api/corrections"),
+      fetch("/api/wrong-book/review-queue")
+    ]);
     const wrongData = await wrongRes.json();
     const taskData = await taskRes.json();
+    const queueData = await queueRes.json();
     setList(wrongData.data ?? []);
     setTasks(taskData.data ?? []);
     setSummary(taskData.summary ?? null);
+    setReviewQueue(queueData.data ?? null);
   }
 
   useEffect(() => {
@@ -109,9 +169,38 @@ export default function WrongBookPage() {
     load();
   }
 
-  function formatDate(value?: string) {
-    if (!value) return "-";
-    return new Date(value).toLocaleDateString("zh-CN");
+  async function submitReview(item: ReviewQueueItem) {
+    const answer = reviewAnswers[item.questionId];
+    if (!answer) {
+      setReviewMessages((prev) => ({ ...prev, [item.questionId]: "请先选择答案。" }));
+      return;
+    }
+
+    setReviewSubmitting((prev) => ({ ...prev, [item.questionId]: true }));
+    setReviewMessages((prev) => ({ ...prev, [item.questionId]: "" }));
+
+    const res = await fetch("/api/wrong-book/review-result", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questionId: item.questionId, answer })
+    });
+    const data = await res.json();
+
+    if (!res.ok) {
+      setReviewMessages((prev) => ({ ...prev, [item.questionId]: data?.error ?? "提交失败" }));
+      setReviewSubmitting((prev) => ({ ...prev, [item.questionId]: false }));
+      return;
+    }
+
+    const nextSlot = data?.review?.intervalLabel ? `，下一轮：${data.review.intervalLabel}` : "";
+    const nextDate = data?.nextReviewAt ? `（${formatDateTime(data.nextReviewAt)}）` : "";
+    setReviewMessages((prev) => ({
+      ...prev,
+      [item.questionId]: `${data.correct ? "复练正确" : "复练错误"}${nextSlot}${nextDate}`
+    }));
+    setReviewAnswers((prev) => ({ ...prev, [item.questionId]: "" }));
+    setReviewSubmitting((prev) => ({ ...prev, [item.questionId]: false }));
+    await load();
   }
 
   return (
@@ -119,10 +208,85 @@ export default function WrongBookPage() {
       <div className="section-head">
         <div>
           <h2>错题与订正</h2>
-          <div className="section-sub">错题复盘 + 订正计划。</div>
+          <div className="section-sub">错题复盘 + 间隔复练 + 订正计划。</div>
         </div>
-        <span className="chip">错题管理</span>
+        <span className="chip">错题闭环</span>
       </div>
+
+      <Card title="今日复练清单" tag="24h / 72h / 7d">
+        <div className="grid grid-3">
+          <div className="card">
+            <div className="section-title">今日应复练</div>
+            <p>{reviewQueue?.summary?.dueToday ?? 0} 题</p>
+          </div>
+          <div className="card">
+            <div className="section-title">逾期</div>
+            <p>{reviewQueue?.summary?.overdue ?? 0} 题</p>
+          </div>
+          <div className="card">
+            <div className="section-title">后续排队</div>
+            <p>{reviewQueue?.summary?.upcoming ?? 0} 题</p>
+          </div>
+        </div>
+
+        <div className="grid" style={{ gap: 12, marginTop: 12 }}>
+          {!reviewQueue?.today?.length ? <p>今日暂无到期复练，继续保持。</p> : null}
+          {(reviewQueue?.today ?? []).map((item) => (
+            <div className="card" key={item.id}>
+              <div className="section-title">{item.question?.stem ?? "题目已删除"}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
+                节奏：{item.intervalLabel} · 应复练时间：{formatDateTime(item.nextReviewAt)}
+              </div>
+              {item.question?.options?.length ? (
+                <div className="grid" style={{ gap: 8, marginTop: 10 }}>
+                  {item.question.options.map((option) => (
+                    <label className="card" key={`${item.id}-${option}`} style={{ cursor: "pointer" }}>
+                      <input
+                        type="radio"
+                        name={`review-${item.questionId}`}
+                        checked={reviewAnswers[item.questionId] === option}
+                        onChange={() =>
+                          setReviewAnswers((prev) => ({
+                            ...prev,
+                            [item.questionId]: option
+                          }))
+                        }
+                        style={{ marginRight: 8 }}
+                      />
+                      {option}
+                    </label>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ marginTop: 10 }}>题目选项缺失，暂不可复练。</p>
+              )}
+              <div className="cta-row" style={{ marginTop: 10 }}>
+                <button
+                  className="button primary"
+                  onClick={() => submitReview(item)}
+                  disabled={!item.question?.options?.length || Boolean(reviewSubmitting[item.questionId])}
+                >
+                  {reviewSubmitting[item.questionId] ? "提交中..." : "提交复练"}
+                </button>
+              </div>
+              {reviewMessages[item.questionId] ? (
+                <div style={{ marginTop: 8, fontSize: 12 }}>{reviewMessages[item.questionId]}</div>
+              ) : null}
+            </div>
+          ))}
+        </div>
+
+        {reviewQueue?.upcoming?.length ? (
+          <div className="grid" style={{ gap: 8, marginTop: 12 }}>
+            <div className="section-title">后续复练排期</div>
+            {reviewQueue.upcoming.slice(0, 5).map((item) => (
+              <div key={`upcoming-${item.id}`} style={{ fontSize: 13, color: "var(--ink-1)" }}>
+                {item.question?.stem ?? item.questionId} · {item.intervalLabel} · {formatDateTime(item.nextReviewAt)}
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </Card>
 
       <Card title="订正任务" tag="订正">
         <div className="grid grid-2">
@@ -154,7 +318,7 @@ export default function WrongBookPage() {
                 <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div className="badge">状态：{task.status === "completed" ? "已完成" : overdue ? "逾期" : "待订正"}</div>
                   {task.status === "completed" ? (
-                    <div className="badge">完成时间：{formatDate(task.completedAt ?? undefined)}</div>
+                    <div className="badge">完成时间：{formatDate(task.completedAt)}</div>
                   ) : (
                     <button className="button secondary" onClick={() => handleComplete(task.id)}>
                       标记完成
@@ -192,6 +356,11 @@ export default function WrongBookPage() {
                   <div>
                     <div className="section-title">{item.stem}</div>
                     <p>{item.explanation}</p>
+                    <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                      {item.nextReviewAt ? `下次复练：${formatDateTime(item.nextReviewAt)} · ` : ""}
+                      {item.intervalLabel ? `阶段：${item.intervalLabel} · ` : ""}
+                      {item.weaknessRank ? `薄弱排序：#${item.weaknessRank}` : ""}
+                    </div>
                   </div>
                 </label>
               </div>
@@ -218,6 +387,10 @@ export default function WrongBookPage() {
             <div className="card" key={item.id}>
               <div className="section-title">{item.stem}</div>
               <p>{item.explanation}</p>
+              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                最近答题：{formatDateTime(item.lastAttemptAt)} · 上次复练结果：{item.lastReviewResult ?? "-"} · 下次复练：
+                {formatDateTime(item.nextReviewAt)}
+              </div>
             </div>
           ))}
         </div>
@@ -225,3 +398,4 @@ export default function WrongBookPage() {
     </div>
   );
 }
+

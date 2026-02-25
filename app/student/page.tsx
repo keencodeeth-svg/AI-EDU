@@ -15,9 +15,17 @@ type PlanItem = {
   masteryLevel?: "weak" | "developing" | "strong";
 };
 
+type ReviewQueueSummary = {
+  totalActive: number;
+  dueToday: number;
+  overdue: number;
+  upcoming: number;
+};
+
 export default function StudentPage() {
   const [plan, setPlan] = useState<PlanItem[]>([]);
   const [motivation, setMotivation] = useState<{ streak: number; badges: any[]; weekly: any } | null>(null);
+  const [reviewQueueSummary, setReviewQueueSummary] = useState<ReviewQueueSummary | null>(null);
   const [joinCode, setJoinCode] = useState("");
   const [joinMessage, setJoinMessage] = useState<string | null>(null);
   const [joinRequests, setJoinRequests] = useState<any[]>([]);
@@ -36,6 +44,9 @@ export default function StudentPage() {
     fetch("/api/student/join-requests")
       .then((res) => res.json())
       .then((data) => setJoinRequests(data.data ?? []));
+    fetch("/api/wrong-book/review-queue")
+      .then((res) => res.json())
+      .then((data) => setReviewQueueSummary(data?.data?.summary ?? null));
   }, []);
 
   async function handleJoinClass(event: React.FormEvent) {
@@ -83,7 +94,7 @@ export default function StudentPage() {
         {plan.length === 0 ? (
           <p>尚未生成学习计划，请先完成诊断测评。</p>
         ) : (
-          <ul style={{ margin: 0, paddingLeft: 18 }}>
+          <ul style={{ margin: 0, paddingLeft: 18, display: "grid", gap: 4 }}>
             {plan.slice(0, 3).map((item) => (
               <li key={item.knowledgePointId}>
                 {item.subject ? `【${SUBJECT_LABELS[item.subject] ?? item.subject}】` : ""}练习 {item.targetCount} 题，截止{" "}
@@ -91,6 +102,10 @@ export default function StudentPage() {
                 {typeof item.masteryScore === "number" ? `，当前掌握 ${item.masteryScore} 分` : ""}
               </li>
             ))}
+            <li>
+              今日错题复练 {reviewQueueSummary?.dueToday ?? 0} 题
+              {reviewQueueSummary?.overdue ? `（逾期 ${reviewQueueSummary.overdue}）` : ""}
+            </li>
           </ul>
         )}
         <div className="cta-row" style={{ marginTop: 12 }}>

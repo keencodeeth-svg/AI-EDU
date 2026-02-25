@@ -129,6 +129,27 @@ CREATE TABLE IF NOT EXISTS correction_tasks (
 CREATE INDEX IF NOT EXISTS correction_tasks_user_idx ON correction_tasks (user_id);
 CREATE INDEX IF NOT EXISTS correction_tasks_due_idx ON correction_tasks (due_date);
 
+CREATE TABLE IF NOT EXISTS wrong_review_items (
+  id TEXT PRIMARY KEY,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  question_id TEXT REFERENCES questions(id) ON DELETE CASCADE,
+  subject TEXT NOT NULL,
+  knowledge_point_id TEXT NOT NULL,
+  interval_level INT NOT NULL DEFAULT 1,
+  next_review_at TIMESTAMPTZ,
+  last_review_result TEXT,
+  last_review_at TIMESTAMPTZ,
+  review_count INT NOT NULL DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'active',
+  first_wrong_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (user_id, question_id)
+);
+
+CREATE INDEX IF NOT EXISTS wrong_review_items_user_idx ON wrong_review_items (user_id);
+CREATE INDEX IF NOT EXISTS wrong_review_items_next_idx ON wrong_review_items (next_review_at);
+
 CREATE TABLE IF NOT EXISTS memory_reviews (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

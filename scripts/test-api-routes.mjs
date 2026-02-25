@@ -236,10 +236,11 @@ async function run() {
       method: "POST",
       json: {
         questionId: practiceNext.body.question.id,
-        answer: practiceNext.body.question.options?.[0] ?? "A"
+        answer: "__API_TEST_WRONG__"
       }
     });
     assert.equal(practiceSubmit.status, 200, `POST /api/practice/submit failed: ${practiceSubmit.raw}`);
+    assert.equal(practiceSubmit.body?.correct, false, "Practice submit should be wrong with sentinel answer");
     assert.equal(typeof practiceSubmit.body?.masteryScore, "number", "Practice submit should return masteryScore");
     assert.equal(typeof practiceSubmit.body?.masteryDelta, "number", "Practice submit should return masteryDelta");
     assert.equal(
@@ -269,6 +270,35 @@ async function run() {
       Array.isArray(studentRadar.body?.data?.mastery?.weakKnowledgePoints),
       "Radar response should include mastery.weakKnowledgePoints"
     );
+
+    const wrongBook = await apiFetch("/api/wrong-book");
+    assert.equal(wrongBook.status, 200, `GET /api/wrong-book failed: ${wrongBook.raw}`);
+    assert.ok(Array.isArray(wrongBook.body?.data), "Wrong-book response should include data array");
+    const wrongItem = (wrongBook.body?.data ?? []).find((item) => item.id === practiceNext.body.question.id);
+    assert.ok(wrongItem, "Wrong-book should include the latest wrong question");
+    assert.equal(typeof wrongItem?.nextReviewAt, "string", "Wrong-book item should include nextReviewAt");
+    assert.equal(wrongItem?.intervalLevel, 1, "Wrong-book item should start at intervalLevel 1");
+    assert.equal(wrongItem?.lastReviewResult, "wrong", "Wrong-book item should mark lastReviewResult=wrong");
+
+    const reviewQueue = await apiFetch("/api/wrong-book/review-queue");
+    assert.equal(reviewQueue.status, 200, `GET /api/wrong-book/review-queue failed: ${reviewQueue.raw}`);
+    assert.equal(typeof reviewQueue.body?.data?.summary?.dueToday, "number");
+    const queueItems = [...(reviewQueue.body?.data?.today ?? []), ...(reviewQueue.body?.data?.upcoming ?? [])];
+    const queueItem = queueItems.find((item) => item.questionId === practiceNext.body.question.id);
+    assert.ok(queueItem, "Review queue should include newly wrong question");
+    assert.equal(queueItem?.intervalLevel, 1, "Review queue item should start at intervalLevel 1");
+
+    const reviewResult = await apiFetch("/api/wrong-book/review-result", {
+      method: "POST",
+      json: {
+        questionId: practiceNext.body.question.id,
+        answer: wrongItem.answer
+      }
+    });
+    assert.equal(reviewResult.status, 200, `POST /api/wrong-book/review-result failed: ${reviewResult.raw}`);
+    assert.equal(reviewResult.body?.correct, true, "Review result should accept correct answer");
+    assert.equal(reviewResult.body?.intervalLevel, 2, "After one correct review, interval should move to level 2");
+    assert.equal(typeof reviewResult.body?.nextReviewAt, "string", "Review result should include nextReviewAt");
 
     const adminEmail = process.env.API_TEST_ADMIN_EMAIL || "admin@demo.com";
     const adminPassword = process.env.API_TEST_ADMIN_PASSWORD || "Admin123";

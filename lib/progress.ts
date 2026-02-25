@@ -7,6 +7,7 @@ import { updateMemorySchedule } from "./memory";
 import { getReviewItemsByStudent } from "./reviews";
 import { getFocusSessionsByUser } from "./focus";
 import { getFavoritesByUser } from "./favorites";
+import { enqueueWrongReview } from "./wrong-review";
 
 export type QuestionAttempt = {
   id: string;
@@ -102,6 +103,14 @@ export async function addAttempt(attempt: QuestionAttempt) {
       questionId: attempt.questionId,
       correct: attempt.correct
     });
+    if (!attempt.correct) {
+      await enqueueWrongReview({
+        userId: attempt.userId,
+        questionId: attempt.questionId,
+        subject: attempt.subject,
+        knowledgePointId: attempt.knowledgePointId
+      });
+    }
     return;
   }
   await query(
@@ -125,6 +134,14 @@ export async function addAttempt(attempt: QuestionAttempt) {
     questionId: attempt.questionId,
     correct: attempt.correct
   });
+  if (!attempt.correct) {
+    await enqueueWrongReview({
+      userId: attempt.userId,
+      questionId: attempt.questionId,
+      subject: attempt.subject,
+      knowledgePointId: attempt.knowledgePointId
+    });
+  }
 }
 
 export async function getAttemptsByUser(userId: string) {
