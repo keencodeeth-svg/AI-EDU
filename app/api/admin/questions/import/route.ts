@@ -1,7 +1,8 @@
-import { createQuestion } from "@/lib/content";
+import { createQuestion, getQuestions } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
 import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { evaluateAndUpsertQuestionQuality } from "@/lib/question-quality";
 import {
   importQuestionBodySchema,
   isAllowedSubject,
@@ -23,7 +24,14 @@ export const POST = withApi(async (request) => {
     badRequest("items required");
   }
 
-  const created: string[] = [];
+  const qualityCandidates = await getQuestions();
+  const created: Array<{
+    id: string;
+    qualityScore: number | null;
+    duplicateRisk: string | null;
+    ambiguityRisk: string | null;
+    answerConsistency: number | null;
+  }> = [];
   const failed: { index: number; reason: string }[] = [];
 
   for (const [index, item] of body.items.entries()) {
@@ -59,8 +67,23 @@ export const POST = withApi(async (request) => {
       tags: trimStringArray(item.tags),
       abilities: trimStringArray(item.abilities)
     });
-    if (next?.id) created.push(next.id);
-    else failed.push({ index, reason: "save failed" });
+    if (!next?.id) {
+      failed.push({ index, reason: "save failed" });
+      continue;
+    }
+
+    const quality = await evaluateAndUpsertQuestionQuality({
+      question: next,
+      candidates: qualityCandidates
+    });
+    qualityCandidates.push(next);
+    created.push({
+      id: next.id,
+      qualityScore: quality?.qualityScore ?? null,
+      duplicateRisk: quality?.duplicateRisk ?? null,
+      ambiguityRisk: quality?.ambiguityRisk ?? null,
+      answerConsistency: quality?.answerConsistency ?? null
+    });
   }
 
   await addAdminLog({
@@ -71,5 +94,5 @@ export const POST = withApi(async (request) => {
     detail: `created=${created.length}, failed=${failed.length}`
   });
 
-  return { created: created.length, failed };
+  return { created: created.length, failed, items: created };
 });

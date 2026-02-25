@@ -3,6 +3,7 @@ import { createQuestion, getKnowledgePoints, getQuestions } from "@/lib/content"
 import { generateQuestionDraft } from "@/lib/ai";
 import { addAdminLog } from "@/lib/admin-log";
 import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { evaluateAndUpsertQuestionQuality } from "@/lib/question-quality";
 import {
   generateBatchBodySchema,
   isAllowedSubject,
@@ -66,8 +67,15 @@ export const POST = withApi(async (request) => {
   const existing = (await getQuestions()).filter((q) => q.subject === subject && q.grade === grade);
   const existingStems = new Set(existing.map((q) => normalizeStem(q.stem)));
   const createdStems = new Set<string>();
+  const qualityCandidates = [...existing];
 
-  const created: Array<{ id: string }> = [];
+  const created: Array<{
+    id: string;
+    qualityScore: number | null;
+    duplicateRisk: string | null;
+    ambiguityRisk: string | null;
+    answerConsistency: number | null;
+  }> = [];
   const failed: { index: number; reason: string }[] = [];
 
   for (let i = 0; i < total; i += 1) {
@@ -117,7 +125,18 @@ export const POST = withApi(async (request) => {
       continue;
     }
 
-    created.push(next);
+    const quality = await evaluateAndUpsertQuestionQuality({
+      question: next,
+      candidates: qualityCandidates
+    });
+    qualityCandidates.push(next);
+    created.push({
+      id: next.id,
+      qualityScore: quality?.qualityScore ?? null,
+      duplicateRisk: quality?.duplicateRisk ?? null,
+      ambiguityRisk: quality?.ambiguityRisk ?? null,
+      answerConsistency: quality?.answerConsistency ?? null
+    });
   }
 
   await addAdminLog({

@@ -3,6 +3,7 @@ import { createQuestion, getKnowledgePoints, getQuestions } from "@/lib/content"
 import { generateQuestionDraft } from "@/lib/ai";
 import { addAdminLog } from "@/lib/admin-log";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { evaluateAndUpsertQuestionQuality } from "@/lib/question-quality";
 import {
   generateQuestionBodySchema,
   isAllowedSubject,
@@ -46,12 +47,20 @@ export const POST = withApi(async (request) => {
   }
 
   const total = Math.min(Math.max(Number(body.count) || 1, 1), 5);
-  const existing = (await getQuestions()).filter(
+  const allQuestions = await getQuestions();
+  const existing = allQuestions.filter(
     (q) => q.subject === subject && q.grade === grade && q.knowledgePointId === knowledgePointId
   );
   const existingStems = new Set(existing.map((q) => normalizeStem(q.stem)));
   const createdStems = new Set<string>();
-  const created: Array<{ id: string }> = [];
+  const qualityCandidates = allQuestions.filter((q) => q.subject === subject && q.grade === grade);
+  const created: Array<{
+    id: string;
+    qualityScore: number | null;
+    duplicateRisk: string | null;
+    ambiguityRisk: string | null;
+    answerConsistency: number | null;
+  }> = [];
   const failed: { index: number; reason: string }[] = [];
 
   for (let i = 0; i < total; i += 1) {
@@ -98,7 +107,18 @@ export const POST = withApi(async (request) => {
       failed.push({ index: i, reason: "保存题目失败" });
       continue;
     }
-    created.push(next);
+    const quality = await evaluateAndUpsertQuestionQuality({
+      question: next,
+      candidates: qualityCandidates
+    });
+    qualityCandidates.push(next);
+    created.push({
+      id: next.id,
+      qualityScore: quality?.qualityScore ?? null,
+      duplicateRisk: quality?.duplicateRisk ?? null,
+      ambiguityRisk: quality?.ambiguityRisk ?? null,
+      answerConsistency: quality?.answerConsistency ?? null
+    });
   }
 
   await addAdminLog({

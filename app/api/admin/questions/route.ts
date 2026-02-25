@@ -2,6 +2,7 @@ import { createQuestion, getQuestions } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
 import { badRequest, unauthorized, withApi } from "@/lib/api/http";
+import { attachQualityFields, evaluateAndUpsertQuestionQuality } from "@/lib/question-quality";
 import {
   createQuestionBodySchema,
   isAllowedSubject,
@@ -46,6 +47,7 @@ export const POST = withApi(async (request) => {
   const options = trimStringArray(body.options);
   const tags = trimStringArray(body.tags);
   const abilities = trimStringArray(body.abilities);
+  const qualityCandidates = await getQuestions();
 
   const next = await createQuestion({
     subject,
@@ -61,6 +63,13 @@ export const POST = withApi(async (request) => {
     abilities
   });
 
+  const quality = next
+    ? await evaluateAndUpsertQuestionQuality({
+        question: next,
+        candidates: qualityCandidates
+      })
+    : null;
+
   if (next) {
     await addAdminLog({
       adminId: user.id,
@@ -71,5 +80,5 @@ export const POST = withApi(async (request) => {
     });
   }
 
-  return { data: next };
+  return { data: next ? attachQualityFields(next, quality) : null };
 });

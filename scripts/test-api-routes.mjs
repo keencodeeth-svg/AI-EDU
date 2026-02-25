@@ -110,6 +110,7 @@ async function run() {
 
   let createdKnowledgePointId = null;
   let createdQuestionId = null;
+  const createdQuestionIds = new Set();
 
   try {
     await waitForServerReady();
@@ -474,6 +475,13 @@ async function run() {
     assert.equal(invalidQuestionImport.status, 400, "POST /api/admin/questions/import should validate body");
     assert.equal(invalidQuestionImport.body?.error, "items required");
 
+    const invalidQualityCheck = await apiFetch("/api/admin/questions/quality-check", {
+      method: "POST",
+      json: {}
+    });
+    assert.equal(invalidQualityCheck.status, 400, "POST /api/admin/questions/quality-check should validate body");
+    assert.equal(invalidQualityCheck.body?.error, "missing fields");
+
     const suffix = Date.now().toString(36);
     const createKnowledgePoint = await apiFetch("/api/admin/knowledge-points", {
       method: "POST",
@@ -523,6 +531,17 @@ async function run() {
     assert.equal(createQuestion.status, 200, `Create question failed: ${createQuestion.raw}`);
     createdQuestionId = createQuestion.body?.data?.id ?? null;
     assert.ok(createdQuestionId, "Question creation should return data.id");
+    createdQuestionIds.add(createdQuestionId);
+    assert.equal(
+      typeof createQuestion.body?.data?.qualityScore,
+      "number",
+      "Create question should include qualityScore"
+    );
+    assert.equal(
+      typeof createQuestion.body?.data?.answerConsistency,
+      "number",
+      "Create question should include answerConsistency"
+    );
 
     const patchQuestion = await apiFetch(`/api/admin/questions/${createdQuestionId}`, {
       method: "PATCH",
@@ -534,13 +553,69 @@ async function run() {
       "patched-by-api-test",
       "Question patch should update explanation"
     );
+    assert.equal(typeof patchQuestion.body?.data?.qualityScore, "number");
+
+    const qualityCheck = await apiFetch("/api/admin/questions/quality-check", {
+      method: "POST",
+      json: { questionId: createdQuestionId }
+    });
+    assert.equal(qualityCheck.status, 200, `POST /api/admin/questions/quality-check failed: ${qualityCheck.raw}`);
+    assert.equal(qualityCheck.body?.saved, true, "Quality check should save metric when questionId is provided");
+    assert.equal(
+      typeof qualityCheck.body?.data?.qualityScore,
+      "number",
+      "Quality check response should include qualityScore"
+    );
+
+    const qualityList = await apiFetch(`/api/admin/questions/quality?questionId=${createdQuestionId}`);
+    assert.equal(qualityList.status, 200, `GET /api/admin/questions/quality failed: ${qualityList.raw}`);
+    assert.ok(Array.isArray(qualityList.body?.data), "Quality list should include data array");
+    assert.equal(qualityList.body?.data?.[0]?.questionId, createdQuestionId);
+    assert.equal(
+      typeof qualityList.body?.summary?.averageQualityScore,
+      "number",
+      "Quality list should include summary.averageQualityScore"
+    );
+
+    const importQuestion = await apiFetch("/api/admin/questions/import", {
+      method: "POST",
+      json: {
+        items: [
+          {
+            subject: "math",
+            grade: "4",
+            knowledgePointId: createdKnowledgePointId,
+            stem: `API_TEST_IMPORT_QUESTION_${suffix}`,
+            options: ["A", "B", "C", "D"],
+            answer: "B",
+            explanation: "import quality test"
+          }
+        ]
+      }
+    });
+    assert.equal(importQuestion.status, 200, `POST /api/admin/questions/import failed: ${importQuestion.raw}`);
+    assert.equal(importQuestion.body?.created, 1, "Question import should create one item");
+    assert.ok(Array.isArray(importQuestion.body?.items), "Question import should return items array");
+    const importedItem = importQuestion.body?.items?.[0];
+    assert.ok(importedItem?.id, "Imported item should include id");
+    assert.equal(typeof importedItem?.qualityScore, "number", "Imported item should include qualityScore");
+    createdQuestionIds.add(importedItem.id);
 
     const deleteQuestion = await apiFetch(`/api/admin/questions/${createdQuestionId}`, {
       method: "DELETE"
     });
     assert.equal(deleteQuestion.status, 200, `DELETE /api/admin/questions/[id] failed: ${deleteQuestion.raw}`);
     assert.equal(deleteQuestion.body?.ok, true, "Delete question should return ok=true");
+    createdQuestionIds.delete(createdQuestionId);
     createdQuestionId = null;
+
+    for (const questionId of Array.from(createdQuestionIds)) {
+      const cleanupQuestion = await apiFetch(`/api/admin/questions/${questionId}`, {
+        method: "DELETE"
+      });
+      assert.equal(cleanupQuestion.status, 200, `Cleanup delete question failed: ${cleanupQuestion.raw}`);
+      createdQuestionIds.delete(questionId);
+    }
 
     const deleteKnowledgePoint = await apiFetch(`/api/admin/knowledge-points/${createdKnowledgePointId}`, {
       method: "DELETE"
@@ -563,12 +638,12 @@ async function run() {
     }
     throw error;
   } finally {
-    try {
-      if (createdQuestionId) {
-        await apiFetch(`/api/admin/questions/${createdQuestionId}`, { method: "DELETE" });
+    for (const questionId of createdQuestionIds) {
+      try {
+        await apiFetch(`/api/admin/questions/${questionId}`, { method: "DELETE" });
+      } catch {
+        // cleanup best effort
       }
-    } catch {
-      // cleanup best effort
     }
 
     try {

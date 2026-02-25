@@ -1,0 +1,111 @@
+import { getQuestions } from "@/lib/content";
+import { requireRole } from "@/lib/guard";
+import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseSearchParams } from "@/lib/api/validation";
+import { questionQualityQuerySchema } from "@/lib/api/schemas/admin";
+import { evaluateAndUpsertQuestionQuality, listQuestionQualityMetrics } from "@/lib/question-quality";
+
+export const dynamic = "force-dynamic";
+
+type QualityItem = {
+  questionId: string;
+  subject: string;
+  grade: string;
+  knowledgePointId: string;
+  stem: string;
+  qualityScore: number;
+  duplicateRisk: "low" | "medium" | "high";
+  ambiguityRisk: "low" | "medium" | "high";
+  answerConsistency: number;
+  issues: string[];
+  checkedAt: string | null;
+};
+
+function toQualityLevel(score: number) {
+  if (score >= 80) return "good";
+  if (score >= 60) return "watch";
+  return "bad";
+}
+
+export const GET = withApi(async (request) => {
+  const user = await requireRole("admin");
+  if (!user) {
+    unauthorized();
+  }
+
+  const parsed = parseSearchParams(request, questionQualityQuerySchema);
+  const questionId = parsed.questionId?.trim();
+  const subject = parsed.subject?.trim();
+  const grade = parsed.grade?.trim();
+  const limit = parsed.limit ? Math.min(parsed.limit, 300) : undefined;
+
+  const allQuestions = await getQuestions();
+  let filtered = allQuestions.filter((question) => {
+    if (questionId && question.id !== questionId) return false;
+    if (subject && question.subject !== subject) return false;
+    if (grade && question.grade !== grade) return false;
+    return true;
+  });
+
+  if (questionId && !filtered.length) {
+    notFound("question not found");
+  }
+
+  if (limit) {
+    filtered = filtered.slice(0, limit);
+  }
+
+  const existingMetrics = await listQuestionQualityMetrics({
+    questionIds: filtered.map((item) => item.id)
+  });
+  const metricMap = new Map(existingMetrics.map((item) => [item.questionId, item]));
+
+  for (const question of filtered) {
+    if (metricMap.has(question.id)) {
+      continue;
+    }
+    const metric = await evaluateAndUpsertQuestionQuality({
+      question,
+      candidates: allQuestions
+    });
+    if (metric) {
+      metricMap.set(question.id, metric);
+    }
+  }
+
+  const data: QualityItem[] = filtered.map((question) => {
+    const metric = metricMap.get(question.id);
+    return {
+      questionId: question.id,
+      subject: question.subject,
+      grade: question.grade,
+      knowledgePointId: question.knowledgePointId,
+      stem: question.stem,
+      qualityScore: metric?.qualityScore ?? 0,
+      duplicateRisk: metric?.duplicateRisk ?? "low",
+      ambiguityRisk: metric?.ambiguityRisk ?? "low",
+      answerConsistency: metric?.answerConsistency ?? 0,
+      issues: metric?.issues ?? [],
+      checkedAt: metric?.checkedAt ?? null
+    };
+  });
+
+  const summary = {
+    total: data.length,
+    averageQualityScore: data.length
+      ? Math.round(data.reduce((sum, item) => sum + item.qualityScore, 0) / data.length)
+      : 0,
+    highRiskCount: data.filter(
+      (item) =>
+        item.duplicateRisk === "high" || item.ambiguityRisk === "high" || toQualityLevel(item.qualityScore) === "bad"
+    ).length,
+    mediumRiskCount: data.filter(
+      (item) =>
+        item.duplicateRisk === "medium" ||
+        item.ambiguityRisk === "medium" ||
+        toQualityLevel(item.qualityScore) === "watch"
+    ).length
+  };
+
+  return { data, summary };
+});

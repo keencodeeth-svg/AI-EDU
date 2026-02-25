@@ -292,6 +292,44 @@ export const importQuestionBodySchema = v.object<{ items?: QuestionImportItem[] 
   { allowUnknown: false }
 );
 
+export const questionQualityCheckBodySchema = v.object<{
+  questionId?: string;
+  subject?: string;
+  grade?: string;
+  knowledgePointId?: string;
+  stem?: string;
+  options?: string[];
+  answer?: string;
+  explanation?: string;
+}>(
+  {
+    questionId: optionalRawString,
+    subject: optionalRawString,
+    grade: optionalRawString,
+    knowledgePointId: optionalRawString,
+    stem: optionalRawString,
+    options: optionalRawStringArray,
+    answer: optionalRawString,
+    explanation: optionalRawString
+  },
+  { allowUnknown: false }
+);
+
+export const questionQualityQuerySchema = v.object<{
+  questionId?: string;
+  subject?: string;
+  grade?: string;
+  limit?: number;
+}>(
+  {
+    questionId: optionalRawString,
+    subject: optionalRawString,
+    grade: optionalRawString,
+    limit: v.optional(v.number({ integer: true, min: 1, max: 300, coerce: true }))
+  },
+  { allowUnknown: true }
+);
+
 export const adminLogsQuerySchema = v.object<{ limit?: string }>(
   {
     limit: v.optional(v.string({ minLength: 1 }))

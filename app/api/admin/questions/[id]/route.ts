@@ -1,8 +1,13 @@
-import { deleteQuestion, updateQuestion } from "@/lib/content";
+import { deleteQuestion, getQuestions, updateQuestion } from "@/lib/content";
 import { requireRole } from "@/lib/guard";
 import { addAdminLog } from "@/lib/admin-log";
 import type { Question } from "@/lib/types";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import {
+  attachQualityFields,
+  deleteQuestionQualityMetric,
+  evaluateAndUpsertQuestionQuality
+} from "@/lib/question-quality";
 import {
   adminIdParamsSchema,
   isAllowedSubject,
@@ -99,6 +104,11 @@ export const PATCH = withApi(async (request, context) => {
     notFound("not found");
   }
 
+  const quality = await evaluateAndUpsertQuestionQuality({
+    question: next,
+    candidates: await getQuestions()
+  });
+
   await addAdminLog({
     adminId: user.id,
     action: "update_question",
@@ -107,7 +117,7 @@ export const PATCH = withApi(async (request, context) => {
     detail: `${next.subject} ${next.grade} ${next.knowledgePointId}`
   });
 
-  return { data: next };
+  return { data: attachQualityFields(next, quality) };
 });
 
 export const DELETE = withApi(async (_request, context) => {
@@ -121,6 +131,7 @@ export const DELETE = withApi(async (_request, context) => {
   if (!ok) {
     notFound("not found");
   }
+  await deleteQuestionQualityMetric(params.id);
 
   await addAdminLog({
     adminId: user.id,

@@ -61,6 +61,27 @@ ALTER TABLE questions ADD COLUMN IF NOT EXISTS question_type TEXT;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS tags TEXT[];
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS abilities TEXT[];
 
+CREATE TABLE IF NOT EXISTS question_quality_metrics (
+  id TEXT PRIMARY KEY,
+  question_id TEXT UNIQUE REFERENCES questions(id) ON DELETE CASCADE,
+  quality_score INT NOT NULL DEFAULT 0,
+  duplicate_risk TEXT NOT NULL DEFAULT 'low',
+  ambiguity_risk TEXT NOT NULL DEFAULT 'low',
+  answer_consistency INT NOT NULL DEFAULT 0,
+  issues TEXT[] NOT NULL DEFAULT '{}',
+  checked_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS quality_score INT NOT NULL DEFAULT 0;
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS duplicate_risk TEXT NOT NULL DEFAULT 'low';
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS ambiguity_risk TEXT NOT NULL DEFAULT 'low';
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS answer_consistency INT NOT NULL DEFAULT 0;
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS issues TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS checked_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE INDEX IF NOT EXISTS question_quality_metrics_question_idx ON question_quality_metrics (question_id);
+CREATE INDEX IF NOT EXISTS question_quality_metrics_score_idx ON question_quality_metrics (quality_score);
+
 CREATE TABLE IF NOT EXISTS question_attempts (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

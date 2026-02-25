@@ -27,6 +27,16 @@ type Question = {
   abilities?: string[];
 };
 
+type QuestionQuality = {
+  questionId: string;
+  qualityScore: number;
+  duplicateRisk: "low" | "medium" | "high";
+  ambiguityRisk: "low" | "medium" | "high";
+  answerConsistency: number;
+  issues: string[];
+  checkedAt: string | null;
+};
+
 const difficultyLabel: Record<string, string> = {
   easy: "简单",
   medium: "适中",
@@ -39,9 +49,16 @@ const questionTypeLabel: Record<string, string> = {
   short: "简答题"
 };
 
+const riskLabel: Record<"low" | "medium" | "high", string> = {
+  low: "低",
+  medium: "中",
+  high: "高"
+};
+
 export default function QuestionsAdminPage() {
   const [list, setList] = useState<Question[]>([]);
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
+  const [qualityMap, setQualityMap] = useState<Record<string, QuestionQuality>>({});
   const [loading, setLoading] = useState(false);
   const [importMessage, setImportMessage] = useState<string | null>(null);
   const [importErrors, setImportErrors] = useState<string[]>([]);
@@ -86,14 +103,21 @@ export default function QuestionsAdminPage() {
 
   async function load() {
     setLoading(true);
-    const [qRes, kpRes] = await Promise.all([
+    const [qRes, kpRes, qualityRes] = await Promise.all([
       fetch("/api/admin/questions"),
-      fetch("/api/admin/knowledge-points")
+      fetch("/api/admin/knowledge-points"),
+      fetch("/api/admin/questions/quality")
     ]);
     const qData = await qRes.json();
     const kpData = await kpRes.json();
+    const qualityData = qualityRes.ok ? await qualityRes.json() : { data: [] };
     setList(qData.data ?? []);
     setKnowledgePoints(kpData.data ?? []);
+    const map: Record<string, QuestionQuality> = {};
+    (qualityData.data ?? []).forEach((item: QuestionQuality) => {
+      map[item.questionId] = item;
+    });
+    setQualityMap(map);
     setLoading(false);
   }
 
@@ -267,7 +291,12 @@ export default function QuestionsAdminPage() {
       setImportErrors([data?.error ?? "导入失败"]);
       return;
     }
-    setImportMessage(`已导入 ${data.created} 题，失败 ${data.failed?.length ?? 0} 条。`);
+    const highRiskCount = (data.items ?? []).filter(
+      (item: any) => item.duplicateRisk === "high" || item.ambiguityRisk === "high"
+    ).length;
+    setImportMessage(
+      `已导入 ${data.created} 题，失败 ${data.failed?.length ?? 0} 条，高风险 ${highRiskCount} 题。`
+    );
     setImportErrors(errors);
     load();
   }
@@ -316,7 +345,10 @@ export default function QuestionsAdminPage() {
     if (failed.length) {
       setAiErrors(failed.map((item: any) => `第 ${item.index + 1} 题：${item.reason}`));
     }
-    setAiMessage(`已生成 ${data.created?.length ?? 0} 题。`);
+    const highRiskCount = (data.created ?? []).filter(
+      (item: any) => item.duplicateRisk === "high" || item.ambiguityRisk === "high"
+    ).length;
+    setAiMessage(`已生成 ${data.created?.length ?? 0} 题，高风险 ${highRiskCount} 题。`);
     setAiLoading(false);
     load();
   }
@@ -652,6 +684,17 @@ export default function QuestionsAdminPage() {
         <div className="grid" style={{ gap: 8 }}>
           {list.map((item) => (
             <div className="card" key={item.id}>
+              {(() => {
+                const quality = qualityMap[item.id];
+                return quality ? (
+                  <div style={{ marginBottom: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <span className="badge">质量分 {quality.qualityScore}</span>
+                    <span className="badge">重复风险 {riskLabel[quality.duplicateRisk]}</span>
+                    <span className="badge">歧义风险 {riskLabel[quality.ambiguityRisk]}</span>
+                    <span className="badge">答案一致性 {quality.answerConsistency}</span>
+                  </div>
+                ) : null;
+              })()}
               <div className="section-title">{item.stem}</div>
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                 {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 · 难度{" "}
