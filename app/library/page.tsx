@@ -28,6 +28,53 @@ type ClassItem = {
   grade: string;
 };
 
+type BatchImportSummary = {
+  textbooksTotal: number;
+  textbooksImported: number;
+  textbooksFailed: number;
+  questionsTotal: number;
+  questionsImported: number;
+  questionsFailed: number;
+  knowledgePointsCreated: number;
+};
+
+function buildBatchImportTemplate() {
+  return {
+    options: {
+      autoCreateKnowledgePoint: true,
+      skipExistingQuestionStem: true
+    },
+    textbooks: [
+      {
+        title: "四年级数学 上册 第一单元",
+        description: "示例教材文本",
+        contentType: "textbook",
+        subject: "math",
+        grade: "4",
+        sourceType: "text",
+        textContent: "第一单元内容示例：四则运算...",
+        accessScope: "global"
+      }
+    ],
+    questions: [
+      {
+        subject: "math",
+        grade: "4",
+        knowledgePointTitle: "四则运算",
+        chapter: "第一单元",
+        stem: "12 + 18 = ?",
+        options: ["20", "28", "30", "32"],
+        answer: "30",
+        explanation: "把十位和个位分别相加。",
+        difficulty: "easy",
+        questionType: "choice",
+        tags: ["计算", "基础"],
+        abilities: ["运算能力"]
+      }
+    ]
+  };
+}
+
 function contentTypeLabel(type: string) {
   if (type === "courseware") return "课件";
   if (type === "lesson_plan") return "教案";
@@ -71,6 +118,13 @@ export default function LibraryPage() {
     linkUrl: ""
   });
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [batchFile, setBatchFile] = useState<File | null>(null);
+  const [batchPreview, setBatchPreview] = useState<{
+    textbooks: number;
+    questions: number;
+  } | null>(null);
+  const [batchSummary, setBatchSummary] = useState<BatchImportSummary | null>(null);
+  const [batchFailedPreview, setBatchFailedPreview] = useState<string[]>([]);
 
   const [aiForm, setAiForm] = useState({
     classId: "",
@@ -164,6 +218,85 @@ export default function LibraryPage() {
     setMessage("教材导入成功");
     setImportForm((prev) => ({ ...prev, title: "", description: "", textContent: "", linkUrl: "" }));
     setImportFile(null);
+    await loadItems();
+  }
+
+  function downloadBatchTemplate() {
+    const blob = new Blob([JSON.stringify(buildBatchImportTemplate(), null, 2)], {
+      type: "application/json;charset=utf-8"
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "full-curriculum-batch-template.json";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleBatchFileChange(file?: File | null) {
+    setBatchFile(file ?? null);
+    setBatchSummary(null);
+    setBatchFailedPreview([]);
+    if (!file) {
+      setBatchPreview(null);
+      return;
+    }
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      setBatchPreview({
+        textbooks: Array.isArray(json?.textbooks) ? json.textbooks.length : 0,
+        questions: Array.isArray(json?.questions) ? json.questions.length : 0
+      });
+    } catch {
+      setBatchPreview(null);
+      setError("批量文件不是合法 JSON");
+    }
+  }
+
+  async function submitBatchImport(event: React.FormEvent) {
+    event.preventDefault();
+    setMessage(null);
+    setError(null);
+    setBatchSummary(null);
+    setBatchFailedPreview([]);
+    if (user?.role !== "admin") return;
+    if (!batchFile) {
+      setError("请先上传批量 JSON 文件");
+      return;
+    }
+
+    let payload: any = null;
+    try {
+      payload = JSON.parse(await batchFile.text());
+    } catch {
+      setError("批量文件解析失败，请检查 JSON 格式");
+      return;
+    }
+
+    const res = await fetch("/api/admin/library/batch-import", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data?.error ?? "批量导入失败");
+      return;
+    }
+
+    const summary = data?.data?.summary ?? null;
+    const textbookFailed = (data?.data?.textbooks?.failed ?? []).map(
+      (item: any) => `教材#${Number(item.index) + 1}: ${item.reason}`
+    );
+    const questionFailed = (data?.data?.questions?.failed ?? []).map(
+      (item: any) => `习题#${Number(item.index) + 1}: ${item.reason}`
+    );
+    setBatchSummary(summary);
+    setBatchFailedPreview([...textbookFailed, ...questionFailed].slice(0, 20));
+    setMessage("批量导入完成");
     await loadItems();
   }
 
@@ -301,6 +434,59 @@ export default function LibraryPage() {
               导入资料
             </button>
           </form>
+        </Card>
+      ) : null}
+
+      {user?.role === "admin" ? (
+        <Card title="全学科批量导入（教材+习题）" tag="批量">
+          <div className="feature-card">
+            <EduIcon name="board" />
+            <p>上传 JSON 清单后，系统会批量导入教材并自动创建/质检配套习题。</p>
+          </div>
+          <div className="cta-row">
+            <button className="button ghost" type="button" onClick={downloadBatchTemplate}>
+              下载 JSON 模板
+            </button>
+          </div>
+          <form onSubmit={submitBatchImport} style={{ display: "grid", gap: 12, marginTop: 10 }}>
+            <label>
+              <div className="section-title">上传批量 JSON</div>
+              <input type="file" accept=".json,application/json" onChange={(event) => handleBatchFileChange(event.target.files?.[0] ?? null)} />
+            </label>
+            {batchPreview ? (
+              <div className="card" style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                预览：教材 {batchPreview.textbooks} 条，习题 {batchPreview.questions} 条
+              </div>
+            ) : null}
+            <button className="button primary" type="submit">
+              开始批量导入
+            </button>
+          </form>
+          {batchSummary ? (
+            <div className="grid" style={{ gap: 8, marginTop: 12 }}>
+              <div className="card">
+                教材：{batchSummary.textbooksImported}/{batchSummary.textbooksTotal}，失败{" "}
+                {batchSummary.textbooksFailed}
+              </div>
+              <div className="card">
+                习题：{batchSummary.questionsImported}/{batchSummary.questionsTotal}，失败{" "}
+                {batchSummary.questionsFailed}
+              </div>
+              <div className="card">自动创建知识点：{batchSummary.knowledgePointsCreated}</div>
+              {batchFailedPreview.length ? (
+                <div className="card">
+                  <div className="section-title">失败样例（最多 20 条）</div>
+                  <div className="grid" style={{ gap: 4, marginTop: 8 }}>
+                    {batchFailedPreview.map((line, idx) => (
+                      <div key={`${line}-${idx}`} style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </Card>
       ) : null}
 

@@ -1,0 +1,35 @@
+{
+  "options": {
+    "autoCreateKnowledgePoint": true,
+    "skipExistingQuestionStem": true
+  },
+  "textbooks": [
+    {
+      "title": "四年级数学 上册 第一单元",
+      "description": "教材导入示例",
+      "contentType": "textbook",
+      "subject": "math",
+      "grade": "4",
+      "sourceType": "text",
+      "textContent": "第一单元：四则运算...",
+      "accessScope": "global"
+    }
+  ],
+  "questions": [
+    {
+      "subject": "math",
+      "grade": "4",
+      "knowledgePointTitle": "四则运算",
+      "chapter": "第一单元",
+      "unit": "第一单元",
+      "stem": "12 + 18 = ?",
+      "options": ["20", "28", "30", "32"],
+      "answer": "30",
+      "explanation": "十位与个位分别相加即可。",
+      "difficulty": "easy",
+      "questionType": "choice",
+      "tags": ["计算"],
+      "abilities": ["运算能力"]
+    }
+  ]
+}
