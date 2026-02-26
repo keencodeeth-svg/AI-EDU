@@ -14,12 +14,12 @@
   --shadow-soft: 0 12px 24px rgba(27, 108, 168, 0.12);
   --font-body: "PingFang SC", "Hiragino Sans GB", "Microsoft Yahei", "Noto Sans SC", sans-serif;
   --font-display: "Songti SC", "STSong", "SimSun", "Noto Serif SC", serif;
-  --layout-max-width: 1440px;
-  --layout-pad-x: 4vw;
-  --layout-pad-y: 22px;
-  --grid-gap: 14px;
-  --card-pad-y: 16px;
-  --card-pad-x: 18px;
+  --layout-max-width: 1680px;
+  --layout-pad-x: clamp(18px, 2.8vw, 44px);
+  --layout-pad-y: 18px;
+  --grid-gap: 12px;
+  --card-pad-y: 14px;
+  --card-pad-x: 16px;
   --title-gap-top: 10px;
   --title-gap-bottom: 6px;
 }
@@ -124,7 +124,7 @@ a {
 
 .main {
   flex: 1;
-  padding: var(--layout-pad-y) var(--layout-pad-x) 56px;
+  padding: var(--layout-pad-y) var(--layout-pad-x) 44px;
   max-width: var(--layout-max-width);
   width: 100%;
   margin: 0 auto;

@@ -84,6 +84,7 @@ const riskLabel: Record<"low" | "medium" | "high", string> = {
 export default function QuestionsAdminPage() {
   const [list, setList] = useState<Question[]>([]);
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
+  const [workspace, setWorkspace] = useState<"list" | "tools">("list");
   const [loading, setLoading] = useState(false);
   const [query, setQuery] = useState({
     subject: "all",
@@ -493,6 +494,24 @@ export default function QuestionsAdminPage() {
         <span className="chip">管理端</span>
       </div>
 
+      <div className="cta-row" style={{ marginTop: 0 }}>
+        <button
+          className={workspace === "list" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setWorkspace("list")}
+        >
+          列表与分类
+        </button>
+        <button
+          className={workspace === "tools" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setWorkspace("tools")}
+        >
+          导入/生成/新增
+        </button>
+      </div>
+
+      {workspace === "tools" ? (
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <Card title="批量导入题库（CSV）" tag="导入">
           <p style={{ color: "var(--ink-1)", fontSize: 13 }}>
@@ -762,7 +781,9 @@ export default function QuestionsAdminPage() {
           </form>
         </Card>
       </div>
+      ) : null}
 
+      {workspace === "list" ? (
       <Card title="题目列表（分类筛选）" tag="列表">
         <div className="grid grid-3" style={{ gap: 10, alignItems: "end" }}>
           <label>
@@ -1048,6 +1069,7 @@ export default function QuestionsAdminPage() {
           </div>
         </div>
       </Card>
+      ) : null}
     </div>
   );
 }
