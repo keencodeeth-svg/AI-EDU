@@ -160,6 +160,7 @@ export async function runTeacherExamSuite(context) {
   assert.ok(firstExamQuestion?.id, "Student exam detail should include at least one question");
 
   const examAnswer = firstExamQuestion.options?.[0] ?? "";
+  const wrongExamAnswer = "__API_TEST_WRONG_EXAM__";
   const examAutosave = await apiFetch(`/api/student/exams/${createdExamId}/autosave`, {
     method: "POST",
     json: {
@@ -267,24 +268,49 @@ export async function runTeacherExamSuite(context) {
     method: "POST",
     json: {
       answers: {
-        [firstExamQuestion.id]: examAnswer
+        [firstExamQuestion.id]: wrongExamAnswer
       }
     }
   });
   assert.equal(examSubmit.status, 200, `POST /api/student/exams/[id]/submit failed: ${examSubmit.raw}`);
   assert.equal(typeof examSubmit.body?.score, "number", "Exam submit should return score");
   assert.equal(typeof examSubmit.body?.total, "number", "Exam submit should return total");
+  assert.ok((examSubmit.body?.wrongCount ?? 0) >= 1, "Exam submit should return wrongCount >= 1");
+  assert.ok(
+    (examSubmit.body?.queuedReviewCount ?? 0) >= 1,
+    "Exam submit should queue wrong questions into review queue"
+  );
   assert.equal(examSubmit.body?.alreadySubmitted, false, "First submit should not be alreadySubmitted");
+
+  const reviewQueueAfterExam = await apiFetch("/api/wrong-book/review-queue");
+  assert.equal(
+    reviewQueueAfterExam.status,
+    200,
+    `GET /api/wrong-book/review-queue after exam submit failed: ${reviewQueueAfterExam.raw}`
+  );
+  const reviewQueueItems = [
+    ...(reviewQueueAfterExam.body?.data?.today ?? []),
+    ...(reviewQueueAfterExam.body?.data?.upcoming ?? [])
+  ];
+  const reviewFromExam = reviewQueueItems.find((item) => item.questionId === firstExamQuestion.id);
+  assert.ok(reviewFromExam, "Exam wrong question should appear in review queue");
+  assert.equal(reviewFromExam?.intervalLevel, 1, "Exam wrong question should reset to intervalLevel 1");
+  assert.equal(reviewFromExam?.lastReviewResult, "wrong", "Exam wrong question should mark lastReviewResult=wrong");
 
   const examSubmitAgain = await apiFetch(`/api/student/exams/${createdExamId}/submit`, {
     method: "POST",
     json: {
       answers: {
-        [firstExamQuestion.id]: examAnswer
+        [firstExamQuestion.id]: wrongExamAnswer
       }
     }
   });
   assert.equal(examSubmitAgain.status, 200, `Second submit should be idempotent: ${examSubmitAgain.raw}`);
+  assert.equal(
+    examSubmitAgain.body?.queuedReviewCount,
+    0,
+    "Second submit should not enqueue wrong-review queue again"
+  );
   assert.equal(examSubmitAgain.body?.alreadySubmitted, true);
 
   const studentExamsAfterSubmit = await apiFetch("/api/student/exams");

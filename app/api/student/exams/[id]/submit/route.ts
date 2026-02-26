@@ -12,6 +12,7 @@ import {
   upsertExamAnswerDraft,
   upsertExamSubmission
 } from "@/lib/exams";
+import { enqueueWrongReview } from "@/lib/wrong-review";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -153,11 +154,14 @@ export const POST = withApi(async (request, context) => {
       questionMap,
       answers: existingSubmission.answers
     });
+    const wrongCount = rescored.details.filter((item) => !item.correct).length;
     return {
       score: existingSubmission.score,
       total: existingSubmission.total,
       submittedAt: existingSubmission.submittedAt,
       details: rescored.details,
+      wrongCount,
+      queuedReviewCount: 0,
       alreadySubmitted: true
     };
   }
@@ -171,6 +175,10 @@ export const POST = withApi(async (request, context) => {
     questionMap,
     answers
   });
+  const wrongDetails = rescored.details.filter((item) => !item.correct);
+  const wrongQuestions = wrongDetails
+    .map((item) => questionMap.get(item.questionId))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
 
   await upsertExamAnswerDraft({
     paperId: paper.id,
@@ -193,11 +201,25 @@ export const POST = withApi(async (request, context) => {
     total: rescored.total
   });
 
+  const queued = await Promise.all(
+    wrongQuestions.map((question) =>
+      enqueueWrongReview({
+        userId: user.id,
+        questionId: question.id,
+        subject: question.subject,
+        knowledgePointId: question.knowledgePointId
+      })
+    )
+  );
+  const queuedReviewCount = queued.filter((item) => Boolean(item)).length;
+
   return {
     score: submission.score,
     total: submission.total,
     submittedAt: submission.submittedAt,
     details: rescored.details,
+    wrongCount: wrongDetails.length,
+    queuedReviewCount,
     alreadySubmitted: false
   };
 });

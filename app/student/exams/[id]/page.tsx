@@ -51,6 +51,8 @@ type SubmitResult = {
   score: number;
   total: number;
   submittedAt: string;
+  wrongCount: number;
+  queuedReviewCount: number;
   details: Array<{
     questionId: string;
     correct: boolean;
@@ -416,8 +418,14 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
         setDirty(false);
         setPendingLocalSync(false);
         clearLocalDraft();
+        const reviewNotice =
+          typeof payload.queuedReviewCount === "number" && payload.queuedReviewCount > 0
+            ? `本次考试错题已加入今日复练清单（${payload.queuedReviewCount} 题）。`
+            : "";
         if (trigger === "timeout") {
-          setSyncNotice("考试时间结束，系统已自动提交。");
+          setSyncNotice(reviewNotice ? `考试时间结束，系统已自动提交。${reviewNotice}` : "考试时间结束，系统已自动提交。");
+        } else if (reviewNotice) {
+          setSyncNotice(reviewNotice);
         }
 
         setData((prev) => {
@@ -618,6 +626,11 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                 提交时间：{data.assignment.submittedAt ? new Date(data.assignment.submittedAt).toLocaleString("zh-CN") : "-"}
               </div>
+              {result?.queuedReviewCount ? (
+                <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+                  错题已加入今日复练清单：{result.queuedReviewCount} 题
+                </div>
+              ) : null}
             </div>
           ) : (
             <button className="button primary" type="submit" disabled={submitting || !online || lockedByStatus}>
