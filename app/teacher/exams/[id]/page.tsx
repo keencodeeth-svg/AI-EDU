@@ -1,0 +1,182 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import Card from "@/components/Card";
+import EduIcon from "@/components/EduIcon";
+import { SUBJECT_LABELS } from "@/lib/constants";
+
+type ExamDetail = {
+  exam: {
+    id: string;
+    title: string;
+    description?: string;
+    startAt?: string;
+    endAt: string;
+    durationMinutes?: number;
+    createdAt: string;
+  };
+  class: {
+    id: string;
+    name: string;
+    subject: string;
+    grade: string;
+  };
+  summary: {
+    assigned: number;
+    submitted: number;
+    pending: number;
+    avgScore: number;
+  };
+  questions: Array<{
+    id: string;
+    stem: string;
+    score: number;
+    orderIndex: number;
+  }>;
+  students: Array<{
+    id: string;
+    name: string;
+    email: string;
+    grade?: string;
+    status: string;
+    score: number | null;
+    total: number | null;
+    submittedAt: string | null;
+  }>;
+};
+
+export default function TeacherExamDetailPage({ params }: { params: { id: string } }) {
+  const [data, setData] = useState<ExamDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setError(null);
+    const res = await fetch(`/api/teacher/exams/${params.id}`);
+    const payload = await res.json();
+    if (!res.ok) {
+      setError(payload?.error ?? "加载失败");
+      return;
+    }
+    setData(payload);
+  }, [params.id]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  if (error) {
+    return (
+      <Card title="考试详情">
+        <p>{error}</p>
+        <Link className="button secondary" href="/teacher/exams" style={{ marginTop: 12 }}>
+          返回考试列表
+        </Link>
+      </Card>
+    );
+  }
+
+  if (!data) {
+    return <Card title="考试详情">加载中...</Card>;
+  }
+
+  return (
+    <div className="grid" style={{ gap: 18 }}>
+      <div className="section-head">
+        <div>
+          <h2>{data.exam.title}</h2>
+          <div className="section-sub">
+            {data.class.name} · {SUBJECT_LABELS[data.class.subject] ?? data.class.subject} · {data.class.grade} 年级
+          </div>
+        </div>
+        <span className="chip">提交 {data.summary.submitted}/{data.summary.assigned}</span>
+      </div>
+
+      <Card title="考试概览" tag="概览">
+        <div className="grid grid-2">
+          <div className="card feature-card">
+            <EduIcon name="board" />
+            <div className="section-title">考试时间</div>
+            <p>截止 {new Date(data.exam.endAt).toLocaleString("zh-CN")}</p>
+            <div className="pill-list">
+              {data.exam.startAt ? (
+                <span className="pill">开始 {new Date(data.exam.startAt).toLocaleString("zh-CN")}</span>
+              ) : (
+                <span className="pill">开始时间不限</span>
+              )}
+              <span className="pill">
+                时长 {data.exam.durationMinutes ? `${data.exam.durationMinutes} 分钟` : "不限"}
+              </span>
+            </div>
+          </div>
+          <div className="card feature-card">
+            <EduIcon name="chart" />
+            <div className="section-title">班级进度</div>
+            <div className="pill-list">
+              <span className="pill">已分配 {data.summary.assigned}</span>
+              <span className="pill">已提交 {data.summary.submitted}</span>
+              <span className="pill">待提交 {data.summary.pending}</span>
+              <span className="pill">平均分 {data.summary.avgScore}%</span>
+            </div>
+          </div>
+        </div>
+        {data.exam.description ? (
+          <div style={{ marginTop: 10, fontSize: 13, color: "var(--ink-1)" }}>{data.exam.description}</div>
+        ) : null}
+        <div className="cta-row" style={{ marginTop: 12 }}>
+          <Link className="button ghost" href="/teacher/exams">
+            返回考试列表
+          </Link>
+          <Link className="button secondary" href="/teacher/exams/create">
+            再发布一场考试
+          </Link>
+        </div>
+      </Card>
+
+      <Card title="学生进度" tag="提交">
+        {data.students.length === 0 ? (
+          <p>班级暂无学生。</p>
+        ) : (
+          <div className="grid" style={{ gap: 10 }}>
+            {data.students.map((student) => (
+              <div className="card" key={student.id}>
+                <div className="card-header">
+                  <div className="section-title">{student.name}</div>
+                  <span className="card-tag">{student.status === "submitted" ? "已提交" : "待提交"}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>{student.email}</div>
+                <div className="pill-list" style={{ marginTop: 8 }}>
+                  {student.status === "submitted" ? (
+                    <>
+                      <span className="pill">
+                        得分 {student.score ?? 0}/{student.total ?? 0}
+                      </span>
+                      <span className="pill">
+                        提交于 {student.submittedAt ? new Date(student.submittedAt).toLocaleString("zh-CN") : "-"}
+                      </span>
+                    </>
+                  ) : (
+                    <span className="pill">尚未提交</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+
+      <Card title="题目清单" tag="试卷">
+        <div className="grid" style={{ gap: 8 }}>
+          {data.questions.map((question, index) => (
+            <div className="card" key={question.id}>
+              <div className="section-title">
+                {index + 1}. {question.stem}
+              </div>
+              <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>分值：{question.score}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+    </div>
+  );
+}

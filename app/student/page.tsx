@@ -187,6 +187,15 @@ export default function StudentPage() {
             进入作业
           </Link>
         </Card>
+        <Card title="在线考试" tag="考试">
+          <div className="feature-card">
+            <EduIcon name="chart" />
+            <p>参加老师发布的独立考试，自动保存并提交评分。</p>
+          </div>
+          <Link className="button secondary" href="/student/exams" style={{ marginTop: 12 }}>
+            进入考试
+          </Link>
+        </Card>
         <Card title="课程模块" tag="路径">
           <div className="feature-card">
             <EduIcon name="book" />

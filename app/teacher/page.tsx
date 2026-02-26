@@ -306,6 +306,21 @@ export default function TeacherPage() {
         {error ? <div style={{ marginTop: 12, color: "#b42318", fontSize: 13 }}>{error}</div> : null}
       </Card>
 
+      <Card title="在线考试模块" tag="考试">
+        <div className="feature-card">
+          <EduIcon name="pencil" />
+          <p>发布独立考试，追踪班级提交进度与成绩。</p>
+        </div>
+        <div className="cta-row" style={{ marginTop: 12 }}>
+          <Link className="button secondary" href="/teacher/exams">
+            进入在线考试
+          </Link>
+          <Link className="button ghost" href="/teacher/exams/create">
+            新建考试
+          </Link>
+        </div>
+      </Card>
+
       <Card title="作业统计看板" tag="分析">
         <div className="grid grid-3">
           <div className="card">

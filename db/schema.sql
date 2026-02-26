@@ -443,6 +443,62 @@ CREATE TABLE IF NOT EXISTS assignment_submissions (
 ALTER TABLE assignment_submissions ADD COLUMN IF NOT EXISTS submission_text TEXT;
 ALTER TABLE IF EXISTS assignment_rubrics ADD COLUMN IF NOT EXISTS levels JSONB;
 
+CREATE TABLE IF NOT EXISTS exam_papers (
+  id TEXT PRIMARY KEY,
+  class_id TEXT REFERENCES classes(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  start_at TIMESTAMPTZ,
+  end_at TIMESTAMPTZ NOT NULL,
+  duration_minutes INT,
+  status TEXT NOT NULL DEFAULT 'published',
+  created_by TEXT REFERENCES users(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS exam_paper_items (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT REFERENCES exam_papers(id) ON DELETE CASCADE,
+  question_id TEXT REFERENCES questions(id) ON DELETE CASCADE,
+  score INT NOT NULL DEFAULT 1,
+  order_index INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS exam_assignments (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT REFERENCES exam_papers(id) ON DELETE CASCADE,
+  student_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'pending',
+  assigned_at TIMESTAMPTZ NOT NULL,
+  started_at TIMESTAMPTZ,
+  auto_saved_at TIMESTAMPTZ,
+  submitted_at TIMESTAMPTZ,
+  score INT,
+  total INT,
+  UNIQUE (paper_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_answers (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT REFERENCES exam_papers(id) ON DELETE CASCADE,
+  student_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  answers JSONB NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (paper_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_submissions (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT REFERENCES exam_papers(id) ON DELETE CASCADE,
+  student_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  answers JSONB NOT NULL,
+  score INT NOT NULL,
+  total INT NOT NULL,
+  submitted_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (paper_id, student_id)
+);
+
 CREATE TABLE IF NOT EXISTS assignment_uploads (
   id TEXT PRIMARY KEY,
   assignment_id TEXT REFERENCES assignments(id) ON DELETE CASCADE,
@@ -548,6 +604,13 @@ CREATE INDEX IF NOT EXISTS assignment_progress_student_idx ON assignment_progres
 CREATE UNIQUE INDEX IF NOT EXISTS assignment_progress_unique_idx ON assignment_progress (assignment_id, student_id);
 CREATE INDEX IF NOT EXISTS assignment_submissions_assignment_idx ON assignment_submissions (assignment_id);
 CREATE INDEX IF NOT EXISTS assignment_submissions_student_idx ON assignment_submissions (student_id);
+CREATE INDEX IF NOT EXISTS exam_papers_class_idx ON exam_papers (class_id);
+CREATE INDEX IF NOT EXISTS exam_papers_created_idx ON exam_papers (created_at);
+CREATE INDEX IF NOT EXISTS exam_paper_items_paper_idx ON exam_paper_items (paper_id);
+CREATE INDEX IF NOT EXISTS exam_assignments_paper_idx ON exam_assignments (paper_id);
+CREATE INDEX IF NOT EXISTS exam_assignments_student_idx ON exam_assignments (student_id);
+CREATE INDEX IF NOT EXISTS exam_submissions_paper_idx ON exam_submissions (paper_id);
+CREATE INDEX IF NOT EXISTS exam_submissions_student_idx ON exam_submissions (student_id);
 CREATE INDEX IF NOT EXISTS assignment_reviews_assignment_idx ON assignment_reviews (assignment_id);
 CREATE INDEX IF NOT EXISTS assignment_reviews_student_idx ON assignment_reviews (student_id);
 CREATE INDEX IF NOT EXISTS assignment_review_items_review_idx ON assignment_review_items (review_id);
