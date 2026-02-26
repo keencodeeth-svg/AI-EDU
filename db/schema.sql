@@ -409,6 +409,62 @@ CREATE TABLE IF NOT EXISTS module_resources (
   created_at TIMESTAMPTZ NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS learning_library_items (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  description TEXT,
+  content_type TEXT NOT NULL,
+  subject TEXT NOT NULL,
+  grade TEXT NOT NULL,
+  owner_role TEXT NOT NULL,
+  owner_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+  class_id TEXT,
+  access_scope TEXT NOT NULL DEFAULT 'global',
+  source_type TEXT NOT NULL DEFAULT 'text',
+  file_name TEXT,
+  mime_type TEXT,
+  size INT,
+  content_base64 TEXT,
+  link_url TEXT,
+  text_content TEXT,
+  knowledge_point_ids TEXT[] NOT NULL DEFAULT '{}',
+  extracted_knowledge_points TEXT[] NOT NULL DEFAULT '{}',
+  generated_by_ai BOOLEAN NOT NULL DEFAULT false,
+  status TEXT NOT NULL DEFAULT 'published',
+  share_token TEXT,
+  created_at TIMESTAMPTZ NOT NULL,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS class_id TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS access_scope TEXT NOT NULL DEFAULT 'global';
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS source_type TEXT NOT NULL DEFAULT 'text';
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS file_name TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS mime_type TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS size INT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS content_base64 TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS link_url TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS text_content TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS knowledge_point_ids TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS extracted_knowledge_points TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS generated_by_ai BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'published';
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS share_token TEXT;
+ALTER TABLE learning_library_items ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE TABLE IF NOT EXISTS learning_library_annotations (
+  id TEXT PRIMARY KEY,
+  item_id TEXT REFERENCES learning_library_items(id) ON DELETE CASCADE,
+  user_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  quote TEXT NOT NULL,
+  start_offset INT,
+  end_offset INT,
+  color TEXT,
+  note TEXT,
+  created_at TIMESTAMPTZ NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS course_syllabi (
   id TEXT PRIMARY KEY,
   class_id TEXT UNIQUE REFERENCES classes(id) ON DELETE CASCADE,
@@ -754,6 +810,13 @@ CREATE INDEX IF NOT EXISTS notifications_created_idx ON notifications (created_a
 CREATE INDEX IF NOT EXISTS course_modules_class_idx ON course_modules (class_id);
 CREATE INDEX IF NOT EXISTS course_modules_parent_idx ON course_modules (parent_id);
 CREATE INDEX IF NOT EXISTS module_resources_module_idx ON module_resources (module_id);
+CREATE INDEX IF NOT EXISTS learning_library_items_scope_idx ON learning_library_items (access_scope, class_id);
+CREATE INDEX IF NOT EXISTS learning_library_items_owner_idx ON learning_library_items (owner_id, owner_role);
+CREATE INDEX IF NOT EXISTS learning_library_items_subject_grade_idx ON learning_library_items (subject, grade);
+CREATE INDEX IF NOT EXISTS learning_library_items_status_idx ON learning_library_items (status);
+CREATE UNIQUE INDEX IF NOT EXISTS learning_library_items_share_token_idx ON learning_library_items (share_token);
+CREATE INDEX IF NOT EXISTS learning_library_annotations_item_idx ON learning_library_annotations (item_id);
+CREATE INDEX IF NOT EXISTS learning_library_annotations_user_idx ON learning_library_annotations (user_id);
 CREATE UNIQUE INDEX IF NOT EXISTS course_syllabi_class_idx ON course_syllabi (class_id);
 CREATE INDEX IF NOT EXISTS discussions_class_idx ON discussions (class_id);
 CREATE INDEX IF NOT EXISTS discussions_created_idx ON discussions (created_at);

@@ -19,6 +19,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       { href: "/dashboard", label: "学习看板" },
       { href: "/student", label: "学生端" },
       { href: "/course", label: "课程主页" },
+      { href: "/library", label: "教材课件" },
       { href: "/student/assignments", label: "作业中心" },
       { href: "/student/exams", label: "在线考试" },
       { href: "/student/modules", label: "课程模块" },
@@ -44,6 +45,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       { href: "/dashboard", label: "教学看板" },
       { href: "/teacher", label: "教师端" },
       { href: "/course", label: "课程主页" },
+      { href: "/library", label: "教材课件" },
       { href: "/teacher/gradebook", label: "成绩册" },
       { href: "/teacher/exams", label: "在线考试" },
       { href: "/teacher/modules", label: "课程模块" },
@@ -73,6 +75,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       { href: "/admin/knowledge-points", label: "知识点管理" },
       { href: "/admin/knowledge-tree", label: "知识点树" },
       { href: "/admin/questions", label: "题库管理" },
+      { href: "/library", label: "教材课件" },
       { href: "/admin/logs", label: "操作日志" }
     ]
   };

@@ -105,6 +105,11 @@ export type LearningReport = {
   reminders: string[];
 };
 
+export type KnowledgePointExtraction = {
+  points: string[];
+  provider: string;
+};
+
 export type QuestionCheck = {
   issues: string[];
   risk: "low" | "medium" | "high";
@@ -699,6 +704,64 @@ export async function generateWritingFeedback(payload: {
     improvements: improvements.slice(0, 3),
     corrected: corrected || undefined
   } as WritingFeedback;
+}
+
+export async function extractKnowledgePointCandidates(payload: {
+  subject: string;
+  grade: string;
+  text: string;
+  candidates?: string[];
+}) {
+  const provider = process.env.LLM_PROVIDER ?? "mock";
+  const text = payload.text.trim().slice(0, 3000);
+  if (!text) {
+    return { points: [], provider: "rule" } as KnowledgePointExtraction;
+  }
+  if (provider === "mock") {
+    return { points: [], provider: "mock" } as KnowledgePointExtraction;
+  }
+
+  const candidateText = (payload.candidates ?? []).slice(0, 60).join("、");
+  const context = [
+    `学科：${payload.subject}`,
+    `年级：${payload.grade}`,
+    candidateText ? `可选知识点：${candidateText}` : ""
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const userPrompt = `${context}\n文本内容：${text}\n请提取最相关的知识点，返回 JSON：{"points":["知识点1","知识点2"]}。只输出 JSON，不要解释。`;
+
+  let raw: string | null = null;
+  if (provider === "zhipu" || provider === "compatible") {
+    raw = await callZhipuLLM([
+      { role: "system", content: GENERATE_PROMPT },
+      { role: "user", content: userPrompt }
+    ]);
+  } else if (provider === "custom") {
+    raw = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
+  }
+
+  if (!raw) {
+    return { points: [], provider } as KnowledgePointExtraction;
+  }
+
+  const parsed = extractJson(raw);
+  if (!parsed || typeof parsed !== "object") {
+    return { points: [], provider } as KnowledgePointExtraction;
+  }
+
+  const pointsRaw = Array.isArray((parsed as any).points) ? (parsed as any).points : [];
+  const points = Array.from(
+    new Set(
+      pointsRaw
+        .map((item: any) => String(item ?? "").trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    )
+  );
+
+  return { points, provider } as KnowledgePointExtraction;
 }
 
 export async function generateLessonOutline(payload: {
