@@ -6,7 +6,8 @@ import {
   getExamAnswerDraft,
   getExamPaperById,
   getExamPaperItems,
-  getExamSubmission
+  getExamSubmission,
+  markExamAssignmentInProgress
 } from "@/lib/exams";
 import { notFound, unauthorized, withApi } from "@/lib/api/http";
 
@@ -31,9 +32,15 @@ export const GET = withApi(async (_request, context) => {
     notFound("not found");
   }
 
-  const assignment = await ensureExamAssignment(paper.id, user.id);
+  let assignment = await ensureExamAssignment(paper.id, user.id);
   const draft = await getExamAnswerDraft(paper.id, user.id);
   const submission = await getExamSubmission(paper.id, user.id);
+  if (!submission && assignment.status !== "submitted") {
+    assignment = await markExamAssignmentInProgress({
+      paperId: paper.id,
+      studentId: user.id
+    });
+  }
 
   const items = await getExamPaperItems(paper.id);
   const questionMap = new Map((await getQuestions()).map((item) => [item.id, item]));

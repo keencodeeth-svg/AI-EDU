@@ -58,6 +58,27 @@ type SubmitResult = {
   }>;
 };
 
+type LocalDraft = {
+  answers: Record<string, string>;
+  updatedAt: string;
+  clientStartedAt?: string;
+};
+
+const LOCAL_DRAFT_PREFIX = "exam-local-draft:";
+
+function formatRemain(seconds: number) {
+  const safe = Math.max(0, seconds);
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  const secs = safe % 60;
+  if (hours > 0) {
+    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
+  }
+  return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
+}
+
 export default function StudentExamDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<ExamDetail | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
@@ -67,110 +88,291 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
   const [submitting, setSubmitting] = useState(false);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [online, setOnline] = useState(true);
+  const [syncNotice, setSyncNotice] = useState<string | null>(null);
+  const [clientStartedAt, setClientStartedAt] = useState<string | null>(null);
+  const [pendingLocalSync, setPendingLocalSync] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+  const [timeupTriggered, setTimeupTriggered] = useState(false);
+
+  const localDraftKey = `${LOCAL_DRAFT_PREFIX}${params.id}`;
 
   const submitted = useMemo(
     () => (data?.assignment.status ?? "pending") === "submitted" || Boolean(data?.submission),
     [data]
   );
 
+  const readLocalDraft = useCallback((): LocalDraft | null => {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(localDraftKey);
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw) as LocalDraft;
+      if (!parsed || typeof parsed !== "object" || !parsed.answers || typeof parsed.answers !== "object") {
+        return null;
+      }
+      return parsed;
+    } catch {
+      return null;
+    }
+  }, [localDraftKey]);
+
+  const writeLocalDraft = useCallback(
+    (draft: LocalDraft) => {
+      if (typeof window === "undefined") return;
+      window.localStorage.setItem(localDraftKey, JSON.stringify(draft));
+    },
+    [localDraftKey]
+  );
+
+  const clearLocalDraft = useCallback(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem(localDraftKey);
+  }, [localDraftKey]);
+
+  const startedAt = data?.assignment.startedAt ?? clientStartedAt ?? null;
+
+  const deadlineMs = useMemo(() => {
+    if (!data || submitted) return null;
+    const endDeadline = new Date(data.exam.endAt).getTime();
+    if (data.exam.durationMinutes && startedAt) {
+      const durationDeadline = new Date(startedAt).getTime() + data.exam.durationMinutes * 60 * 1000;
+      return Math.min(endDeadline, durationDeadline);
+    }
+    return endDeadline;
+  }, [data, submitted, startedAt]);
+
+  const remainingSeconds = useMemo(() => {
+    if (deadlineMs === null || submitted) return null;
+    return Math.max(0, Math.ceil((deadlineMs - clock) / 1000));
+  }, [clock, deadlineMs, submitted]);
+
+  const lockedByTime = !submitted && remainingSeconds !== null && remainingSeconds <= 0;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const updateNetwork = () => setOnline(window.navigator.onLine);
+    updateNetwork();
+    window.addEventListener("online", updateNetwork);
+    window.addEventListener("offline", updateNetwork);
+    return () => {
+      window.removeEventListener("online", updateNetwork);
+      window.removeEventListener("offline", updateNetwork);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (deadlineMs === null || submitted) return;
+    const timer = setInterval(() => setClock(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [deadlineMs, submitted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (submitted) return;
+      if (!dirty && !pendingLocalSync) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [dirty, pendingLocalSync, submitted]);
+
   const load = useCallback(async () => {
     setError(null);
-    const res = await fetch(`/api/student/exams/${params.id}`);
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload?.error ?? "加载失败");
-      return;
+    setSyncNotice(null);
+    try {
+      const res = await fetch(`/api/student/exams/${params.id}`);
+      const payload = await res.json();
+      if (!res.ok) {
+        setError(payload?.error ?? "加载失败");
+        return;
+      }
+
+      setData(payload);
+      const initialAnswers = payload?.submission?.answers ?? payload?.draftAnswers ?? {};
+      let mergedAnswers = initialAnswers;
+
+      const localDraft = readLocalDraft();
+      if (!payload?.submission && localDraft?.answers) {
+        mergedAnswers = { ...initialAnswers, ...localDraft.answers };
+        if (Object.keys(localDraft.answers).length > 0) {
+          setSyncNotice("检测到断网暂存作答，已恢复到当前页面。");
+          setPendingLocalSync(true);
+          setDirty(true);
+        }
+        if (localDraft.clientStartedAt && !payload?.assignment?.startedAt) {
+          setClientStartedAt(localDraft.clientStartedAt);
+        }
+      } else {
+        setPendingLocalSync(false);
+        setDirty(false);
+        clearLocalDraft();
+      }
+
+      setAnswers(mergedAnswers);
+      setSavedAt(payload?.assignment?.autoSavedAt ?? null);
+      setResult(null);
+      setTimeupTriggered(false);
+      if (payload?.assignment?.startedAt) {
+        setClientStartedAt(payload.assignment.startedAt);
+      }
+    } catch {
+      setError("加载失败");
     }
-    setData(payload);
-    const initialAnswers = payload?.submission?.answers ?? payload?.draftAnswers ?? {};
-    setAnswers(initialAnswers);
-    setSavedAt(payload?.assignment?.autoSavedAt ?? null);
-    setDirty(false);
-    setResult(null);
-  }, [params.id]);
+  }, [clearLocalDraft, params.id, readLocalDraft]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const saveDraft = useCallback(async () => {
-    if (!data || submitted || saving) return;
+    if (!data || submitted || saving || lockedByTime) return;
+
     setSaving(true);
-    const res = await fetch(`/api/student/exams/${params.id}/autosave`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers })
-    });
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload?.error ?? "自动保存失败");
+    try {
+      const res = await fetch(`/api/student/exams/${params.id}/autosave`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers })
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        setError(payload?.error ?? "自动保存失败");
+        setSaving(false);
+        return;
+      }
+
+      setSavedAt(payload.savedAt ?? new Date().toISOString());
+      setDirty(false);
+      setPendingLocalSync(false);
+      clearLocalDraft();
+      if (payload.startedAt) {
+        setClientStartedAt(payload.startedAt);
+      }
+      if (online) {
+        setSyncNotice(null);
+      }
+      setData((prev) => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          assignment: {
+            ...prev.assignment,
+            status: payload.status ?? prev.assignment.status,
+            startedAt: payload.startedAt ?? prev.assignment.startedAt
+          }
+        };
+      });
+    } catch {
+      const nextStartedAt = clientStartedAt ?? new Date().toISOString();
+      setClientStartedAt(nextStartedAt);
+      writeLocalDraft({
+        answers,
+        updatedAt: new Date().toISOString(),
+        clientStartedAt: nextStartedAt
+      });
+      setPendingLocalSync(true);
+      setSyncNotice("网络异常，答案已本地暂存，恢复网络后会自动同步。");
+    } finally {
       setSaving(false);
-      return;
     }
-    setSavedAt(payload.savedAt ?? new Date().toISOString());
-    setDirty(false);
-    setData((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        assignment: {
-          ...prev.assignment,
-          status: payload.status ?? prev.assignment.status
-        }
-      };
-    });
-    setSaving(false);
-  }, [answers, data, params.id, saving, submitted]);
+  }, [answers, clearLocalDraft, clientStartedAt, data, lockedByTime, online, params.id, saving, submitted, writeLocalDraft]);
 
   useEffect(() => {
-    if (!dirty || submitted) return;
+    if (!dirty || submitted || lockedByTime) return;
     const timer = setTimeout(() => {
       saveDraft();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [dirty, saveDraft, submitted]);
+  }, [dirty, lockedByTime, saveDraft, submitted]);
 
-  async function handleSubmit(event: React.FormEvent) {
-    event.preventDefault();
-    if (!data || submitted) return;
-    setSubmitting(true);
-    setError(null);
+  useEffect(() => {
+    if (!online || !pendingLocalSync || submitted || saving || lockedByTime) return;
+    saveDraft();
+  }, [lockedByTime, online, pendingLocalSync, saveDraft, saving, submitted]);
 
-    const res = await fetch(`/api/student/exams/${params.id}/submit`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers })
-    });
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload?.error ?? "提交失败");
-      setSubmitting(false);
-      return;
-    }
+  const submitExam = useCallback(
+    async (trigger: "manual" | "timeout") => {
+      if (!data || submitted || submitting) return;
 
-    setResult(payload);
-    setSavedAt(payload.submittedAt ?? new Date().toISOString());
-    setDirty(false);
-    setData((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        assignment: {
-          ...prev.assignment,
-          status: "submitted",
-          submittedAt: payload.submittedAt,
-          score: payload.score,
-          total: payload.total
-        },
-        submission: {
-          score: payload.score,
-          total: payload.total,
-          submittedAt: payload.submittedAt,
-          answers
+      if (!online) {
+        const nextStartedAt = clientStartedAt ?? new Date().toISOString();
+        setClientStartedAt(nextStartedAt);
+        writeLocalDraft({
+          answers,
+          updatedAt: new Date().toISOString(),
+          clientStartedAt: nextStartedAt
+        });
+        setPendingLocalSync(true);
+        setError("当前离线，无法提交。答案已本地暂存，请恢复网络后重试。");
+        return;
+      }
+
+      setSubmitting(true);
+      setError(null);
+
+      try {
+        const res = await fetch(`/api/student/exams/${params.id}/submit`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ answers })
+        });
+        const payload = await res.json();
+        if (!res.ok) {
+          setError(payload?.error ?? "提交失败");
+          setSubmitting(false);
+          return;
         }
-      };
-    });
-    setSubmitting(false);
+
+        setResult(payload);
+        setSavedAt(payload.submittedAt ?? new Date().toISOString());
+        setDirty(false);
+        setPendingLocalSync(false);
+        clearLocalDraft();
+        if (trigger === "timeout") {
+          setSyncNotice("考试时间结束，系统已自动提交。");
+        }
+
+        setData((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            assignment: {
+              ...prev.assignment,
+              status: "submitted",
+              submittedAt: payload.submittedAt,
+              score: payload.score,
+              total: payload.total
+            },
+            submission: {
+              score: payload.score,
+              total: payload.total,
+              submittedAt: payload.submittedAt,
+              answers
+            }
+          };
+        });
+      } catch {
+        setError("提交失败，请稍后重试。");
+      } finally {
+        setSubmitting(false);
+      }
+    },
+    [answers, clearLocalDraft, clientStartedAt, data, online, params.id, submitted, submitting, writeLocalDraft]
+  );
+
+  useEffect(() => {
+    if (submitted || submitting || lockedByTime === false) return;
+    if (timeupTriggered) return;
+    setTimeupTriggered(true);
+    submitExam("timeout");
+  }, [lockedByTime, submitExam, submitted, submitting, timeupTriggered]);
+
+  function handleSubmit(event: React.FormEvent) {
+    event.preventDefault();
+    submitExam("manual");
   }
 
   if (error) {
@@ -223,6 +425,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                 <span className="pill">可立即开始</span>
               )}
               <span className="pill">截止 {new Date(data.exam.endAt).toLocaleString("zh-CN")}</span>
+              <span className="pill">网络 {online ? "在线" : "离线"}</span>
             </div>
           </div>
           <div className="card feature-card">
@@ -232,6 +435,12 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
               <span className="pill">已答 {answerCount}/{data.questions.length}</span>
               <span className="pill">总分 {totalScore}</span>
               <span className="pill">时长 {data.exam.durationMinutes ? `${data.exam.durationMinutes} 分钟` : "不限"}</span>
+              {!submitted && remainingSeconds !== null ? (
+                <span className="pill">剩余 {formatRemain(remainingSeconds)}</span>
+              ) : null}
+              {!submitted && data.exam.durationMinutes && !startedAt ? (
+                <span className="pill">开始作答后计时</span>
+              ) : null}
             </div>
             {submitted ? (
               <div style={{ marginTop: 8, fontSize: 13 }}>
@@ -242,6 +451,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                 {saving ? "自动保存中..." : savedAt ? `最近保存：${new Date(savedAt).toLocaleTimeString("zh-CN")}` : "尚未保存"}
               </div>
             )}
+            {syncNotice ? <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>{syncNotice}</div> : null}
           </div>
         </div>
         <div className="cta-row" style={{ marginTop: 12 }}>
@@ -249,7 +459,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
             返回考试列表
           </Link>
           {!submitted ? (
-            <button className="button secondary" type="button" onClick={saveDraft} disabled={saving || submitting}>
+            <button className="button secondary" type="button" onClick={saveDraft} disabled={saving || submitting || lockedByTime}>
               {saving ? "保存中..." : "保存进度"}
             </button>
           ) : null}
@@ -271,8 +481,11 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                       name={question.id}
                       value={option}
                       checked={answers[question.id] === option}
-                      disabled={submitted}
+                      disabled={submitted || lockedByTime || submitting}
                       onChange={(event) => {
+                        if (!startedAt) {
+                          setClientStartedAt(new Date().toISOString());
+                        }
                         setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }));
                         setDirty(true);
                       }}
@@ -296,8 +509,8 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
               </div>
             </div>
           ) : (
-            <button className="button primary" type="submit" disabled={submitting}>
-              {submitting ? "提交中..." : "提交考试"}
+            <button className="button primary" type="submit" disabled={submitting || !online}>
+              {submitting ? "提交中..." : !online ? "离线状态不可提交" : lockedByTime ? "时间已结束，立即提交" : "提交考试"}
             </button>
           )}
         </form>

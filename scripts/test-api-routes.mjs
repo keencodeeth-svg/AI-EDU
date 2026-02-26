@@ -517,6 +517,17 @@ async function run() {
     assert.equal(teacherExamDetail.status, 200, `GET /api/teacher/exams/[id] failed: ${teacherExamDetail.raw}`);
     assert.ok(Array.isArray(teacherExamDetail.body?.students), "Teacher exam detail should include students");
 
+    const teacherExamExport = await apiFetch(`/api/teacher/exams/${createdExamId}/export`);
+    assert.equal(
+      teacherExamExport.status,
+      200,
+      `GET /api/teacher/exams/[id]/export failed: ${teacherExamExport.raw}`
+    );
+    assert.ok(
+      teacherExamExport.raw.includes("学生姓名"),
+      "Teacher exam export should include CSV header 学生姓名"
+    );
+
     const reloginStudent = await apiFetch("/api/auth/login", {
       method: "POST",
       useCookies: false,

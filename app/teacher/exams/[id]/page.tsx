@@ -127,6 +127,9 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
           <Link className="button ghost" href="/teacher/exams">
             返回考试列表
           </Link>
+          <a className="button secondary" href={`/api/teacher/exams/${data.exam.id}/export`}>
+            导出成绩 CSV
+          </a>
           <Link className="button secondary" href="/teacher/exams/create">
             再发布一场考试
           </Link>

@@ -1,6 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import {
+  ensureExamAssignment,
   getExamPaperById,
   getExamSubmission,
   markExamAssignmentInProgress,
@@ -44,6 +45,23 @@ function assertExamOpen(startAt?: string, endAt?: string) {
   }
 }
 
+function assertExamTimeNotExceeded(input: {
+  endAt: string;
+  durationMinutes?: number;
+  startedAt?: string;
+}) {
+  const now = Date.now();
+  const endDeadline = new Date(input.endAt).getTime();
+  const durationDeadline =
+    input.durationMinutes && input.startedAt
+      ? new Date(input.startedAt).getTime() + input.durationMinutes * 60 * 1000
+      : Number.POSITIVE_INFINITY;
+  const effectiveDeadline = Math.min(endDeadline, durationDeadline);
+  if (Number.isFinite(effectiveDeadline) && now > effectiveDeadline) {
+    badRequest("考试作答时间已结束");
+  }
+}
+
 export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
@@ -66,6 +84,13 @@ export const POST = withApi(async (request, context) => {
   }
   assertExamOpen(paper.startAt, paper.endAt);
 
+  const assignmentBeforeSave = await ensureExamAssignment(paper.id, user.id);
+  assertExamTimeNotExceeded({
+    endAt: paper.endAt,
+    durationMinutes: paper.durationMinutes,
+    startedAt: assignmentBeforeSave.startedAt
+  });
+
   const submitted = await getExamSubmission(paper.id, user.id);
   if (submitted) {
     badRequest("考试已提交");
@@ -85,6 +110,7 @@ export const POST = withApi(async (request, context) => {
 
   return {
     savedAt: draft.updatedAt,
-    status: assignment.status
+    status: assignment.status,
+    startedAt: assignment.startedAt ?? null
   };
 });
