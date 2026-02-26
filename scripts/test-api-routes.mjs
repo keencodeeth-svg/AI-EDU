@@ -254,6 +254,10 @@ async function run() {
     const challengeOverview = await apiFetch("/api/challenges");
     assert.equal(challengeOverview.status, 200, `GET /api/challenges failed: ${challengeOverview.raw}`);
     assert.ok(Array.isArray(challengeOverview.body?.data?.tasks), "Challenges should include tasks");
+    assert.ok(
+      challengeOverview.body?.data?.experiment && typeof challengeOverview.body.data.experiment === "object",
+      "Challenges should include experiment info"
+    );
     const challengeTasks = challengeOverview.body?.data?.tasks ?? [];
     assert.ok(challengeTasks.length >= 1, "Challenges should include at least one task");
     const firstChallengeTask = challengeTasks[0];
@@ -288,6 +292,11 @@ async function run() {
       claimLockedChallenge.body?.data?.result?.ok,
       false,
       "Locked challenge task should not be claimable"
+    );
+    assert.ok(
+      claimLockedChallenge.body?.data?.experiment &&
+        typeof claimLockedChallenge.body.data.experiment === "object",
+      "Challenge claim response should include experiment info"
     );
 
     const studentPlan = await apiFetch("/api/plan?subject=math");
@@ -466,6 +475,47 @@ async function run() {
     assert.equal(adminLogs.status, 200, `GET /api/admin/logs failed: ${adminLogs.raw}`);
     assert.equal(adminLogs.body?.code, 0, "Admin logs should use standard envelope");
     assert.ok(Array.isArray(adminLogs.body?.data), "Admin logs response should include data array");
+
+    const experimentFlags = await apiFetch("/api/admin/experiments/flags");
+    assert.equal(
+      experimentFlags.status,
+      200,
+      `GET /api/admin/experiments/flags failed: ${experimentFlags.raw}`
+    );
+    assert.ok(Array.isArray(experimentFlags.body?.data), "Experiment flags should include data array");
+    const challengeFlag = (experimentFlags.body?.data ?? []).find(
+      (item) => item.key === "challenge_learning_loop_v2"
+    );
+    assert.ok(challengeFlag, "challenge_learning_loop_v2 flag should exist");
+
+    const updateExperimentFlag = await apiFetch("/api/admin/experiments/flags", {
+      method: "POST",
+      json: {
+        key: "challenge_learning_loop_v2",
+        enabled: challengeFlag.enabled,
+        rollout: challengeFlag.rollout
+      }
+    });
+    assert.equal(
+      updateExperimentFlag.status,
+      200,
+      `POST /api/admin/experiments/flags failed: ${updateExperimentFlag.raw}`
+    );
+    assert.equal(
+      updateExperimentFlag.body?.data?.key,
+      "challenge_learning_loop_v2",
+      "Updated experiment flag should match target key"
+    );
+
+    const abReport = await apiFetch("/api/admin/experiments/ab-report?days=7");
+    assert.equal(
+      abReport.status,
+      200,
+      `GET /api/admin/experiments/ab-report failed: ${abReport.raw}`
+    );
+    assert.ok(Array.isArray(abReport.body?.data?.variants), "A/B report should include variants");
+    assert.equal(typeof abReport.body?.data?.delta?.retentionRate, "number");
+    assert.equal(typeof abReport.body?.data?.recommendation?.suggestedRollout, "number");
 
     const funnelSessionId = `api-test-funnel-${Date.now().toString(36)}`;
     const funnelSeed = await apiFetch("/api/analytics/events", {

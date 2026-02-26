@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { getChallengePoints, getChallengeStatus } from "@/lib/challenges";
+import { getChallengePoints, getChallengeState } from "@/lib/challenges";
 import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export const GET = withApi(async () => {
     unauthorized();
   }
 
-  const tasks = await getChallengeStatus(user.id);
+  const state = await getChallengeState(user.id);
   const points = await getChallengePoints(user.id);
-  return { data: { tasks, points } };
+  return { data: { tasks: state.tasks, points, experiment: state.experiment } };
 });

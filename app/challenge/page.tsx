@@ -33,17 +33,26 @@ type ChallengeTask = {
   };
 };
 
+type ChallengeExperiment = {
+  key: string;
+  variant: "control" | "treatment";
+  enabled: boolean;
+  rollout: number;
+};
+
 export default function ChallengePage() {
   const [tasks, setTasks] = useState<ChallengeTask[]>([]);
   const [points, setPoints] = useState(0);
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+  const [experiment, setExperiment] = useState<ChallengeExperiment | null>(null);
 
   async function load() {
     const res = await fetch("/api/challenges");
     const data = await res.json();
     setTasks(data?.data?.tasks ?? []);
     setPoints(data?.data?.points ?? 0);
+    setExperiment(data?.data?.experiment ?? null);
   }
 
   useEffect(() => {
@@ -61,6 +70,7 @@ export default function ChallengePage() {
     const data = await res.json();
     setTasks(data?.data?.tasks ?? []);
     setPoints(data?.data?.points ?? 0);
+    setExperiment(data?.data?.experiment ?? null);
     if (data?.data?.result?.ok === false) {
       setActionMessage(data?.data?.result?.message ?? "领取失败");
     } else if (data?.data?.result?.ok === true) {
@@ -87,6 +97,11 @@ export default function ChallengePage() {
         <div className="card" style={{ marginTop: 12 }}>
           <div className="section-title">当前积分</div>
           <div style={{ fontSize: 24, fontWeight: 700 }}>{points}</div>
+          {experiment ? (
+            <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+              实验分组：{experiment.variant === "treatment" ? "实验组" : "对照组"} · 灰度 {experiment.rollout}%
+            </div>
+          ) : null}
         </div>
         <div className="cta-row" style={{ marginTop: 12 }}>
           <Link className="button secondary" href="/practice?mode=challenge">

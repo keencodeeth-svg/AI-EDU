@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { claimChallenge, getChallengePoints, getChallengeStatus } from "@/lib/challenges";
+import { claimChallenge, getChallengePoints, getChallengeState } from "@/lib/challenges";
 import { badRequest, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -25,7 +25,7 @@ export const POST = withApi(async (request) => {
   }
 
   const result = await claimChallenge(user.id, taskId);
-  const tasks = await getChallengeStatus(user.id);
+  const state = await getChallengeState(user.id);
   const points = await getChallengePoints(user.id);
-  return { data: { tasks, points, result } };
+  return { data: { tasks: state.tasks, points, result, experiment: state.experiment } };
 });

@@ -2,9 +2,15 @@ import crypto from "crypto";
 import { readJson, writeJson } from "./storage";
 import { isDbEnabled, query, queryOne } from "./db";
 import type { QuestionAttempt } from "./progress";
-import { getAttemptsByUser, getStreak } from "./progress";
+import { getAttemptsByUser, getStreak, getWeeklyStats } from "./progress";
 import { getKnowledgePoints } from "./content";
 import { getMasteryRecordsByUser } from "./mastery";
+import { getAssignmentSubmissionsByStudent } from "./assignments";
+import {
+  CHALLENGE_EXPERIMENT_KEY,
+  type ExperimentAssignment,
+  assignExperimentVariant
+} from "./experiments";
 
 export type ChallengeTask = {
   id: string;
@@ -53,7 +59,46 @@ type ChallengeTaskDefinition = Omit<
   "linkedKnowledgePoints" | "learningProof"
 >;
 
-const TASKS: ChallengeTaskDefinition[] = [
+const LEGACY_TASKS: ChallengeTaskDefinition[] = [
+  {
+    id: "practice-10",
+    title: "闯关训练",
+    description: "完成 10 道练习题",
+    goal: 10,
+    points: 10,
+    type: "count",
+    unlockRule: "累计完成 10 道练习题"
+  },
+  {
+    id: "streak-3",
+    title: "连续学习",
+    description: "连续学习 3 天",
+    goal: 3,
+    points: 15,
+    type: "streak",
+    unlockRule: "连续学习达到 3 天"
+  },
+  {
+    id: "accuracy-80",
+    title: "高正确率",
+    description: "近 7 天正确率 ≥ 80%，且练习至少 10 题",
+    goal: 80,
+    points: 20,
+    type: "accuracy",
+    unlockRule: "近 7 天练习至少 10 题且正确率达到 80%"
+  },
+  {
+    id: "assignment-1",
+    title: "作业任务",
+    description: "完成 1 次作业提交",
+    goal: 1,
+    points: 12,
+    type: "count",
+    unlockRule: "完成至少 1 次作业提交"
+  }
+];
+
+const LOOP_TASKS: ChallengeTaskDefinition[] = [
   {
     id: "practice-10",
     title: "薄弱点闯关",
@@ -282,7 +327,7 @@ function buildLearningProof(
   };
 }
 
-function evaluateTask(task: ChallengeTaskDefinition, context: ChallengeContext): ChallengeStatus {
+function evaluateLoopTask(task: ChallengeTaskDefinition, context: ChallengeContext): ChallengeStatus {
   const missingActions: string[] = [];
   let progress = 0;
 
@@ -341,7 +386,86 @@ function evaluateTask(task: ChallengeTaskDefinition, context: ChallengeContext):
   };
 }
 
-export async function getChallengeStatus(userId: string) {
+function evaluateLegacyTask(params: {
+  task: ChallengeTaskDefinition;
+  attempts: QuestionAttempt[];
+  streak: number;
+  weekly: { total: number; accuracy: number };
+  assignmentCount: number;
+  linkedKnowledgePoints: ChallengeTask["linkedKnowledgePoints"];
+}) {
+  const missingActions: string[] = [];
+  let progress = 0;
+  if (params.task.id === "practice-10") {
+    progress = params.attempts.length;
+    if (progress < 10) {
+      missingActions.push(`累计练习不足 10 题（当前 ${progress}）。`);
+    }
+  } else if (params.task.id === "streak-3") {
+    progress = params.streak;
+    if (progress < 3) {
+      missingActions.push(`连续学习不足 3 天（当前 ${progress} 天）。`);
+    }
+  } else if (params.task.id === "accuracy-80") {
+    progress = params.weekly.accuracy;
+    if (params.weekly.total < 10) {
+      missingActions.push(`近 7 天练习不足 10 题（当前 ${params.weekly.total}）。`);
+    }
+    if (params.weekly.accuracy < 80) {
+      missingActions.push(`近 7 天正确率需达到 80%（当前 ${params.weekly.accuracy}%）。`);
+    }
+  } else if (params.task.id === "assignment-1") {
+    progress = params.assignmentCount;
+    if (progress < 1) {
+      missingActions.push("需完成至少 1 次作业提交。");
+    }
+  }
+
+  const linkedAttempts = params.attempts.length;
+  const linkedCorrect = params.attempts.filter((item) => item.correct).length;
+  const linkedAccuracy = linkedAttempts ? Math.round((linkedCorrect / linkedAttempts) * 100) : 0;
+  const now = new Date().toISOString();
+  const learningProof = buildLearningProof(
+    {
+      checkedAt: now,
+      linkedKnowledgePoints: params.linkedKnowledgePoints,
+      linkedAttempts,
+      linkedCorrect,
+      linkedAccuracy,
+      linkedReviewCorrect: params.attempts.filter(
+        (item) => item.reason === "wrong-book-review" && item.correct
+      ).length,
+      streak: params.streak,
+      masteryAverage: linkedAccuracy,
+      weakKnowledgePointCount: 0
+    },
+    missingActions
+  );
+
+  return {
+    ...params.task,
+    progress: params.task.type === "accuracy" ? clamp(progress, 0, 100) : Math.max(0, Math.round(progress)),
+    completed: missingActions.length === 0,
+    claimed: false,
+    linkedKnowledgePoints: params.linkedKnowledgePoints,
+    unlockRule: params.task.unlockRule,
+    learningProof
+  } as ChallengeStatus;
+}
+
+function applyClaimStatus(tasks: ChallengeStatus[], claims: Claim[]) {
+  const claimedSet = new Set(claims.map((item) => item.taskId));
+  return tasks.map((task) => {
+    const claimed = claimedSet.has(task.id);
+    return {
+      ...task,
+      completed: task.completed || claimed,
+      claimed
+    };
+  });
+}
+
+async function buildLoopTasks(userId: string) {
   const attempts = await getAttemptsByUser(userId);
   const streak = await getStreak(userId);
   const linkedKnowledgePoints = await resolveLinkedKnowledgePoints(userId, attempts);
@@ -377,19 +501,54 @@ export async function getChallengeStatus(userId: string) {
     masteryAverage,
     weakKnowledgePointCount
   };
+  return LOOP_TASKS.map((task) => evaluateLoopTask(task, context));
+}
 
-  const claims = await getClaims(userId);
-  const claimedSet = new Set(claims.map((item) => item.taskId));
+async function buildLegacyTasks(userId: string) {
+  const attempts = await getAttemptsByUser(userId);
+  const streak = await getStreak(userId);
+  const weekly = await getWeeklyStats(userId);
+  const assignments = await getAssignmentSubmissionsByStudent(userId);
+  const linkedKnowledgePoints = await resolveLinkedKnowledgePoints(userId, attempts);
+  return LEGACY_TASKS.map((task) =>
+    evaluateLegacyTask({
+      task,
+      attempts,
+      streak,
+      weekly,
+      assignmentCount: assignments.length,
+      linkedKnowledgePoints
+    })
+  );
+}
 
-  return TASKS.map((task) => {
-    const next = evaluateTask(task, context);
-    const claimed = claimedSet.has(task.id);
-    return {
-      ...next,
-      completed: next.completed || claimed,
-      claimed
-    };
+async function buildTasksByVariant(userId: string, variant: "control" | "treatment") {
+  if (variant === "treatment") {
+    return buildLoopTasks(userId);
+  }
+  return buildLegacyTasks(userId);
+}
+
+export async function getChallengeExperiment(userId: string) {
+  return assignExperimentVariant({
+    key: CHALLENGE_EXPERIMENT_KEY,
+    userId
   });
+}
+
+export async function getChallengeState(userId: string) {
+  const experiment = await getChallengeExperiment(userId);
+  const tasks = await buildTasksByVariant(userId, experiment.variant);
+  const claims = await getClaims(userId);
+  return {
+    experiment,
+    tasks: applyClaimStatus(tasks, claims)
+  };
+}
+
+export async function getChallengeStatus(userId: string) {
+  const state = await getChallengeState(userId);
+  return state.tasks;
 }
 
 export async function getChallengePoints(userId: string) {
@@ -398,8 +557,8 @@ export async function getChallengePoints(userId: string) {
 }
 
 export async function claimChallenge(userId: string, taskId: string) {
-  const tasks = await getChallengeStatus(userId);
-  const task = tasks.find((item) => item.id === taskId);
+  const state = await getChallengeState(userId);
+  const task = state.tasks.find((item) => item.id === taskId);
   if (!task) {
     return { ok: false, message: "任务不存在" };
   }
@@ -456,3 +615,5 @@ export async function claimChallenge(userId: string, taskId: string) {
 
   return { ok: true, claim: mapClaim(row) };
 }
+
+export type ChallengeExperimentInfo = ExperimentAssignment;

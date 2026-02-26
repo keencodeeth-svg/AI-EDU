@@ -228,6 +228,24 @@ ALTER TABLE challenge_claims ADD COLUMN IF NOT EXISTS unlock_rule TEXT;
 
 CREATE INDEX IF NOT EXISTS challenge_claims_user_idx ON challenge_claims (user_id);
 
+CREATE TABLE IF NOT EXISTS experiment_flags (
+  id TEXT PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  enabled BOOLEAN NOT NULL DEFAULT false,
+  rollout INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMPTZ NOT NULL
+);
+
+ALTER TABLE experiment_flags ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE experiment_flags ADD COLUMN IF NOT EXISTS description TEXT;
+ALTER TABLE experiment_flags ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE experiment_flags ADD COLUMN IF NOT EXISTS rollout INT NOT NULL DEFAULT 0;
+ALTER TABLE experiment_flags ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+CREATE UNIQUE INDEX IF NOT EXISTS experiment_flags_key_idx ON experiment_flags (key);
+
 CREATE TABLE IF NOT EXISTS focus_sessions (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

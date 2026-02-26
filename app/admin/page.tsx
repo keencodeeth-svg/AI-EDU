@@ -56,6 +56,15 @@ export default function AdminPage() {
             查看日志
           </Link>
         </Card>
+        <Card title="A/B 与灰度" tag="发布">
+          <div className="feature-card">
+            <EduIcon name="rocket" />
+            <p>实验分组效果、阈值调优与灰度发布开关。</p>
+          </div>
+          <Link className="button secondary" href="/admin/experiments" style={{ marginTop: 12 }}>
+            打开实验中心
+          </Link>
+        </Card>
       </div>
     </div>
   );
