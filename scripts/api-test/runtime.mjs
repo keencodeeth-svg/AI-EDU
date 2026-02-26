@@ -6,6 +6,7 @@ import { setTimeout as delay } from "node:timers/promises";
 export function createRuntime(port) {
   const baseUrl = `http://127.0.0.1:${port}`;
   const cookieJar = new Map();
+  let activeServer = null;
 
   function parseJsonSafely(text) {
     try {
@@ -39,7 +40,7 @@ export function createRuntime(port) {
   }
 
   async function apiFetch(path, options = {}) {
-    const { json, useCookies = true, ...rest } = options;
+    const { json, useCookies = true, timeoutMs = 20000, ...rest } = options;
     const headers = new Headers(rest.headers ?? {});
 
     if (json !== undefined) {
@@ -52,11 +53,24 @@ export function createRuntime(port) {
       }
     }
 
-    const response = await fetch(`${baseUrl}${path}`, {
-      ...rest,
-      headers,
-      body: json !== undefined ? JSON.stringify(json) : rest.body
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(`${baseUrl}${path}`, {
+        ...rest,
+        headers,
+        body: json !== undefined ? JSON.stringify(json) : rest.body,
+        signal: controller.signal
+      });
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(`Request timed out after ${timeoutMs}ms: ${path}`);
+      }
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
 
     updateCookieJar(response);
     const text = await response.text();
@@ -67,6 +81,9 @@ export function createRuntime(port) {
   async function waitForServerReady(timeoutMs = 90000) {
     const start = Date.now();
     while (Date.now() - start < timeoutMs) {
+      if (activeServer && activeServer.exitCode !== null) {
+        throw new Error(`Server exited before ready with code ${activeServer.exitCode}`);
+      }
       try {
         const response = await fetch(`${baseUrl}/api/health`);
         if (response.ok) return;
@@ -93,11 +110,13 @@ export function createRuntime(port) {
   }
 
   function startServer() {
-    const server = spawn("npm", ["run", "dev", "--", "-p", String(port)], {
+    const mode = process.env.API_TEST_SERVER_MODE === "start" ? "start" : "dev";
+    const server = spawn("npm", ["run", mode, "--", "-p", String(port), "-H", "127.0.0.1"], {
       cwd: process.cwd(),
       env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
       stdio: ["ignore", "pipe", "pipe"]
     });
+    activeServer = server;
 
     let serverLog = "";
     server.stdout.on("data", (chunk) => {
