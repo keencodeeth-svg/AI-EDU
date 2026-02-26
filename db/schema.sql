@@ -448,6 +448,8 @@ CREATE TABLE IF NOT EXISTS exam_papers (
   class_id TEXT REFERENCES classes(id) ON DELETE CASCADE,
   title TEXT NOT NULL,
   description TEXT,
+  publish_mode TEXT NOT NULL DEFAULT 'teacher_assigned',
+  anti_cheat_level TEXT NOT NULL DEFAULT 'basic',
   start_at TIMESTAMPTZ,
   end_at TIMESTAMPTZ NOT NULL,
   duration_minutes INT,
@@ -456,6 +458,11 @@ CREATE TABLE IF NOT EXISTS exam_papers (
   created_at TIMESTAMPTZ NOT NULL,
   updated_at TIMESTAMPTZ NOT NULL
 );
+
+ALTER TABLE exam_papers ADD COLUMN IF NOT EXISTS publish_mode TEXT;
+ALTER TABLE exam_papers ADD COLUMN IF NOT EXISTS anti_cheat_level TEXT;
+UPDATE exam_papers SET publish_mode = 'teacher_assigned' WHERE publish_mode IS NULL;
+UPDATE exam_papers SET anti_cheat_level = 'basic' WHERE anti_cheat_level IS NULL;
 
 CREATE TABLE IF NOT EXISTS exam_paper_items (
   id TEXT PRIMARY KEY,
@@ -496,6 +503,17 @@ CREATE TABLE IF NOT EXISTS exam_submissions (
   score INT NOT NULL,
   total INT NOT NULL,
   submitted_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (paper_id, student_id)
+);
+
+CREATE TABLE IF NOT EXISTS exam_events (
+  id TEXT PRIMARY KEY,
+  paper_id TEXT REFERENCES exam_papers(id) ON DELETE CASCADE,
+  student_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  blur_count INT NOT NULL DEFAULT 0,
+  visibility_hidden_count INT NOT NULL DEFAULT 0,
+  last_event_at TIMESTAMPTZ,
+  updated_at TIMESTAMPTZ NOT NULL,
   UNIQUE (paper_id, student_id)
 );
 
@@ -611,6 +629,8 @@ CREATE INDEX IF NOT EXISTS exam_assignments_paper_idx ON exam_assignments (paper
 CREATE INDEX IF NOT EXISTS exam_assignments_student_idx ON exam_assignments (student_id);
 CREATE INDEX IF NOT EXISTS exam_submissions_paper_idx ON exam_submissions (paper_id);
 CREATE INDEX IF NOT EXISTS exam_submissions_student_idx ON exam_submissions (student_id);
+CREATE INDEX IF NOT EXISTS exam_events_paper_idx ON exam_events (paper_id);
+CREATE INDEX IF NOT EXISTS exam_events_student_idx ON exam_events (student_id);
 CREATE INDEX IF NOT EXISTS assignment_reviews_assignment_idx ON assignment_reviews (assignment_id);
 CREATE INDEX IF NOT EXISTS assignment_reviews_student_idx ON assignment_reviews (student_id);
 CREATE INDEX IF NOT EXISTS assignment_review_items_review_idx ON assignment_review_items (review_id);

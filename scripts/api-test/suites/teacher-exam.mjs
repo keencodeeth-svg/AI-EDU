@@ -80,12 +80,24 @@ export async function runTeacherExamSuite(context) {
     `POST /api/teacher/classes/[id]/students failed: ${addExamStudent.raw}`
   );
 
+  const classStudents = await apiFetch(`/api/teacher/classes/${examClass.id}/students`);
+  assert.equal(
+    classStudents.status,
+    200,
+    `GET /api/teacher/classes/[id]/students failed: ${classStudents.raw}`
+  );
+  const targetStudent = (classStudents.body?.data ?? []).find((item) => item.email === email);
+  assert.ok(targetStudent?.id, "Target student should exist in class roster");
+
   const examSuffix = Date.now().toString(36);
   const createExam = await apiFetch("/api/teacher/exams", {
     method: "POST",
     json: {
       classId: examClass.id,
       title: `API_TEST_EXAM_${examSuffix}`,
+      publishMode: "targeted",
+      antiCheatLevel: "basic",
+      studentIds: [targetStudent.id],
       endAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
       questionCount: 1,
       difficulty: "medium",
@@ -95,6 +107,13 @@ export async function runTeacherExamSuite(context) {
   assert.equal(createExam.status, 200, `POST /api/teacher/exams failed: ${createExam.raw}`);
   const createdExamId = createExam.body?.data?.id;
   assert.ok(createdExamId, "Create exam should return data.id");
+  assert.equal(
+    createExam.body?.data?.publishMode,
+    "targeted",
+    "Create exam should return publishMode"
+  );
+  assert.equal(createExam.body?.data?.antiCheatLevel, "basic", "Create exam should return antiCheatLevel");
+  assert.equal(createExam.body?.data?.assignedCount, 1, "Targeted exam should assign selected students only");
   state.createdExamId = createdExamId;
 
   const teacherExamList = await apiFetch("/api/teacher/exams");
@@ -102,10 +121,13 @@ export async function runTeacherExamSuite(context) {
   assert.ok(Array.isArray(teacherExamList.body?.data), "Teacher exams should include data array");
   const createdExamInList = (teacherExamList.body?.data ?? []).find((item) => item.id === createdExamId);
   assert.ok(createdExamInList, "Created exam should appear in teacher exam list");
+  assert.equal(createdExamInList?.publishMode, "targeted");
+  assert.equal(createdExamInList?.antiCheatLevel, "basic");
 
   const teacherExamDetail = await apiFetch(`/api/teacher/exams/${createdExamId}`);
   assert.equal(teacherExamDetail.status, 200, `GET /api/teacher/exams/[id] failed: ${teacherExamDetail.raw}`);
   assert.ok(Array.isArray(teacherExamDetail.body?.students), "Teacher exam detail should include students");
+  assert.equal(teacherExamDetail.body?.summary?.assigned, 1, "Targeted exam detail should only include assigned students");
 
   const teacherExamExport = await apiFetch(`/api/teacher/exams/${createdExamId}/export`);
   assert.equal(
@@ -153,6 +175,94 @@ export async function runTeacherExamSuite(context) {
   );
   assert.equal(examAutosave.body?.status, "in_progress", "Exam autosave should switch status to in_progress");
 
+  const reloginTeacherForClose = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email: teacherCandidates[0].email, password: teacherCandidates[0].password, role: "teacher" }
+  });
+  if (reloginTeacherForClose.status !== 200) {
+    const fallbackTeacherLogin = await apiFetch("/api/auth/login", {
+      method: "POST",
+      useCookies: false,
+      json: { email: teacherCandidates[1].email, password: teacherCandidates[1].password, role: "teacher" }
+    });
+    assert.equal(fallbackTeacherLogin.status, 200, `Teacher relogin failed: ${fallbackTeacherLogin.raw}`);
+  }
+
+  const closeExam = await apiFetch(`/api/teacher/exams/${createdExamId}`, {
+    method: "PATCH",
+    json: { action: "close" }
+  });
+  assert.equal(closeExam.status, 200, `PATCH /api/teacher/exams/[id] close failed: ${closeExam.raw}`);
+  assert.equal(closeExam.body?.data?.status, "closed", "Close action should set status=closed");
+
+  const reloginStudentClosed = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email, password, role: "student" }
+  });
+  assert.equal(reloginStudentClosed.status, 200, `Student relogin failed: ${reloginStudentClosed.raw}`);
+
+  const autosaveWhenClosed = await apiFetch(`/api/student/exams/${createdExamId}/autosave`, {
+    method: "POST",
+    json: {
+      answers: {
+        [firstExamQuestion.id]: examAnswer
+      }
+    }
+  });
+  assert.equal(autosaveWhenClosed.status, 400, "Closed exam should reject autosave");
+  assert.equal(autosaveWhenClosed.body?.error, "考试已关闭");
+
+  const reloginTeacherForReopen = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email: teacherCandidates[0].email, password: teacherCandidates[0].password, role: "teacher" }
+  });
+  if (reloginTeacherForReopen.status !== 200) {
+    const fallbackTeacherLogin = await apiFetch("/api/auth/login", {
+      method: "POST",
+      useCookies: false,
+      json: { email: teacherCandidates[1].email, password: teacherCandidates[1].password, role: "teacher" }
+    });
+    assert.equal(fallbackTeacherLogin.status, 200, `Teacher relogin failed: ${fallbackTeacherLogin.raw}`);
+  }
+
+  const reopenExam = await apiFetch(`/api/teacher/exams/${createdExamId}`, {
+    method: "PATCH",
+    json: { action: "reopen" }
+  });
+  assert.equal(reopenExam.status, 200, `PATCH /api/teacher/exams/[id] reopen failed: ${reopenExam.raw}`);
+  assert.equal(reopenExam.body?.data?.status, "published", "Reopen action should set status=published");
+
+  const reloginStudentReopen = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email, password, role: "student" }
+  });
+  assert.equal(reloginStudentReopen.status, 200, `Student relogin failed: ${reloginStudentReopen.raw}`);
+
+  const autosaveAfterReopen = await apiFetch(`/api/student/exams/${createdExamId}/autosave`, {
+    method: "POST",
+    json: {
+      answers: {
+        [firstExamQuestion.id]: examAnswer
+      }
+    }
+  });
+  assert.equal(autosaveAfterReopen.status, 200, "Reopened exam should accept autosave");
+
+  const examEvents = await apiFetch(`/api/student/exams/${createdExamId}/events`, {
+    method: "POST",
+    json: {
+      blurCountDelta: 20,
+      visibilityHiddenCountDelta: 20
+    }
+  });
+  assert.equal(examEvents.status, 200, `POST /api/student/exams/[id]/events failed: ${examEvents.raw}`);
+  assert.equal(typeof examEvents.body?.data?.blurCount, "number");
+  assert.equal(typeof examEvents.body?.data?.visibilityHiddenCount, "number");
+
   const examSubmit = await apiFetch(`/api/student/exams/${createdExamId}/submit`, {
     method: "POST",
     json: {
@@ -164,6 +274,18 @@ export async function runTeacherExamSuite(context) {
   assert.equal(examSubmit.status, 200, `POST /api/student/exams/[id]/submit failed: ${examSubmit.raw}`);
   assert.equal(typeof examSubmit.body?.score, "number", "Exam submit should return score");
   assert.equal(typeof examSubmit.body?.total, "number", "Exam submit should return total");
+  assert.equal(examSubmit.body?.alreadySubmitted, false, "First submit should not be alreadySubmitted");
+
+  const examSubmitAgain = await apiFetch(`/api/student/exams/${createdExamId}/submit`, {
+    method: "POST",
+    json: {
+      answers: {
+        [firstExamQuestion.id]: examAnswer
+      }
+    }
+  });
+  assert.equal(examSubmitAgain.status, 200, `Second submit should be idempotent: ${examSubmitAgain.raw}`);
+  assert.equal(examSubmitAgain.body?.alreadySubmitted, true);
 
   const studentExamsAfterSubmit = await apiFetch("/api/student/exams");
   assert.equal(
@@ -173,4 +295,55 @@ export async function runTeacherExamSuite(context) {
   );
   const submittedExam = (studentExamsAfterSubmit.body?.data ?? []).find((item) => item.id === createdExamId);
   assert.equal(submittedExam?.status, "submitted", "Student exam should be marked as submitted");
+
+  const reloginTeacher = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email: teacherCandidates[0].email, password: teacherCandidates[0].password, role: "teacher" }
+  });
+  if (reloginTeacher.status !== 200) {
+    const fallbackTeacherLogin = await apiFetch("/api/auth/login", {
+      method: "POST",
+      useCookies: false,
+      json: { email: teacherCandidates[1].email, password: teacherCandidates[1].password, role: "teacher" }
+    });
+    assert.equal(fallbackTeacherLogin.status, 200, `Teacher relogin failed: ${fallbackTeacherLogin.raw}`);
+  }
+
+  const teacherExamDetailAfter = await apiFetch(`/api/teacher/exams/${createdExamId}`);
+  assert.equal(
+    teacherExamDetailAfter.status,
+    200,
+    `GET /api/teacher/exams/[id] after submit failed: ${teacherExamDetailAfter.raw}`
+  );
+  const monitoredStudent = (teacherExamDetailAfter.body?.students ?? []).find((item) => item.email === email);
+  assert.ok(monitoredStudent, "Teacher detail should include monitored student");
+  assert.ok(
+    (monitoredStudent?.blurCount ?? 0) >= 20,
+    "Teacher detail should include blurCount from exam events"
+  );
+  assert.ok(
+    (monitoredStudent?.visibilityHiddenCount ?? 0) >= 20,
+    "Teacher detail should include visibilityHiddenCount from exam events"
+  );
+
+  const teacherAlertsAfterExamEvents = await apiFetch("/api/teacher/alerts");
+  assert.equal(
+    teacherAlertsAfterExamEvents.status,
+    200,
+    `GET /api/teacher/alerts after exam events failed: ${teacherAlertsAfterExamEvents.raw}`
+  );
+  const studentRiskAlert = (teacherAlertsAfterExamEvents.body?.data?.alerts ?? []).find(
+    (item) => item.type === "student-risk" && item.student?.email === email
+  );
+  assert.ok(studentRiskAlert, "Teacher alerts should include student-risk alert after exam anomalies");
+  assert.equal(
+    typeof studentRiskAlert?.metrics?.examAnomalyCount,
+    "number",
+    "Teacher student-risk alert should include examAnomalyCount metric"
+  );
+  assert.ok(
+    (studentRiskAlert?.metrics?.examAnomalyCount ?? 0) >= 40,
+    "Teacher alert should reflect high exam anomaly count"
+  );
 }

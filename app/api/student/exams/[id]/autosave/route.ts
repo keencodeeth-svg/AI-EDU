@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import {
   ensureExamAssignment,
+  getExamAssignment,
   getExamPaperById,
   getExamSubmission,
   markExamAssignmentInProgress,
@@ -84,7 +85,13 @@ export const POST = withApi(async (request, context) => {
   }
   assertExamOpen(paper.startAt, paper.endAt);
 
-  const assignmentBeforeSave = await ensureExamAssignment(paper.id, user.id);
+  const assignmentBeforeSave =
+    paper.publishMode === "targeted"
+      ? await getExamAssignment(paper.id, user.id)
+      : await ensureExamAssignment(paper.id, user.id);
+  if (!assignmentBeforeSave) {
+    notFound("not found");
+  }
   assertExamTimeNotExceeded({
     endAt: paper.endAt,
     durationMinutes: paper.durationMinutes,

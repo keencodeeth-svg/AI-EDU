@@ -22,9 +22,12 @@ const createExamBodySchema = v.object<{
   durationMinutes?: number;
   questionCount?: number;
   questionIds?: string[];
+  studentIds?: string[];
   knowledgePointId?: string;
   difficulty?: Difficulty;
   questionType?: string;
+  publishMode?: "teacher_assigned" | "targeted";
+  antiCheatLevel?: "off" | "basic";
 }>(
   {
     classId: v.string({ minLength: 1 }),
@@ -35,9 +38,12 @@ const createExamBodySchema = v.object<{
     durationMinutes: v.optional(v.number({ coerce: true, integer: true, min: 5, max: 300 })),
     questionCount: v.optional(v.number({ coerce: true, integer: true, min: 1, max: 100 })),
     questionIds: v.optional(v.array(v.string({ minLength: 1 }), { minLength: 1, maxLength: 100 })),
+    studentIds: v.optional(v.array(v.string({ minLength: 1 }), { minLength: 1, maxLength: 300 })),
     knowledgePointId: v.optional(v.string({ minLength: 1 })),
     difficulty: v.optional(v.enum(["easy", "medium", "hard"] as const)),
-    questionType: v.optional(v.string({ minLength: 1 }))
+    questionType: v.optional(v.string({ minLength: 1 })),
+    publishMode: v.optional(v.enum(["teacher_assigned", "targeted"] as const)),
+    antiCheatLevel: v.optional(v.enum(["off", "basic"] as const))
   },
   { allowUnknown: false }
 );
@@ -160,10 +166,26 @@ export const POST = withApi(async (request) => {
     questionIds = sampleQuestions(pool, count).map((item) => item.id);
   }
 
+  const classStudentIds = await getClassStudentIds(klass.id);
+  const publishMode = body.publishMode ?? "teacher_assigned";
+  const targetStudentIds = Array.from(new Set(body.studentIds ?? []));
+  if (publishMode === "targeted") {
+    if (!targetStudentIds.length) {
+      badRequest("studentIds required when publishMode is targeted");
+    }
+    const invalidStudentId = targetStudentIds.find((studentId) => !classStudentIds.includes(studentId));
+    if (invalidStudentId) {
+      badRequest("studentIds must belong to class");
+    }
+  }
+
   const exam = await createAndPublishExam({
     classId: klass.id,
     title: body.title,
     description: body.description,
+    publishMode,
+    antiCheatLevel: body.antiCheatLevel,
+    assignedStudentIds: publishMode === "targeted" ? targetStudentIds : classStudentIds,
     startAt,
     endAt,
     durationMinutes: body.durationMinutes,
@@ -171,8 +193,8 @@ export const POST = withApi(async (request) => {
     questionIds
   });
 
-  const studentIds = await getClassStudentIds(klass.id);
-  for (const studentId of studentIds) {
+  const notifyStudentIds = publishMode === "targeted" ? targetStudentIds : classStudentIds;
+  for (const studentId of notifyStudentIds) {
     await createNotification({
       userId: studentId,
       title: "新考试发布",
@@ -185,7 +207,7 @@ export const POST = withApi(async (request) => {
     message: "考试发布成功",
     data: {
       ...exam,
-      assignedCount: studentIds.length
+      assignedCount: notifyStudentIds.length
     }
   };
 });

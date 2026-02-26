@@ -3,6 +3,7 @@ import { getClassesByStudent } from "@/lib/classes";
 import { getQuestions } from "@/lib/content";
 import {
   ensureExamAssignment,
+  getExamAssignment,
   getExamAnswerDraft,
   getExamPaperById,
   getExamPaperItems,
@@ -32,10 +33,16 @@ export const GET = withApi(async (_request, context) => {
     notFound("not found");
   }
 
-  let assignment = await ensureExamAssignment(paper.id, user.id);
+  let assignment =
+    paper.publishMode === "targeted"
+      ? await getExamAssignment(paper.id, user.id)
+      : await ensureExamAssignment(paper.id, user.id);
+  if (!assignment) {
+    notFound("not found");
+  }
   const draft = await getExamAnswerDraft(paper.id, user.id);
   const submission = await getExamSubmission(paper.id, user.id);
-  if (!submission && assignment.status !== "submitted") {
+  if (!submission && assignment.status !== "submitted" && paper.status !== "closed") {
     assignment = await markExamAssignmentInProgress({
       paperId: paper.id,
       studentId: user.id

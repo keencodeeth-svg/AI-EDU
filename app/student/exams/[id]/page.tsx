@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
@@ -11,6 +11,8 @@ type ExamDetail = {
     id: string;
     title: string;
     description?: string;
+    publishMode: "teacher_assigned" | "targeted";
+    antiCheatLevel: "off" | "basic";
     startAt?: string;
     endAt: string;
     durationMinutes?: number;
@@ -94,12 +96,51 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
   const [pendingLocalSync, setPendingLocalSync] = useState(false);
   const [clock, setClock] = useState(Date.now());
   const [timeupTriggered, setTimeupTriggered] = useState(false);
+  const examEventRef = useRef({ blurCountDelta: 0, visibilityHiddenCountDelta: 0 });
+  const flushTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const localDraftKey = `${LOCAL_DRAFT_PREFIX}${params.id}`;
 
   const submitted = useMemo(
     () => (data?.assignment.status ?? "pending") === "submitted" || Boolean(data?.submission),
     [data]
+  );
+
+  const flushExamEvents = useCallback(async () => {
+    if (!data || submitted || data.exam.antiCheatLevel !== "basic") return;
+    const blurCountDelta = examEventRef.current.blurCountDelta;
+    const visibilityHiddenCountDelta = examEventRef.current.visibilityHiddenCountDelta;
+    if (blurCountDelta <= 0 && visibilityHiddenCountDelta <= 0) return;
+
+    examEventRef.current = { blurCountDelta: 0, visibilityHiddenCountDelta: 0 };
+    try {
+      await fetch(`/api/student/exams/${params.id}/events`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ blurCountDelta, visibilityHiddenCountDelta }),
+        keepalive: true
+      });
+    } catch {
+      examEventRef.current.blurCountDelta += blurCountDelta;
+      examEventRef.current.visibilityHiddenCountDelta += visibilityHiddenCountDelta;
+    }
+  }, [data, params.id, submitted]);
+
+  const queueExamEvent = useCallback(
+    (type: "blur" | "hidden") => {
+      if (!data || submitted || data.exam.antiCheatLevel !== "basic") return;
+      if (type === "blur") {
+        examEventRef.current.blurCountDelta += 1;
+      } else {
+        examEventRef.current.visibilityHiddenCountDelta += 1;
+      }
+      if (flushTimerRef.current) return;
+      flushTimerRef.current = setTimeout(() => {
+        flushTimerRef.current = null;
+        void flushExamEvents();
+      }, 800);
+    },
+    [data, flushExamEvents, submitted]
   );
 
   const readLocalDraft = useCallback((): LocalDraft | null => {
@@ -148,6 +189,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
   }, [clock, deadlineMs, submitted]);
 
   const lockedByTime = !submitted && remainingSeconds !== null && remainingSeconds <= 0;
+  const lockedByStatus = !submitted && data?.exam.status === "closed";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -172,12 +214,42 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
     const onBeforeUnload = (event: BeforeUnloadEvent) => {
       if (submitted) return;
       if (!dirty && !pendingLocalSync) return;
+      void flushExamEvents();
       event.preventDefault();
       event.returnValue = "";
     };
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty, pendingLocalSync, submitted]);
+  }, [dirty, flushExamEvents, pendingLocalSync, submitted]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!data || submitted || data.exam.antiCheatLevel !== "basic") return;
+
+    const onBlur = () => queueExamEvent("blur");
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "hidden") {
+        queueExamEvent("hidden");
+      }
+    };
+
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [data, queueExamEvent, submitted]);
+
+  useEffect(() => {
+    return () => {
+      if (flushTimerRef.current) {
+        clearTimeout(flushTimerRef.current);
+        flushTimerRef.current = null;
+      }
+      void flushExamEvents();
+    };
+  }, [flushExamEvents]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -228,7 +300,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
   }, [load]);
 
   const saveDraft = useCallback(async () => {
-    if (!data || submitted || saving || lockedByTime) return;
+    if (!data || submitted || saving || lockedByTime || lockedByStatus) return;
 
     setSaving(true);
     try {
@@ -278,24 +350,36 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
     } finally {
       setSaving(false);
     }
-  }, [answers, clearLocalDraft, clientStartedAt, data, lockedByTime, online, params.id, saving, submitted, writeLocalDraft]);
+  }, [
+    answers,
+    clearLocalDraft,
+    clientStartedAt,
+    data,
+    lockedByStatus,
+    lockedByTime,
+    online,
+    params.id,
+    saving,
+    submitted,
+    writeLocalDraft
+  ]);
 
   useEffect(() => {
-    if (!dirty || submitted || lockedByTime) return;
+    if (!dirty || submitted || lockedByTime || lockedByStatus) return;
     const timer = setTimeout(() => {
       saveDraft();
     }, 1200);
     return () => clearTimeout(timer);
-  }, [dirty, lockedByTime, saveDraft, submitted]);
+  }, [dirty, lockedByStatus, lockedByTime, saveDraft, submitted]);
 
   useEffect(() => {
-    if (!online || !pendingLocalSync || submitted || saving || lockedByTime) return;
+    if (!online || !pendingLocalSync || submitted || saving || lockedByTime || lockedByStatus) return;
     saveDraft();
-  }, [lockedByTime, online, pendingLocalSync, saveDraft, saving, submitted]);
+  }, [lockedByStatus, lockedByTime, online, pendingLocalSync, saveDraft, saving, submitted]);
 
   const submitExam = useCallback(
     async (trigger: "manual" | "timeout") => {
-      if (!data || submitted || submitting) return;
+      if (!data || submitted || submitting || lockedByStatus) return;
 
       if (!online) {
         const nextStartedAt = clientStartedAt ?? new Date().toISOString();
@@ -314,6 +398,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
       setError(null);
 
       try {
+        await flushExamEvents();
         const res = await fetch(`/api/student/exams/${params.id}/submit`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -360,7 +445,19 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
         setSubmitting(false);
       }
     },
-    [answers, clearLocalDraft, clientStartedAt, data, online, params.id, submitted, submitting, writeLocalDraft]
+    [
+      answers,
+      clearLocalDraft,
+      clientStartedAt,
+      data,
+      flushExamEvents,
+      lockedByStatus,
+      online,
+      params.id,
+      submitted,
+      submitting,
+      writeLocalDraft
+    ]
   );
 
   useEffect(() => {
@@ -409,7 +506,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
             {data.class.name} · {SUBJECT_LABELS[data.class.subject] ?? data.class.subject} · {data.class.grade} 年级
           </div>
         </div>
-        <span className="chip">{submitted ? "已提交" : "考试进行中"}</span>
+        <span className="chip">{submitted ? "已提交" : lockedByStatus ? "考试已关闭" : "考试进行中"}</span>
       </div>
 
       <Card title="考试信息" tag="概览">
@@ -425,6 +522,10 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                 <span className="pill">可立即开始</span>
               )}
               <span className="pill">截止 {new Date(data.exam.endAt).toLocaleString("zh-CN")}</span>
+              <span className="pill">{data.exam.status === "closed" ? "状态 已关闭" : "状态 开放中"}</span>
+              <span className="pill">
+                监测 {data.exam.antiCheatLevel === "basic" ? "切屏/离屏记录中" : "关闭"}
+              </span>
               <span className="pill">网络 {online ? "在线" : "离线"}</span>
             </div>
           </div>
@@ -452,6 +553,11 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
               </div>
             )}
             {syncNotice ? <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>{syncNotice}</div> : null}
+            {lockedByStatus ? (
+              <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>
+                教师已关闭本场考试，当前仅可查看作答记录。
+              </div>
+            ) : null}
           </div>
         </div>
         <div className="cta-row" style={{ marginTop: 12 }}>
@@ -459,7 +565,12 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
             返回考试列表
           </Link>
           {!submitted ? (
-            <button className="button secondary" type="button" onClick={saveDraft} disabled={saving || submitting || lockedByTime}>
+            <button
+              className="button secondary"
+              type="button"
+              onClick={saveDraft}
+              disabled={saving || submitting || lockedByTime || lockedByStatus}
+            >
               {saving ? "保存中..." : "保存进度"}
             </button>
           ) : null}
@@ -481,7 +592,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                       name={question.id}
                       value={option}
                       checked={answers[question.id] === option}
-                      disabled={submitted || lockedByTime || submitting}
+                      disabled={submitted || lockedByTime || lockedByStatus || submitting}
                       onChange={(event) => {
                         if (!startedAt) {
                           setClientStartedAt(new Date().toISOString());
@@ -509,8 +620,16 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
               </div>
             </div>
           ) : (
-            <button className="button primary" type="submit" disabled={submitting || !online}>
-              {submitting ? "提交中..." : !online ? "离线状态不可提交" : lockedByTime ? "时间已结束，立即提交" : "提交考试"}
+            <button className="button primary" type="submit" disabled={submitting || !online || lockedByStatus}>
+              {submitting
+                ? "提交中..."
+                : !online
+                  ? "离线状态不可提交"
+                  : lockedByStatus
+                    ? "考试已关闭"
+                    : lockedByTime
+                      ? "时间已结束，立即提交"
+                      : "提交考试"}
             </button>
           )}
         </form>

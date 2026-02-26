@@ -1,6 +1,6 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
-import { ensureExamAssignment, getExamPapersByClassIds } from "@/lib/exams";
+import { ensureExamAssignment, getExamAssignment, getExamPapersByClassIds } from "@/lib/exams";
 import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
@@ -17,10 +17,15 @@ export const GET = withApi(async () => {
 
   const data = await Promise.all(
     papers.map(async (paper) => {
-      const assignment = await ensureExamAssignment(paper.id, user.id);
+      const assignment =
+        paper.publishMode === "targeted"
+          ? await getExamAssignment(paper.id, user.id)
+          : await ensureExamAssignment(paper.id, user.id);
+      if (!assignment) return null;
       const klass = classMap.get(paper.classId);
       return {
         ...paper,
+        examStatus: paper.status,
         className: klass?.name ?? "-",
         classSubject: klass?.subject ?? "-",
         classGrade: klass?.grade ?? "-",
@@ -33,5 +38,5 @@ export const GET = withApi(async () => {
     })
   );
 
-  return { data };
+  return { data: data.filter((item): item is NonNullable<typeof item> => Boolean(item)) };
 });

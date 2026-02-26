@@ -11,6 +11,9 @@ type ExamDetail = {
     id: string;
     title: string;
     description?: string;
+    publishMode: "teacher_assigned" | "targeted";
+    antiCheatLevel: "off" | "basic";
+    status: "published" | "closed";
     startAt?: string;
     endAt: string;
     durationMinutes?: number;
@@ -27,6 +30,8 @@ type ExamDetail = {
     submitted: number;
     pending: number;
     avgScore: number;
+    totalBlurCount: number;
+    totalVisibilityHiddenCount: number;
   };
   questions: Array<{
     id: string;
@@ -43,12 +48,16 @@ type ExamDetail = {
     score: number | null;
     total: number | null;
     submittedAt: string | null;
+    blurCount: number;
+    visibilityHiddenCount: number;
+    lastExamEventAt: string | null;
   }>;
 };
 
 export default function TeacherExamDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<ExamDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [updatingStatus, setUpdatingStatus] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -60,6 +69,24 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
     }
     setData(payload);
   }, [params.id]);
+
+  async function handleStatusAction(action: "close" | "reopen") {
+    if (!data || updatingStatus) return;
+    setUpdatingStatus(true);
+    const res = await fetch(`/api/teacher/exams/${params.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action })
+    });
+    const payload = await res.json();
+    if (!res.ok) {
+      setError(payload?.error ?? "更新失败");
+      setUpdatingStatus(false);
+      return;
+    }
+    setData((prev) => (prev ? { ...prev, exam: { ...prev.exam, status: payload?.data?.status ?? prev.exam.status } } : prev));
+    setUpdatingStatus(false);
+  }
 
   useEffect(() => {
     load();
@@ -89,7 +116,9 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
             {data.class.name} · {SUBJECT_LABELS[data.class.subject] ?? data.class.subject} · {data.class.grade} 年级
           </div>
         </div>
-        <span className="chip">提交 {data.summary.submitted}/{data.summary.assigned}</span>
+        <span className="chip">
+          {data.exam.status === "closed" ? "已关闭" : "进行中"} · 提交 {data.summary.submitted}/{data.summary.assigned}
+        </span>
       </div>
 
       <Card title="考试概览" tag="概览">
@@ -105,6 +134,12 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
                 <span className="pill">开始时间不限</span>
               )}
               <span className="pill">
+                发布 {data.exam.publishMode === "teacher_assigned" ? "班级统一" : "定向"}
+              </span>
+              <span className="pill">
+                防作弊 {data.exam.antiCheatLevel === "basic" ? "基础监测" : "关闭"}
+              </span>
+              <span className="pill">
                 时长 {data.exam.durationMinutes ? `${data.exam.durationMinutes} 分钟` : "不限"}
               </span>
             </div>
@@ -117,6 +152,8 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
               <span className="pill">已提交 {data.summary.submitted}</span>
               <span className="pill">待提交 {data.summary.pending}</span>
               <span className="pill">平均分 {data.summary.avgScore}%</span>
+              <span className="pill">离屏 {data.summary.totalVisibilityHiddenCount}</span>
+              <span className="pill">切屏 {data.summary.totalBlurCount}</span>
             </div>
           </div>
         </div>
@@ -127,6 +164,25 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
           <Link className="button ghost" href="/teacher/exams">
             返回考试列表
           </Link>
+          {data.exam.status === "closed" ? (
+            <button
+              className="button primary"
+              type="button"
+              disabled={updatingStatus}
+              onClick={() => handleStatusAction("reopen")}
+            >
+              {updatingStatus ? "处理中..." : "重新开放考试"}
+            </button>
+          ) : (
+            <button
+              className="button secondary"
+              type="button"
+              disabled={updatingStatus}
+              onClick={() => handleStatusAction("close")}
+            >
+              {updatingStatus ? "处理中..." : "关闭考试"}
+            </button>
+          )}
           <a className="button secondary" href={`/api/teacher/exams/${data.exam.id}/export`}>
             导出成绩 CSV
           </a>
@@ -161,6 +217,11 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
                   ) : (
                     <span className="pill">尚未提交</span>
                   )}
+                  <span className="pill">离屏 {student.visibilityHiddenCount}</span>
+                  <span className="pill">切屏 {student.blurCount}</span>
+                  {student.lastExamEventAt ? (
+                    <span className="pill">最近异常 {new Date(student.lastExamEventAt).toLocaleString("zh-CN")}</span>
+                  ) : null}
                 </div>
               </div>
             ))}

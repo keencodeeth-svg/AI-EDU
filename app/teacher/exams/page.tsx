@@ -10,6 +10,9 @@ type TeacherExamItem = {
   id: string;
   title: string;
   description?: string;
+  publishMode: "teacher_assigned" | "targeted";
+  antiCheatLevel: "off" | "basic";
+  status: "published" | "closed";
   startAt?: string;
   endAt: string;
   durationMinutes?: number;
@@ -103,6 +106,13 @@ export default function TeacherExamsPage() {
                   </p>
                 </div>
                 <div className="pill-list" style={{ marginTop: 8 }}>
+                  <span className="pill">{item.status === "closed" ? "已关闭" : "进行中"}</span>
+                  <span className="pill">
+                    发布 {item.publishMode === "teacher_assigned" ? "班级统一" : "定向"}
+                  </span>
+                  <span className="pill">
+                    监测 {item.antiCheatLevel === "basic" ? "基础防作弊" : "关闭"}
+                  </span>
                   {item.startAt ? (
                     <span className="pill">开始 {new Date(item.startAt).toLocaleString("zh-CN")}</span>
                   ) : null}

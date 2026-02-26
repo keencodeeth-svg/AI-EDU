@@ -3,6 +3,7 @@ import { getClassesByStudent } from "@/lib/classes";
 import { getQuestions } from "@/lib/content";
 import {
   ensureExamAssignment,
+  getExamAssignment,
   getExamAnswerDraft,
   getExamPaperById,
   getExamPaperItems,
@@ -67,6 +68,43 @@ function assertExamTimeNotExceeded(input: {
   }
 }
 
+function scoreExamByItems(input: {
+  items: Array<{ questionId: string; score: number }>;
+  questionMap: Map<string, { id: string; answer: string }>;
+  answers: Record<string, string>;
+}) {
+  let score = 0;
+  let total = 0;
+  const details: Array<{
+    questionId: string;
+    correct: boolean;
+    answer: string;
+    correctAnswer: string;
+    score: number;
+  }> = [];
+
+  input.items.forEach((item) => {
+    const question = input.questionMap.get(item.questionId);
+    if (!question) return;
+    const answer = input.answers[question.id] ?? "";
+    const correct = answer === question.answer;
+    const questionScore = Math.max(1, item.score);
+    total += questionScore;
+    if (correct) {
+      score += questionScore;
+    }
+    details.push({
+      questionId: question.id,
+      correct,
+      answer,
+      correctAnswer: question.answer,
+      score: questionScore
+    });
+  });
+
+  return { score, total, details };
+}
+
 export const POST = withApi(async (request, context) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "student") {
@@ -89,7 +127,13 @@ export const POST = withApi(async (request, context) => {
   }
   assertExamOpen(paper.startAt, paper.endAt);
 
-  const assignmentBeforeSubmit = await ensureExamAssignment(paper.id, user.id);
+  const assignmentBeforeSubmit =
+    paper.publishMode === "targeted"
+      ? await getExamAssignment(paper.id, user.id)
+      : await ensureExamAssignment(paper.id, user.id);
+  if (!assignmentBeforeSubmit) {
+    notFound("not found");
+  }
   assertExamTimeNotExceeded({
     endAt: paper.endAt,
     durationMinutes: paper.durationMinutes,
@@ -97,48 +141,35 @@ export const POST = withApi(async (request, context) => {
   });
 
   const existingSubmission = await getExamSubmission(paper.id, user.id);
-  if (existingSubmission) {
-    badRequest("考试已提交");
-  }
-
-  const body = await parseJson(request, submitBodySchema);
-  const inputAnswers = normalizeAnswers(body.answers);
-  const draft = await getExamAnswerDraft(paper.id, user.id);
-  const answers = inputAnswers ?? draft?.answers ?? {};
-
   const items = await getExamPaperItems(paper.id);
   if (!items.length) {
     badRequest("考试题目为空");
   }
 
   const questionMap = new Map((await getQuestions()).map((item) => [item.id, item]));
-  let score = 0;
-  let total = 0;
-  const details: Array<{
-    questionId: string;
-    correct: boolean;
-    answer: string;
-    correctAnswer: string;
-    score: number;
-  }> = [];
-
-  items.forEach((item) => {
-    const question = questionMap.get(item.questionId);
-    if (!question) return;
-    const answer = answers[question.id] ?? "";
-    const correct = answer === question.answer;
-    const questionScore = Math.max(1, item.score);
-    total += questionScore;
-    if (correct) {
-      score += questionScore;
-    }
-    details.push({
-      questionId: question.id,
-      correct,
-      answer,
-      correctAnswer: question.answer,
-      score: questionScore
+  if (existingSubmission) {
+    const rescored = scoreExamByItems({
+      items,
+      questionMap,
+      answers: existingSubmission.answers
     });
+    return {
+      score: existingSubmission.score,
+      total: existingSubmission.total,
+      submittedAt: existingSubmission.submittedAt,
+      details: rescored.details,
+      alreadySubmitted: true
+    };
+  }
+
+  const body = await parseJson(request, submitBodySchema);
+  const inputAnswers = normalizeAnswers(body.answers);
+  const draft = await getExamAnswerDraft(paper.id, user.id);
+  const answers = inputAnswers ?? draft?.answers ?? {};
+  const rescored = scoreExamByItems({
+    items,
+    questionMap,
+    answers
   });
 
   await upsertExamAnswerDraft({
@@ -151,21 +182,22 @@ export const POST = withApi(async (request, context) => {
     paperId: paper.id,
     studentId: user.id,
     answers,
-    score,
-    total
+    score: rescored.score,
+    total: rescored.total
   });
 
   await markExamAssignmentSubmitted({
     paperId: paper.id,
     studentId: user.id,
-    score,
-    total
+    score: rescored.score,
+    total: rescored.total
   });
 
   return {
     score: submission.score,
     total: submission.total,
     submittedAt: submission.submittedAt,
-    details
+    details: rescored.details,
+    alreadySubmitted: false
   };
 });

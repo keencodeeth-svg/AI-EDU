@@ -19,6 +19,13 @@ type ClassItem = {
   grade: string;
 };
 
+type ClassStudent = {
+  id: string;
+  name: string;
+  email: string;
+  grade?: string;
+};
+
 type KnowledgePoint = {
   id: string;
   subject: string;
@@ -32,6 +39,7 @@ export default function CreateTeacherExamPage() {
   const router = useRouter();
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
+  const [classStudents, setClassStudents] = useState<ClassStudent[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -40,6 +48,9 @@ export default function CreateTeacherExamPage() {
     classId: "",
     title: "",
     description: "",
+    publishMode: "teacher_assigned",
+    antiCheatLevel: "basic",
+    studentIds: [] as string[],
     startAt: "",
     endAt: "",
     durationMinutes: 60,
@@ -70,6 +81,24 @@ export default function CreateTeacherExamPage() {
       .then((payload) => setKnowledgePoints(payload.data ?? []));
   }, []);
 
+  useEffect(() => {
+    if (!form.classId) {
+      setClassStudents([]);
+      return;
+    }
+
+    fetch(`/api/teacher/classes/${form.classId}/students`)
+      .then((res) => res.json())
+      .then((payload) => {
+        const students = payload.data ?? [];
+        setClassStudents(students);
+        setForm((prev) => ({
+          ...prev,
+          studentIds: prev.studentIds.filter((studentId) => students.some((student: ClassStudent) => student.id === studentId))
+        }));
+      });
+  }, [form.classId]);
+
   const filteredPoints = useMemo(() => {
     const klass = classes.find((item) => item.id === form.classId);
     if (!klass) return [];
@@ -89,6 +118,9 @@ export default function CreateTeacherExamPage() {
         classId: form.classId,
         title: form.title,
         description: form.description,
+        publishMode: form.publishMode,
+        antiCheatLevel: form.antiCheatLevel,
+        studentIds: form.publishMode === "targeted" ? form.studentIds : undefined,
         startAt: form.startAt || undefined,
         endAt: form.endAt || undefined,
         durationMinutes: form.durationMinutes || undefined,
@@ -222,6 +254,60 @@ export default function CreateTeacherExamPage() {
 
           <div className="grid grid-2">
             <label>
+              <div className="section-title">发布方式</div>
+              <select
+                value={form.publishMode}
+                onChange={(event) => setForm((prev) => ({ ...prev, publishMode: event.target.value }))}
+              >
+                <option value="teacher_assigned">班级统一发布</option>
+                <option value="targeted">定向发布（预留）</option>
+              </select>
+            </label>
+            <label>
+              <div className="section-title">防作弊等级</div>
+              <select
+                value={form.antiCheatLevel}
+                onChange={(event) => setForm((prev) => ({ ...prev, antiCheatLevel: event.target.value }))}
+              >
+                <option value="basic">基础监测（记录切屏/离屏）</option>
+                <option value="off">关闭</option>
+              </select>
+            </label>
+          </div>
+
+          {form.publishMode === "targeted" ? (
+            <label>
+              <div className="section-title">定向学生（至少 1 人）</div>
+              <div className="card" style={{ padding: 12, display: "grid", gap: 8 }}>
+                {classStudents.length === 0 ? (
+                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>当前班级暂无学生。</div>
+                ) : (
+                  classStudents.map((student) => (
+                    <label key={student.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <input
+                        type="checkbox"
+                        checked={form.studentIds.includes(student.id)}
+                        onChange={(event) => {
+                          setForm((prev) => ({
+                            ...prev,
+                            studentIds: event.target.checked
+                              ? [...prev.studentIds, student.id]
+                              : prev.studentIds.filter((item) => item !== student.id)
+                          }));
+                        }}
+                      />
+                      <span>
+                        {student.name}（{student.email}）
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            </label>
+          ) : null}
+
+          <div className="grid grid-2">
+            <label>
               <div className="section-title">题型</div>
               <select
                 value={form.questionType}
@@ -257,7 +343,11 @@ export default function CreateTeacherExamPage() {
           {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
 
           <div className="cta-row">
-            <button className="button primary" type="submit" disabled={saving || !classes.length}>
+            <button
+              className="button primary"
+              type="submit"
+              disabled={saving || !classes.length || (form.publishMode === "targeted" && form.studentIds.length === 0)}
+            >
               {saving ? "发布中..." : "发布考试"}
             </button>
             <Link className="button ghost" href="/teacher/exams">

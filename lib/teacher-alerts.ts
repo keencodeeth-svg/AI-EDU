@@ -6,6 +6,8 @@ import { getAssignmentsByClassIds, getAssignmentProgress } from "./assignments";
 import { getAttemptsByUsers } from "./progress";
 import { getWrongReviewItemsByUser } from "./wrong-review";
 import { getKnowledgePoints } from "./content";
+import { getExamAssignmentsByPaper, getExamPapersByClassIds } from "./exams";
+import { getExamEventsByPaper } from "./exam-events";
 
 export type TeacherAlertType = "student-risk" | "knowledge-risk";
 
@@ -290,6 +292,71 @@ export async function getTeacherAlerts(params: {
   const endTodayTs = endOfTodayTs();
   const sinceTs = nowTs - RECENT_WINDOW_DAYS * DAY_MS;
 
+  const examPapers = await getExamPapersByClassIds(targetClasses.map((item) => item.id));
+  const examsByClass = new Map<string, typeof examPapers>();
+  examPapers.forEach((paper) => {
+    const list = examsByClass.get(paper.classId) ?? [];
+    list.push(paper);
+    examsByClass.set(paper.classId, list);
+  });
+
+  const examRiskByClassStudent = new Map<
+    string,
+    {
+      blurCount: number;
+      visibilityHiddenCount: number;
+      examCount: number;
+      lastEventAt: string | null;
+      paperIds: string[];
+    }
+  >();
+
+  for (const klass of targetClasses) {
+    const classExamPapers = examsByClass.get(klass.id) ?? [];
+    if (!classExamPapers.length) continue;
+
+    const [assignmentBatches, eventBatches] = await Promise.all([
+      Promise.all(classExamPapers.map((paper) => getExamAssignmentsByPaper(paper.id))),
+      Promise.all(classExamPapers.map((paper) => getExamEventsByPaper(paper.id)))
+    ]);
+
+    classExamPapers.forEach((paper, index) => {
+      const assignedStudents = new Set(assignmentBatches[index].map((item) => item.studentId));
+      const events = eventBatches[index];
+      events.forEach((event) => {
+        if (paper.publishMode === "targeted" && !assignedStudents.has(event.studentId)) {
+          return;
+        }
+        const eventTs = new Date(event.lastEventAt).getTime();
+        if (!Number.isFinite(eventTs) || eventTs < sinceTs) {
+          return;
+        }
+        const key = `${klass.id}::${event.studentId}`;
+        const current =
+          examRiskByClassStudent.get(key) ??
+          {
+            blurCount: 0,
+            visibilityHiddenCount: 0,
+            examCount: 0,
+            lastEventAt: null,
+            paperIds: []
+          };
+
+        const paperIds = current.paperIds.includes(paper.id) ? current.paperIds : [...current.paperIds, paper.id];
+        examRiskByClassStudent.set(key, {
+          blurCount: current.blurCount + event.blurCount,
+          visibilityHiddenCount: current.visibilityHiddenCount + event.visibilityHiddenCount,
+          examCount: paperIds.length,
+          lastEventAt:
+            !current.lastEventAt || eventTs > new Date(current.lastEventAt).getTime()
+              ? event.lastEventAt
+              : current.lastEventAt,
+          paperIds
+        });
+      });
+    });
+  }
+
   const riskStudents: TeacherRiskStudent[] = [];
   const riskKnowledgePoints: TeacherRiskKnowledgePoint[] = [];
   const classRisk: TeacherClassRisk[] = [];
@@ -335,6 +402,11 @@ export async function getTeacherAlerts(params: {
         if (!item.nextReviewAt) return false;
         return new Date(item.nextReviewAt).getTime() <= endTodayTs;
       }).length;
+      const examSignal = examRiskByClassStudent.get(`${klass.id}::${studentId}`);
+      const examBlurCount = examSignal?.blurCount ?? 0;
+      const examVisibilityHiddenCount = examSignal?.visibilityHiddenCount ?? 0;
+      const examAnomalyCount = examBlurCount + examVisibilityHiddenCount;
+      const examAnomalyExamCount = examSignal?.examCount ?? 0;
 
       const reasons: string[] = [];
       const actionCandidates: { key: string; score: number }[] = [];
@@ -375,6 +447,23 @@ export async function getTeacherAlerts(params: {
         reasons.push(`今日待复练 ${dueTodayReviews} 题`);
       }
 
+      if (examAnomalyCount >= 20) {
+        score += 45;
+        reasons.push(`近7天考试异常行为严重（${examAnomalyCount} 次，${examAnomalyExamCount} 场）`);
+        actionCandidates.push({ key: "exam-anomaly", score: 45 });
+      } else if (examAnomalyCount >= 12) {
+        score += 35;
+        reasons.push(`近7天考试异常行为 ${examAnomalyCount} 次（${examAnomalyExamCount} 场）`);
+        actionCandidates.push({ key: "exam-anomaly", score: 35 });
+      } else if (examAnomalyCount >= 6) {
+        score += 20;
+        reasons.push(`近7天考试异常行为偏多（${examAnomalyCount} 次）`);
+        actionCandidates.push({ key: "exam-anomaly", score: 20 });
+      } else if (examAnomalyCount >= 3) {
+        score += 10;
+        reasons.push(`近7天存在考试异常行为（${examAnomalyCount} 次）`);
+      }
+
       score = clamp(Math.round(score), 0, 100);
       classRiskScores.push(score);
 
@@ -388,6 +477,8 @@ export async function getTeacherAlerts(params: {
         recommendedAction = `优先处理逾期作业（${overdueAssignments} 份），并一键布置同知识点修复任务。`;
       } else if (primary === "review") {
         recommendedAction = `今日先清空逾期复练（${overdueReviews} 题），完成后安排 5 题巩固训练。`;
+      } else if (primary === "exam-anomaly") {
+        recommendedAction = "安排考试规范提醒 + 1 次定向复练，必要时开启更严格监测并人工复核。";
       } else if (primary === "accuracy") {
         recommendedAction = `针对薄弱知识点安排 10 题分层练习，并在课上复盘错因。`;
       } else if (primary === "inactive") {
@@ -436,6 +527,10 @@ export async function getTeacherAlerts(params: {
           overdueAssignments,
           overdueReviews,
           dueTodayReviews,
+          examBlurCount,
+          examVisibilityHiddenCount,
+          examAnomalyCount,
+          examAnomalyExamCount,
           riskLevel: toRiskLevel(score)
         }
       });
@@ -565,4 +660,3 @@ export async function getTeacherAlerts(params: {
     alerts: mergedAlerts.slice(0, 80)
   } as TeacherAlertOverview;
 }
-

@@ -5,12 +5,16 @@ import { getClassStudentIds } from "./classes";
 
 export type ExamPaperStatus = "published" | "closed";
 export type ExamAssignmentStatus = "pending" | "in_progress" | "submitted";
+export type ExamPublishMode = "teacher_assigned" | "targeted";
+export type ExamAntiCheatLevel = "off" | "basic";
 
 export type ExamPaper = {
   id: string;
   classId: string;
   title: string;
   description?: string;
+  publishMode: ExamPublishMode;
+  antiCheatLevel: ExamAntiCheatLevel;
   startAt?: string;
   endAt: string;
   durationMinutes?: number;
@@ -70,6 +74,8 @@ type DbExamPaper = {
   class_id: string;
   title: string;
   description: string | null;
+  publish_mode: string | null;
+  anti_cheat_level: string | null;
   start_at: string | null;
   end_at: string;
   duration_minutes: number | null;
@@ -118,6 +124,15 @@ type DbExamSubmission = {
   submitted_at: string;
 };
 
+function normalizeExamPaper(paper: ExamPaper): ExamPaper {
+  return {
+    ...paper,
+    publishMode: paper.publishMode ?? "teacher_assigned",
+    antiCheatLevel: paper.antiCheatLevel ?? "basic",
+    status: paper.status ?? "published"
+  };
+}
+
 function parseAnswers(input: unknown): Record<string, string> {
   if (!input) return {};
   if (typeof input === "string") {
@@ -141,11 +156,15 @@ function parseAnswers(input: unknown): Record<string, string> {
 }
 
 function mapExamPaper(row: DbExamPaper): ExamPaper {
+  const publishMode = (row.publish_mode as ExamPublishMode | null) ?? "teacher_assigned";
+  const antiCheatLevel = (row.anti_cheat_level as ExamAntiCheatLevel | null) ?? "basic";
   return {
     id: row.id,
     classId: row.class_id,
     title: row.title,
     description: row.description ?? undefined,
+    publishMode,
+    antiCheatLevel,
     startAt: row.start_at ?? undefined,
     endAt: row.end_at,
     durationMinutes: row.duration_minutes ?? undefined,
@@ -206,7 +225,7 @@ function mapExamSubmission(row: DbExamSubmission): ExamSubmission {
 export async function getExamPapers(): Promise<ExamPaper[]> {
   if (!isDbEnabled()) {
     const list = readJson<ExamPaper[]>(EXAM_PAPER_FILE, []);
-    return [...list].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return [...list].map(normalizeExamPaper).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   }
   const rows = await query<DbExamPaper>("SELECT * FROM exam_papers ORDER BY created_at DESC");
   return rows.map(mapExamPaper);
@@ -319,6 +338,10 @@ export async function ensureExamAssignment(paperId: string, studentId: string): 
 export async function ensureExamAssignmentsForPaper(paperId: string): Promise<ExamAssignment[]> {
   const paper = await getExamPaperById(paperId);
   if (!paper) return [];
+
+  if (paper.publishMode === "targeted") {
+    return getExamAssignmentsByPaper(paperId);
+  }
 
   const students = await getClassStudentIds(paper.classId);
   if (!students.length) {
@@ -447,6 +470,9 @@ export async function createAndPublishExam(input: {
   classId: string;
   title: string;
   description?: string;
+  publishMode?: ExamPublishMode;
+  antiCheatLevel?: ExamAntiCheatLevel;
+  assignedStudentIds?: string[];
   startAt?: string;
   endAt: string;
   durationMinutes?: number;
@@ -458,11 +484,16 @@ export async function createAndPublishExam(input: {
   const id = `exam-paper-${crypto.randomBytes(6).toString("hex")}`;
   const scorePerQuestion = Math.max(1, Number(input.scorePerQuestion ?? 1));
   const uniqueQuestionIds = Array.from(new Set(input.questionIds)).filter((questionId) => questionId.trim());
+  const publishMode = input.publishMode ?? "teacher_assigned";
+  const antiCheatLevel = input.antiCheatLevel ?? "basic";
+  const assignedStudentIds = Array.from(new Set(input.assignedStudentIds ?? []));
   const paper: ExamPaper = {
     id,
     classId: input.classId,
     title: input.title,
     description: input.description,
+    publishMode,
+    antiCheatLevel,
     startAt: input.startAt,
     endAt: input.endAt,
     durationMinutes: input.durationMinutes,
@@ -490,9 +521,11 @@ export async function createAndPublishExam(input: {
     writeJson(EXAM_PAPER_ITEM_FILE, items);
 
     const students = await getClassStudentIds(input.classId);
-    if (students.length) {
+    const targetStudents =
+      publishMode === "targeted" ? assignedStudentIds.filter((id) => students.includes(id)) : students;
+    if (targetStudents.length) {
       const assignments = readJson<ExamAssignment[]>(EXAM_ASSIGNMENT_FILE, []);
-      students.forEach((studentId) => {
+      targetStudents.forEach((studentId) => {
         assignments.push({
           id: `exam-assign-${crypto.randomBytes(6).toString("hex")}`,
           paperId: id,
@@ -507,14 +540,30 @@ export async function createAndPublishExam(input: {
   }
 
   const row = await queryOne<DbExamPaper>(
-    `INSERT INTO exam_papers (id, class_id, title, description, start_at, end_at, duration_minutes, status, created_by, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'published', $8, $9, $10)
+    `INSERT INTO exam_papers (
+       id,
+       class_id,
+       title,
+       description,
+       publish_mode,
+       anti_cheat_level,
+       start_at,
+       end_at,
+       duration_minutes,
+       status,
+       created_by,
+       created_at,
+       updated_at
+     )
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'published', $10, $11, $12)
      RETURNING *`,
     [
       id,
       input.classId,
       input.title,
       input.description ?? null,
+      publishMode,
+      antiCheatLevel,
       input.startAt ?? null,
       input.endAt,
       input.durationMinutes ?? null,
@@ -534,7 +583,9 @@ export async function createAndPublishExam(input: {
   }
 
   const students = await getClassStudentIds(input.classId);
-  for (const studentId of students) {
+  const targetStudents =
+    publishMode === "targeted" ? assignedStudentIds.filter((id) => students.includes(id)) : students;
+  for (const studentId of targetStudents) {
     await query(
       `INSERT INTO exam_assignments (id, paper_id, student_id, status, assigned_at)
        VALUES ($1, $2, $3, 'pending', $4)
@@ -544,6 +595,36 @@ export async function createAndPublishExam(input: {
   }
 
   return row ? mapExamPaper(row) : paper;
+}
+
+export async function updateExamPaperStatus(input: {
+  paperId: string;
+  status: ExamPaperStatus;
+}): Promise<ExamPaper | null> {
+  const now = new Date().toISOString();
+
+  if (!isDbEnabled()) {
+    const papers = readJson<ExamPaper[]>(EXAM_PAPER_FILE, []).map(normalizeExamPaper);
+    const index = papers.findIndex((item) => item.id === input.paperId);
+    if (index === -1) return null;
+    papers[index] = {
+      ...papers[index],
+      status: input.status,
+      updatedAt: now
+    };
+    writeJson(EXAM_PAPER_FILE, papers);
+    return papers[index];
+  }
+
+  const row = await queryOne<DbExamPaper>(
+    `UPDATE exam_papers
+     SET status = $2,
+         updated_at = $3
+     WHERE id = $1
+     RETURNING *`,
+    [input.paperId, input.status, now]
+  );
+  return row ? mapExamPaper(row) : null;
 }
 
 export async function markExamAssignmentInProgress(input: {
