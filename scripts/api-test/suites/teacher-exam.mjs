@@ -372,4 +372,48 @@ export async function runTeacherExamSuite(context) {
     (studentRiskAlert?.metrics?.examAnomalyCount ?? 0) >= 40,
     "Teacher alert should reflect high exam anomaly count"
   );
+
+  const assignReviewAction = await apiFetch(`/api/teacher/alerts/${studentRiskAlert.id}/action`, {
+    method: "POST",
+    json: { actionType: "assign_review" }
+  });
+  assert.equal(
+    assignReviewAction.status,
+    200,
+    `POST /api/teacher/alerts/[id]/action assign_review failed: ${assignReviewAction.raw}`
+  );
+  assert.ok(
+    (assignReviewAction.body?.data?.result?.createdTasks ?? 0) >= 1,
+    "Teacher alert action assign_review should create correction tasks"
+  );
+  assert.equal(
+    assignReviewAction.body?.data?.lastActionType,
+    "assign_review",
+    "Teacher alert action should return lastActionType"
+  );
+
+  const notifyAction = await apiFetch(`/api/teacher/alerts/${studentRiskAlert.id}/action`, {
+    method: "POST",
+    json: { actionType: "notify_student" }
+  });
+  assert.equal(
+    notifyAction.status,
+    200,
+    `POST /api/teacher/alerts/[id]/action notify_student failed: ${notifyAction.raw}`
+  );
+  assert.ok(
+    (notifyAction.body?.data?.result?.notifications ?? 0) >= 1,
+    "Teacher alert action notify_student should send notifications"
+  );
+
+  const markDoneAction = await apiFetch(`/api/teacher/alerts/${studentRiskAlert.id}/action`, {
+    method: "POST",
+    json: { actionType: "mark_done" }
+  });
+  assert.equal(
+    markDoneAction.status,
+    200,
+    `POST /api/teacher/alerts/[id]/action mark_done failed: ${markDoneAction.raw}`
+  );
+  assert.equal(markDoneAction.body?.data?.status, "acknowledged");
 }

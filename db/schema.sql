@@ -182,6 +182,18 @@ CREATE TABLE IF NOT EXISTS teacher_alert_acks (
 
 CREATE INDEX IF NOT EXISTS teacher_alert_acks_teacher_idx ON teacher_alert_acks (teacher_id);
 
+CREATE TABLE IF NOT EXISTS teacher_alert_actions (
+  id TEXT PRIMARY KEY,
+  teacher_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+  alert_id TEXT NOT NULL,
+  action_type TEXT NOT NULL,
+  detail TEXT,
+  created_at TIMESTAMPTZ NOT NULL,
+  UNIQUE (teacher_id, alert_id)
+);
+
+CREATE INDEX IF NOT EXISTS teacher_alert_actions_teacher_idx ON teacher_alert_actions (teacher_id);
+
 CREATE TABLE IF NOT EXISTS memory_reviews (
   id TEXT PRIMARY KEY,
   user_id TEXT REFERENCES users(id) ON DELETE CASCADE,

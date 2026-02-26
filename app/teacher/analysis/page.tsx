@@ -50,6 +50,8 @@ type AlertItem = {
   riskReason: string;
   recommendedAction: string;
   status: "active" | "acknowledged";
+  lastActionType?: "assign_review" | "notify_student" | "mark_done" | null;
+  lastActionAt?: string | null;
 };
 
 type AlertSummary = {
@@ -72,6 +74,8 @@ export default function TeacherAnalysisPage() {
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
+  const [actingAlertKey, setActingAlertKey] = useState<string | null>(null);
+  const [alertActionMessage, setAlertActionMessage] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/teacher/classes")
@@ -109,15 +113,37 @@ export default function TeacherAnalysisPage() {
 
   async function acknowledgeAlert(alertId: string) {
     setAcknowledgingAlertId(alertId);
-    const res = await fetch(`/api/teacher/alerts/${alertId}/ack`, {
+    const res = await fetch(`/api/teacher/alerts/${alertId}/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
+      body: JSON.stringify({ actionType: "mark_done" })
     });
     if (res.ok && classId) {
       await loadAlerts(classId);
     }
     setAcknowledgingAlertId(null);
+  }
+
+  async function runAlertAction(alertId: string, actionType: "assign_review" | "notify_student") {
+    const actionKey = `${alertId}:${actionType}`;
+    setActingAlertKey(actionKey);
+    setAlertActionMessage(null);
+    const res = await fetch(`/api/teacher/alerts/${alertId}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actionType })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setAlertActionMessage(data?.error ?? "执行失败");
+      setActingAlertKey(null);
+      return;
+    }
+    setAlertActionMessage(data?.data?.result?.message ?? "动作已执行");
+    if (classId) {
+      await loadAlerts(classId);
+    }
+    setActingAlertKey(null);
   }
 
   useEffect(() => {
@@ -201,6 +227,7 @@ export default function TeacherAnalysisPage() {
       </Card>
 
       <Card title="教师预警看板" tag="风险">
+        {alertActionMessage ? <div style={{ marginBottom: 10, fontSize: 13 }}>{alertActionMessage}</div> : null}
         <div className="grid grid-3">
           <div className="card">
             <div className="section-title">班级风险分</div>
@@ -227,7 +254,30 @@ export default function TeacherAnalysisPage() {
               </div>
               <p>{item.riskReason}</p>
               <p style={{ color: "var(--ink-1)" }}>建议动作：{item.recommendedAction}</p>
+              {item.lastActionType ? (
+                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+                  最近动作：{item.lastActionType} · {item.lastActionAt ? new Date(item.lastActionAt).toLocaleString("zh-CN") : "-"}
+                </div>
+              ) : null}
               <div className="cta-row">
+                <button
+                  className="button ghost"
+                  onClick={() => runAlertAction(item.id, "assign_review")}
+                  disabled={actingAlertKey === `${item.id}:assign_review`}
+                >
+                  {actingAlertKey === `${item.id}:assign_review` ? "布置中..." : "一键布置修复任务"}
+                </button>
+                <button
+                  className="button ghost"
+                  onClick={() => runAlertAction(item.id, "notify_student")}
+                  disabled={actingAlertKey === `${item.id}:notify_student`}
+                >
+                  {actingAlertKey === `${item.id}:notify_student`
+                    ? "提醒中..."
+                    : item.type === "student-risk"
+                      ? "提醒学生"
+                      : "提醒全班"}
+                </button>
                 {item.status === "acknowledged" ? (
                   <span className="badge">已确认</span>
                 ) : (

@@ -54,6 +54,7 @@ export default function TeacherPage() {
   const [assignmentError, setAssignmentError] = useState<string | null>(null);
   const [assignmentMessage, setAssignmentMessage] = useState<string | null>(null);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
+  const [actingAlertKey, setActingAlertKey] = useState<string | null>(null);
 
   const [classForm, setClassForm] = useState({ name: "", subject: "math", grade: "4" });
   const [studentForm, setStudentForm] = useState({ classId: "", email: "" });
@@ -234,10 +235,10 @@ export default function TeacherPage() {
 
   async function acknowledgeAlert(alertId: string) {
     setAcknowledgingAlertId(alertId);
-    const res = await fetch(`/api/teacher/alerts/${alertId}/ack`, {
+    const res = await fetch(`/api/teacher/alerts/${alertId}/action`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({})
+      body: JSON.stringify({ actionType: "mark_done" })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -247,6 +248,27 @@ export default function TeacherPage() {
     }
     await loadAll();
     setAcknowledgingAlertId(null);
+  }
+
+  async function runAlertAction(alertId: string, actionType: "assign_review" | "notify_student") {
+    const actionKey = `${alertId}:${actionType}`;
+    setActingAlertKey(actionKey);
+    setError(null);
+    const res = await fetch(`/api/teacher/alerts/${alertId}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ actionType })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setError(data?.error ?? "执行预警动作失败");
+      setActingAlertKey(null);
+      return;
+    }
+    const actionMessage = data?.data?.result?.message ?? "预警动作已执行";
+    await loadAll();
+    setMessage(actionMessage);
+    setActingAlertKey(null);
   }
 
   async function handleUpdateJoinMode(classId: string, joinMode: "approval" | "auto") {
@@ -382,7 +404,31 @@ export default function TeacherPage() {
                   </p>
                   <p>{item.riskReason}</p>
                   <p style={{ color: "var(--ink-1)" }}>建议动作：{item.recommendedAction}</p>
+                  {item.lastActionType ? (
+                    <p style={{ color: "var(--ink-1)", fontSize: 12 }}>
+                      最近动作：{item.lastActionType} ·{" "}
+                      {item.lastActionAt ? new Date(item.lastActionAt).toLocaleString("zh-CN") : "-"}
+                    </p>
+                  ) : null}
                   <div className="cta-row">
+                    <button
+                      className="button ghost"
+                      onClick={() => runAlertAction(item.id, "assign_review")}
+                      disabled={actingAlertKey === `${item.id}:assign_review`}
+                    >
+                      {actingAlertKey === `${item.id}:assign_review` ? "布置中..." : "一键布置修复任务"}
+                    </button>
+                    <button
+                      className="button ghost"
+                      onClick={() => runAlertAction(item.id, "notify_student")}
+                      disabled={actingAlertKey === `${item.id}:notify_student`}
+                    >
+                      {actingAlertKey === `${item.id}:notify_student`
+                        ? "提醒中..."
+                        : item.type === "student-risk"
+                          ? "提醒学生"
+                          : "提醒全班"}
+                    </button>
                     {item.status === "acknowledged" ? (
                       <span className="badge">已确认</span>
                     ) : (

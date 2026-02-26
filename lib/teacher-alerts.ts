@@ -8,6 +8,7 @@ import { getWrongReviewItemsByUser } from "./wrong-review";
 import { getKnowledgePoints } from "./content";
 import { getExamAssignmentsByPaper, getExamPapersByClassIds } from "./exams";
 import { getExamEventsByPaper } from "./exam-events";
+import { getTeacherAlertActions } from "./teacher-alert-actions";
 
 export type TeacherAlertType = "student-risk" | "knowledge-risk";
 
@@ -24,6 +25,9 @@ export type TeacherAlert = {
   status: "active" | "acknowledged";
   acknowledgedAt?: string | null;
   ackNote?: string | null;
+  lastActionType?: "assign_review" | "notify_student" | "mark_done" | null;
+  lastActionAt?: string | null;
+  lastActionBy?: string | null;
   student?: {
     id: string;
     name: string;
@@ -626,12 +630,23 @@ export async function getTeacherAlerts(params: {
 
   const ackList = await getTeacherAlertAcks(params.teacherId);
   const ackMap = new Map(ackList.map((item) => [item.alertId, item]));
+  const actionList = await getTeacherAlertActions(params.teacherId);
+  const actionMap = new Map(actionList.map((item) => [item.alertId, item]));
   const mergedAlerts = alerts
     .map((alert) => {
       const ack = ackMap.get(alert.id);
-      if (!ack) return alert;
+      const action = actionMap.get(alert.id);
+      const withAction = action
+        ? {
+            ...alert,
+            lastActionType: action.actionType,
+            lastActionAt: action.createdAt,
+            lastActionBy: action.teacherId
+          }
+        : alert;
+      if (!ack) return withAction;
       return {
-        ...alert,
+        ...withAction,
         status: "acknowledged" as const,
         acknowledgedAt: ack.createdAt,
         ackNote: ack.note ?? null
