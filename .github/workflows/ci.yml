@@ -16,6 +16,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate GitHub Workflows
+        uses: rhysd/actionlint@v1
+
   lint:
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -84,11 +94,44 @@ jobs:
         run: npm run build
 
   verify:
+    if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs:
+      - workflow-lint
       - lint
       - api-tests
       - build
     steps:
-      - name: Verify Summary
-        run: echo "All CI checks passed."
+      - name: Publish Verify Summary
+        run: |
+          {
+            echo "## CI Verify Summary"
+            echo ""
+            echo "| Job | Result |"
+            echo "| --- | --- |"
+            echo "| workflow-lint | ${{ needs['workflow-lint'].result }} |"
+            echo "| lint | ${{ needs.lint.result }} |"
+            echo "| api-tests | ${{ needs['api-tests'].result }} |"
+            echo "| build | ${{ needs.build.result }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Enforce all checks passed
+        run: |
+          status_workflow="${{ needs['workflow-lint'].result }}"
+          status_lint="${{ needs.lint.result }}"
+          status_api="${{ needs['api-tests'].result }}"
+          status_build="${{ needs.build.result }}"
+
+          for entry in \
+            "workflow-lint:$status_workflow" \
+            "lint:$status_lint" \
+            "api-tests:$status_api" \
+            "build:$status_build"; do
+            name="${entry%%:*}"
+            value="${entry##*:}"
+            if [ "$value" != "success" ]; then
+              echo "Required job failed: $name=$value"
+              exit 1
+            fi
+          done
