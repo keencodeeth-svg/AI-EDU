@@ -216,8 +216,15 @@ CREATE TABLE IF NOT EXISTS challenge_claims (
   task_id TEXT NOT NULL,
   points INT NOT NULL,
   claimed_at TIMESTAMPTZ NOT NULL,
+  linked_knowledge_points TEXT[] NOT NULL DEFAULT '{}',
+  learning_proof JSONB,
+  unlock_rule TEXT,
   UNIQUE (user_id, task_id)
 );
+
+ALTER TABLE challenge_claims ADD COLUMN IF NOT EXISTS linked_knowledge_points TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE challenge_claims ADD COLUMN IF NOT EXISTS learning_proof JSONB;
+ALTER TABLE challenge_claims ADD COLUMN IF NOT EXISTS unlock_rule TEXT;
 
 CREATE INDEX IF NOT EXISTS challenge_claims_user_idx ON challenge_claims (user_id);
 

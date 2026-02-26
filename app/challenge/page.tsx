@@ -11,16 +11,33 @@ type ChallengeTask = {
   description: string;
   goal: number;
   points: number;
-  type: string;
+  type: "count" | "streak" | "accuracy" | "mastery";
   progress: number;
   completed: boolean;
   claimed: boolean;
+  linkedKnowledgePoints: Array<{
+    id: string;
+    title: string;
+    subject: string;
+    grade: string;
+  }>;
+  unlockRule: string;
+  learningProof?: {
+    windowDays: number;
+    linkedAttempts: number;
+    linkedCorrect: number;
+    linkedAccuracy: number;
+    linkedReviewCorrect: number;
+    masteryAverage: number;
+    missingActions: string[];
+  };
 };
 
 export default function ChallengePage() {
   const [tasks, setTasks] = useState<ChallengeTask[]>([]);
   const [points, setPoints] = useState(0);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch("/api/challenges");
@@ -35,6 +52,7 @@ export default function ChallengePage() {
 
   async function claim(taskId: string) {
     setLoadingId(taskId);
+    setActionMessage(null);
     const res = await fetch("/api/challenges/claim", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -43,6 +61,11 @@ export default function ChallengePage() {
     const data = await res.json();
     setTasks(data?.data?.tasks ?? []);
     setPoints(data?.data?.points ?? 0);
+    if (data?.data?.result?.ok === false) {
+      setActionMessage(data?.data?.result?.message ?? "领取失败");
+    } else if (data?.data?.result?.ok === true) {
+      setActionMessage("奖励领取成功");
+    }
     setLoadingId(null);
   }
 
@@ -73,14 +96,43 @@ export default function ChallengePage() {
       </Card>
 
       <Card title="挑战任务" tag="清单">
+        {actionMessage ? <div style={{ marginBottom: 10 }}>{actionMessage}</div> : null}
         <div className="grid" style={{ gap: 12 }}>
           {tasks.map((task) => (
             <div className="card" key={task.id}>
               <div className="section-title">{task.title}</div>
               <p>{task.description}</p>
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                进度：{task.type === "accuracy" ? `${task.progress}%` : `${task.progress}/${task.goal}`} · 奖励 {task.points} 积分
+                进度：
+                {task.type === "accuracy" || task.type === "mastery"
+                  ? `${task.progress}%`
+                  : `${task.progress}/${task.goal}`}{" "}
+                · 奖励 {task.points} 积分
               </div>
+              {task.linkedKnowledgePoints?.length ? (
+                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {task.linkedKnowledgePoints.map((item) => (
+                    <span className="badge" key={`${task.id}-${item.id}`}>
+                      {item.title}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+              <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 8 }}>
+                解锁规则：{task.unlockRule}
+              </div>
+              {task.learningProof ? (
+                <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 6 }}>
+                  学习证明：近 {task.learningProof.windowDays} 天练习 {task.learningProof.linkedAttempts} 题，
+                  正确率 {task.learningProof.linkedAccuracy}% ，错题复练答对 {task.learningProof.linkedReviewCorrect} 次，
+                  掌握度均分 {task.learningProof.masteryAverage}。
+                </div>
+              ) : null}
+              {!task.completed && task.learningProof?.missingActions?.length ? (
+                <div style={{ marginTop: 6, color: "#b42318", fontSize: 12 }}>
+                  未达成：{task.learningProof.missingActions[0]}
+                </div>
+              ) : null}
               <div className="cta-row" style={{ marginTop: 8 }}>
                 <button
                   className="button primary"

@@ -156,7 +156,7 @@ async function run() {
     assert.equal(unauthFunnel.status, 401, "GET /api/analytics/funnel should require admin auth");
     assert.equal(unauthFunnel.body?.error, "unauthorized");
 
-    const email = process.env.API_TEST_EMAIL || "api-test-student@local.test";
+    const email = process.env.API_TEST_EMAIL || `api-test-student-${Date.now().toString(36)}@local.test`;
     const password = process.env.API_TEST_PASSWORD || "ApiTest123!";
 
     let login = await apiFetch("/api/auth/login", {
@@ -250,6 +250,45 @@ async function run() {
       "Practice submit should return knowledgePointId"
     );
     assert.ok(practiceSubmit.body?.mastery && typeof practiceSubmit.body.mastery === "object");
+
+    const challengeOverview = await apiFetch("/api/challenges");
+    assert.equal(challengeOverview.status, 200, `GET /api/challenges failed: ${challengeOverview.raw}`);
+    assert.ok(Array.isArray(challengeOverview.body?.data?.tasks), "Challenges should include tasks");
+    const challengeTasks = challengeOverview.body?.data?.tasks ?? [];
+    assert.ok(challengeTasks.length >= 1, "Challenges should include at least one task");
+    const firstChallengeTask = challengeTasks[0];
+    assert.ok(
+      Array.isArray(firstChallengeTask?.linkedKnowledgePoints),
+      "Challenge task should include linkedKnowledgePoints"
+    );
+    assert.equal(typeof firstChallengeTask?.unlockRule, "string", "Challenge task should include unlockRule");
+    assert.ok(
+      firstChallengeTask?.learningProof && typeof firstChallengeTask.learningProof === "object",
+      "Challenge task should include learningProof"
+    );
+    assert.ok(
+      Array.isArray(firstChallengeTask?.learningProof?.missingActions),
+      "Challenge learningProof should include missingActions"
+    );
+
+    const lockedChallengeTask = challengeTasks.find((task) => !task.completed && !task.claimed);
+    assert.ok(lockedChallengeTask, "Should have at least one locked challenge task");
+    const claimLockedChallenge = await apiFetch("/api/challenges/claim", {
+      method: "POST",
+      json: {
+        taskId: lockedChallengeTask.id
+      }
+    });
+    assert.equal(
+      claimLockedChallenge.status,
+      200,
+      `POST /api/challenges/claim failed: ${claimLockedChallenge.raw}`
+    );
+    assert.equal(
+      claimLockedChallenge.body?.data?.result?.ok,
+      false,
+      "Locked challenge task should not be claimable"
+    );
 
     const studentPlan = await apiFetch("/api/plan?subject=math");
     assert.equal(studentPlan.status, 200, `GET /api/plan failed: ${studentPlan.raw}`);
