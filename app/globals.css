@@ -621,6 +621,31 @@ textarea:focus {
   padding: 14px 16px;
 }
 
+.split-rail-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.split-rail-layout .side-rail {
+  position: sticky;
+  top: 84px;
+  max-height: calc(100vh - 112px);
+  overflow: auto;
+}
+
+.masonry-list {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  align-content: start;
+}
+
+.full-span {
+  grid-column: 1 / -1;
+}
+
 @media (prefers-reduced-motion: no-preference) {
   .card {
     animation: floatIn 360ms ease both;
@@ -664,5 +689,17 @@ textarea:focus {
 
   .main {
     padding: 20px 6vw 48px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .split-rail-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .split-rail-layout .side-rail {
+    position: static;
+    max-height: none;
+    overflow: visible;
   }
 }

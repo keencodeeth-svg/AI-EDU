@@ -48,16 +48,53 @@ export default function QuestionsListPanel({
   pageEnd,
   onDelete
 }: Props) {
+  const controlStyle = {
+    width: "100%",
+    padding: 9,
+    borderRadius: 10,
+    border: "1px solid var(--stroke)"
+  } as const;
+
+  const activeFilters = [
+    query.subject !== "all" ? `学科：${SUBJECT_LABELS[query.subject] ?? query.subject}` : null,
+    query.grade !== "all" ? `年级：${query.grade}` : null,
+    query.chapter !== "all" ? `章节：${query.chapter}` : null,
+    query.difficulty !== "all" ? `难度：${difficultyLabel[query.difficulty] ?? query.difficulty}` : null,
+    query.questionType !== "all"
+      ? `题型：${questionTypeLabel[query.questionType] ?? query.questionType}`
+      : null,
+    query.search.trim() ? `关键词：${query.search.trim()}` : null
+  ].filter(Boolean) as string[];
+
   return (
     <Card title="题目列表（分类筛选）" tag="列表">
-      <div className="grid grid-3" style={{ gap: 10, alignItems: "end" }}>
+      <div className="card" style={{ padding: 12, marginBottom: 10 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+            共 {meta.total} 题，当前 {pageStart}-{pageEnd}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {activeFilters.length ? (
+              activeFilters.map((item) => (
+                <span className="badge" key={item}>
+                  {item}
+                </span>
+              ))
+            ) : (
+              <span className="badge">当前为全部题目</span>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid" style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
         <label>
           <div className="section-title">搜索</div>
           <input
             value={query.search}
             onChange={(event) => patchQuery({ search: event.target.value })}
             placeholder="题干 / 标签 / 章节 / 答案"
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           />
         </label>
         <label>
@@ -65,7 +102,7 @@ export default function QuestionsListPanel({
           <select
             value={query.subject}
             onChange={(event) => patchQuery({ subject: event.target.value, grade: "all", chapter: "all" })}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           >
             <option value="all">全部学科</option>
             {facets.subjects.map((item) => (
@@ -80,7 +117,7 @@ export default function QuestionsListPanel({
           <select
             value={query.grade}
             onChange={(event) => patchQuery({ grade: event.target.value, chapter: "all" })}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           >
             <option value="all">全部年级</option>
             {facets.grades.map((item) => (
@@ -90,14 +127,12 @@ export default function QuestionsListPanel({
             ))}
           </select>
         </label>
-      </div>
-      <div className="grid grid-3" style={{ gap: 10, alignItems: "end", marginTop: 10 }}>
         <label>
           <div className="section-title">章节</div>
           <select
             value={query.chapter}
             onChange={(event) => patchQuery({ chapter: event.target.value })}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           >
             <option value="all">全部章节</option>
             {facets.chapters.map((item) => (
@@ -112,7 +147,7 @@ export default function QuestionsListPanel({
           <select
             value={query.difficulty}
             onChange={(event) => patchQuery({ difficulty: event.target.value })}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           >
             <option value="all">全部难度</option>
             {facets.difficulties.map((item) => (
@@ -127,7 +162,7 @@ export default function QuestionsListPanel({
           <select
             value={query.questionType}
             onChange={(event) => patchQuery({ questionType: event.target.value })}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+            style={controlStyle}
           >
             <option value="all">全部题型</option>
             {facets.questionTypes.map((item) => (
@@ -138,6 +173,7 @@ export default function QuestionsListPanel({
           </select>
         </label>
       </div>
+
       <div className="cta-row" style={{ marginTop: 10 }}>
         <button
           className="button ghost"
@@ -170,52 +206,65 @@ export default function QuestionsListPanel({
             <option value={50}>50</option>
           </select>
         </label>
-      </div>
-
-      <div
-        style={{
-          marginTop: 12,
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-          gap: 12
-        }}
-      >
-        <div className="card" style={{ padding: 14 }}>
-          <div className="section-title" style={{ marginTop: 0 }}>
-            分类树
-          </div>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
           <button
-            className="button ghost"
+            className={query.subject === "all" ? "button secondary" : "button ghost"}
             type="button"
             onClick={() => patchQuery({ subject: "all", grade: "all", chapter: "all" })}
-            style={{ width: "100%", justifyContent: "space-between" }}
           >
-            全部题目
-            <span>{meta.total}</span>
+            全部
           </button>
-          <div style={{ marginTop: 10, display: "grid", gap: 8 }}>
-            {tree.map((subjectNode) => (
-              <div key={subjectNode.subject} className="card" style={{ padding: 10 }}>
-                <button
-                  className="button secondary"
-                  type="button"
-                  onClick={() =>
-                    patchQuery({
-                      subject: subjectNode.subject,
-                      grade: "all",
-                      chapter: "all"
-                    })
-                  }
-                  style={{ width: "100%", justifyContent: "space-between" }}
+          {tree.slice(0, 6).map((subjectNode) => (
+            <button
+              key={subjectNode.subject}
+              className={query.subject === subjectNode.subject ? "button secondary" : "button ghost"}
+              type="button"
+              onClick={() => patchQuery({ subject: subjectNode.subject, grade: "all", chapter: "all" })}
+            >
+              {SUBJECT_LABELS[subjectNode.subject] ?? subjectNode.subject}({subjectNode.count})
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="split-rail-layout" style={{ marginTop: 12 }}>
+        <div className="side-rail card" style={{ padding: 12 }}>
+          <div className="section-title" style={{ marginTop: 0 }}>
+            分类导航
+          </div>
+          <div style={{ display: "grid", gap: 8 }}>
+            {tree.map((subjectNode, index) => (
+              <details
+                key={subjectNode.subject}
+                open={
+                  query.subject === subjectNode.subject || (query.subject === "all" && index === 0)
+                }
+                style={{
+                  border: "1px solid var(--stroke)",
+                  borderRadius: 10,
+                  background: "rgba(255, 255, 255, 0.6)",
+                  padding: 8
+                }}
+              >
+                <summary
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    cursor: "pointer",
+                    listStyle: "none",
+                    fontSize: 13,
+                    fontWeight: 700
+                  }}
                 >
-                  {SUBJECT_LABELS[subjectNode.subject] ?? subjectNode.subject}
-                  <span>{subjectNode.count}</span>
-                </button>
-                <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
+                  <span>{SUBJECT_LABELS[subjectNode.subject] ?? subjectNode.subject}</span>
+                  <span className="badge">{subjectNode.count}</span>
+                </summary>
+                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
                   {subjectNode.grades.map((gradeNode) => (
-                    <div key={`${subjectNode.subject}-${gradeNode.grade}`}>
+                    <div key={`${subjectNode.subject}-${gradeNode.grade}`} className="card" style={{ padding: 8 }}>
                       <button
-                        className="button ghost"
+                        className={query.grade === gradeNode.grade ? "button secondary" : "button ghost"}
                         type="button"
                         onClick={() =>
                           patchQuery({
@@ -224,13 +273,13 @@ export default function QuestionsListPanel({
                             chapter: "all"
                           })
                         }
-                        style={{ width: "100%", justifyContent: "space-between", padding: "8px 12px" }}
+                        style={{ width: "100%", justifyContent: "space-between" }}
                       >
-                        {gradeNode.grade} 年级
+                        <span>{gradeNode.grade} 年级</span>
                         <span>{gradeNode.count}</span>
                       </button>
-                      <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                        {gradeNode.chapters.slice(0, 6).map((chapterNode) => (
+                      <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {gradeNode.chapters.slice(0, 8).map((chapterNode) => (
                           <button
                             key={`${subjectNode.subject}-${gradeNode.grade}-${chapterNode.chapter}`}
                             className="badge"
@@ -251,15 +300,15 @@ export default function QuestionsListPanel({
                     </div>
                   ))}
                 </div>
-              </div>
+              </details>
             ))}
           </div>
         </div>
 
-        <div className="dense-list">
+        <div className="masonry-list">
           {loading ? <p>加载中...</p> : null}
           {!loading && list.length === 0 ? (
-            <div className="card">
+            <div className="card full-span">
               <div className="section-title" style={{ marginTop: 0 }}>
                 暂无结果
               </div>
@@ -278,8 +327,18 @@ export default function QuestionsListPanel({
                   ) : null}
                 </div>
               ) : null}
-              <div className="section-title">{item.stem}</div>
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+              <div
+                className="section-title"
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden"
+                }}
+              >
+                {item.stem}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--ink-1)", lineHeight: 1.5 }}>
                 {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 · 难度{" "}
                 {difficultyLabel[item.difficulty ?? "medium"] ?? item.difficulty ?? "中"} · 题型{" "}
                 {questionTypeLabel[item.questionType ?? "choice"] ?? item.questionType ?? "选择题"} · 选项{" "}
@@ -287,23 +346,23 @@ export default function QuestionsListPanel({
               </div>
               {item.tags?.length ? (
                 <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {item.tags.map((tag) => (
+                  {item.tags.slice(0, 8).map((tag) => (
                     <span className="badge" key={`${item.id}-${tag}`}>
                       {tag}
                     </span>
                   ))}
                 </div>
               ) : null}
-              <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+              <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                 <div className="badge">答案：{item.answer}</div>
-                <button className="button secondary" onClick={() => onDelete(item.id)}>
+                <button className="button secondary" type="button" onClick={() => onDelete(item.id)}>
                   删除
                 </button>
               </div>
             </div>
           ))}
 
-          <div className="card" style={{ padding: 14 }}>
+          <div className="card full-span" style={{ padding: 14 }}>
             <div className="cta-row" style={{ marginTop: 0, justifyContent: "space-between", alignItems: "center" }}>
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                 共 {meta.total} 条，当前 {pageStart}-{pageEnd}
