@@ -1,14 +1,12 @@
 import { Pool } from "pg";
 import crypto from "crypto";
-import fs from "fs";
-import path from "path";
 import { normalizeBootstrapPassword } from "./password";
 
 type QueryParam = string | number | boolean | null | string[] | number[] | Record<string, any>;
 type QueryParams = QueryParam[];
 
 let pool: Pool | null = null;
-let schemaReady: Promise<void> | null = null;
+let bootstrapReady: Promise<void> | null = null;
 
 export function isDbEnabled() {
   return Boolean(process.env.DATABASE_URL);
@@ -23,29 +21,6 @@ function getPool() {
     });
   }
   return pool;
-}
-
-async function ensureSchema() {
-  if (!isDbEnabled()) return;
-  if (schemaReady) return schemaReady;
-
-  const db = getPool();
-  schemaReady = (async () => {
-    const filePath = path.join(process.cwd(), "db", "schema.sql");
-    if (!fs.existsSync(filePath)) return;
-    const raw = fs.readFileSync(filePath, "utf-8");
-    const cleaned = raw.replace(/--.*$/gm, "");
-    const statements = cleaned
-      .split(";")
-      .map((stmt) => stmt.trim())
-      .filter(Boolean);
-    for (const stmt of statements) {
-      await db.query(stmt);
-    }
-    await ensureBootstrapAdmin(db);
-  })();
-
-  return schemaReady;
 }
 
 async function ensureBootstrapAdmin(db: Pool) {
@@ -68,11 +43,36 @@ async function ensureBootstrapAdmin(db: Pool) {
   );
 }
 
-export async function query<T>(text: string, params: QueryParams = []) {
-  await ensureSchema();
+async function ensureBootstrapAdminOnce() {
+  if (!isDbEnabled()) return;
+  if (bootstrapReady) return bootstrapReady;
   const db = getPool();
-  const result = await db.query(text, params);
-  return result.rows as T[];
+  bootstrapReady = ensureBootstrapAdmin(db).catch((error) => {
+    bootstrapReady = null;
+    throw error;
+  });
+  return bootstrapReady;
+}
+
+function wrapMissingSchemaError(error: unknown) {
+  const pgError = error as { code?: string; message?: string };
+  if (pgError?.code === "42P01" || pgError?.code === "3F000") {
+    return new Error(
+      `${pgError.message ?? "Database relation missing"}. Run "npm run db:migrate" (or "npm run db:init") before starting the app.`
+    );
+  }
+  return error;
+}
+
+export async function query<T>(text: string, params: QueryParams = []) {
+  const db = getPool();
+  try {
+    await ensureBootstrapAdminOnce();
+    const result = await db.query(text, params);
+    return result.rows as T[];
+  } catch (error) {
+    throw wrapMissingSchemaError(error);
+  }
 }
 
 export async function queryOne<T>(text: string, params: QueryParams = []) {

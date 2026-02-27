@@ -80,6 +80,7 @@ HK-AI-EDU 不是单点工具，而是一个完整的学习运营系统：
 - [x] 教材/课件/教案资料库（导入、阅读、标注、分享、分学科管理）
 - [x] 资料库列表轻载 + 详情重载 + 服务端分页筛选
 - [x] 资料库文件对象存储适配（文件内容可脱离 DB 存储，DB 仅保留元数据）
+- [x] 显式数据库迁移命令（`db:migrate`），运行时不再自动建表
 - [x] AI 多模型路由（zhipu/deepseek/kimi/minimax/seedance/compatible/custom）
 - [x] AI 任务策略（providerChain、timeout、retries、budget、minQualityScore）
 - [x] AI 配置与日志 DB 优先存储（多实例一致）
@@ -92,7 +93,7 @@ HK-AI-EDU 不是单点工具，而是一个完整的学习运营系统：
 
 1. AI 内核拆层（provider adapter / policy engine / task handlers）
 2. 文件内容迁移到对象存储（已覆盖资料库/作业上传/模块资源/课程文件，含迁移脚本）
-3. 显式 migration 机制替代运行时自动建表
+3. 显式 migration 机制替代运行时自动建表（已落地 `db:migrate`）
 4. 统一授权中间层（角色 + 资源归属 + 班级关系）
 5. 测试分层（单测 + API 回归 + E2E 关键链路）
 6. 可观测性增强（traceId 串联业务和 AI 日志）
@@ -177,7 +178,7 @@ FILE_INLINE_CONTENT=false
 2. 初始化数据库并写入种子：
 
 ```bash
-npm run db:init
+npm run db:migrate
 npm run seed:base
 npm run seed:stage3
 npm run seed:library-db
@@ -187,6 +188,7 @@ npm run seed:library-db
 
 - 配置 `DATABASE_URL` 后，系统走 DB，不再读取 `data/*.json`
 - 未配置 `DATABASE_URL` 时使用 JSON fallback
+- DB 模式需要先执行迁移命令（`db:migrate` 或兼容命令 `db:init`）
 
 ### 7.3 旧文件数据迁移到对象存储
 

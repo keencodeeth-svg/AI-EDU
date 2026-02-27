@@ -12,6 +12,7 @@
     "import:open-curriculum": "node scripts/import-open-curriculum-pack.mjs",
     "seed:library-db": "node scripts/seed-library-db.mjs",
     "db:init": "node scripts/init-db.mjs",
+    "db:migrate": "node scripts/init-db.mjs",
     "seed:base": "node scripts/seed-db.mjs",
     "seed:stage3": "node scripts/seed-stage3.mjs",
     "seed:bulk": "node scripts/seed-bulk.mjs",
