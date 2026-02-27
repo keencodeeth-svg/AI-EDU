@@ -101,6 +101,7 @@ node scripts/seed-bulk.mjs
   - AI 策略治理：`/api/admin/ai/config`、`/api/admin/ai/policies`、`/api/admin/ai/metrics`、`/api/admin/ai/test`
   - 练习与掌握度：`/api/practice/next`、`/api/practice/submit`、`/api/plan`、`/api/student/radar`
   - 教材 RAG：`/api/library/index`、`/api/library/retrieve`
+  - 考试测评闭环：`/api/teacher/exams`、`/api/teacher/exams/[id]`、`/api/teacher/exams/[id]/review-pack/publish`、`/api/student/exams/[id]/submit`、`/api/student/exams/[id]/review-pack`
   - 错题复练：`/api/wrong-book`、`/api/wrong-book/review-queue`、`/api/wrong-book/review-result`
   - 教师预警：`/api/teacher/insights`、`/api/teacher/alerts`、`/api/teacher/alerts/[id]/ack`
   - 家长周报：`/api/report/weekly`、`/api/parent/assignments`
@@ -130,6 +131,7 @@ node scripts/seed-bulk.mjs
 - [x] 管理端操作日志
 - [x] AI 多模型链路 + 任务级策略 + 调用指标
 - [x] 教材分块检索（RAG）+ 讲解/教案引用依据
+- [x] 考试风险识别（风险分/原因/建议动作）+ 教师一键发布高风险复盘任务（支持家长协同通知）
 - [ ] 付费套餐与订阅
 
 ## 系统架构图（文字版）

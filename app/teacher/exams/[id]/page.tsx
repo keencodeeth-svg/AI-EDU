@@ -74,6 +74,9 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
   const [data, setData] = useState<ExamDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [publishingReviewPack, setPublishingReviewPack] = useState(false);
+  const [publishMessage, setPublishMessage] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -102,6 +105,41 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
     }
     setData((prev) => (prev ? { ...prev, exam: { ...prev.exam, status: payload?.data?.status ?? prev.exam.status } } : prev));
     setUpdatingStatus(false);
+  }
+
+  async function handlePublishReviewPack(dryRun: boolean) {
+    if (!data || publishingReviewPack) return;
+    setPublishMessage(null);
+    setPublishError(null);
+    setPublishingReviewPack(true);
+    try {
+      const res = await fetch(`/api/teacher/exams/${params.id}/review-pack/publish`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          minRiskLevel: "high",
+          includeParents: true,
+          dryRun
+        })
+      });
+      const payload = await res.json();
+      if (!res.ok) {
+        setPublishError(payload?.error ?? "发布失败");
+        return;
+      }
+      const result = payload?.data;
+      const summary =
+        result?.message ??
+        (dryRun
+          ? `预览完成：计划通知学生 ${result?.publishedStudents ?? 0} 人`
+          : `发布完成：已通知学生 ${result?.publishedStudents ?? 0} 人`);
+      const detail = `覆盖 ${result?.targetedStudents ?? 0} 人，跳过低风险 ${result?.skippedLowRisk ?? 0} 人，缺少提交 ${result?.skippedNoSubmission ?? 0} 人。`;
+      setPublishMessage(`${summary} ${detail}`);
+    } catch {
+      setPublishError("发布失败");
+    } finally {
+      setPublishingReviewPack(false);
+    }
   }
 
   useEffect(() => {
@@ -215,10 +253,32 @@ export default function TeacherExamDetailPage({ params }: { params: { id: string
           <a className="button secondary" href={`/api/teacher/exams/${data.exam.id}/export`}>
             导出成绩 CSV
           </a>
+          <button
+            className="button primary"
+            type="button"
+            disabled={publishingReviewPack || data.summary.submitted <= 0}
+            onClick={() => handlePublishReviewPack(false)}
+          >
+            {publishingReviewPack ? "发布中..." : "发布高风险复盘任务"}
+          </button>
+          <button
+            className="button secondary"
+            type="button"
+            disabled={publishingReviewPack || data.summary.submitted <= 0}
+            onClick={() => handlePublishReviewPack(true)}
+          >
+            {publishingReviewPack ? "处理中..." : "预览发布范围"}
+          </button>
           <Link className="button secondary" href="/teacher/exams/create">
             再发布一场考试
           </Link>
         </div>
+        {publishMessage ? (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#027a48" }}>{publishMessage}</div>
+        ) : null}
+        {publishError ? (
+          <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{publishError}</div>
+        ) : null}
       </Card>
 
       <Card title="学生进度" tag="提交">
