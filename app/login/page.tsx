@@ -60,15 +60,16 @@ export default function LoginPage() {
         }
       });
 
-      if (data.role === "admin") {
-        router.push("/admin");
-      } else if (data.role === "teacher") {
-        router.push("/teacher");
-      } else if (data.role === "parent") {
-        router.push("/parent");
-      } else {
-        router.push("/student");
-      }
+      const target =
+        data.role === "admin"
+          ? "/admin"
+          : data.role === "teacher"
+            ? "/teacher"
+            : data.role === "parent"
+              ? "/parent"
+              : "/student";
+      router.replace(target);
+      router.refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {

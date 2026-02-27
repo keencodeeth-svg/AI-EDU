@@ -1,8 +1,8 @@
 import "./globals.css";
-import Link from "next/link";
 import { getCurrentUser } from "@/lib/auth";
 import UserMenu from "@/components/UserMenu";
 import DensityToggle from "@/components/DensityToggle";
+import RoleSidebarNav from "@/components/RoleSidebarNav";
 
 export const metadata = {
   title: "航科AI教育",
@@ -160,44 +160,33 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const navConfig = role ? roleNavConfig[role] : null;
   const primaryLinks = navConfig?.primary ?? guestPrimaryLinks;
   const navGroups = navConfig?.groups ?? guestGroups;
+  const roleLabelMap: Record<"student" | "teacher" | "parent" | "admin", string> = {
+    student: "学生空间",
+    teacher: "教师空间",
+    parent: "家长空间",
+    admin: "管理空间"
+  };
 
   return (
     <html lang="zh-CN">
       <body>
-        <div className="app-shell">
-          <header className="site-header">
+        <div className="app-shell with-side-nav">
+          <aside className="app-sidebar">
             <div className="brand">航科AI教育</div>
-            <nav className="nav-links">
-              {primaryLinks.map((item) => (
-                <Link key={item.href} href={item.href}>
-                  {item.label}
-                </Link>
-              ))}
-              {navGroups.length ? (
-                <details className="nav-more">
-                  <summary>功能分组</summary>
-                  <div className="nav-more-menu">
-                    {navGroups.map((group) => (
-                      <div key={group.title} className="nav-more-group">
-                        <div className="nav-more-group-title">{group.title}</div>
-                        {group.links.map((item) => (
-                          <Link key={item.href} href={item.href}>
-                            {item.label}
-                          </Link>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </details>
-              ) : null}
-            </nav>
-            <div className="header-actions">
-              {user ? <DensityToggle /> : null}
-              <UserMenu user={user} />
-            </div>
-          </header>
-          <main className="main">{children}</main>
-          <footer className="site-footer">© 2026 航科AI教育 K12 学习辅导 MVP</footer>
+            <RoleSidebarNav primaryLinks={primaryLinks} navGroups={navGroups} />
+          </aside>
+
+          <div className="app-main-shell">
+            <header className="site-header compact-header">
+              <div className="section-sub">{role ? roleLabelMap[role] : "访客模式"}</div>
+              <div className="header-actions">
+                {user ? <DensityToggle /> : null}
+                <UserMenu user={user} />
+              </div>
+            </header>
+            <main className="main">{children}</main>
+            <footer className="site-footer">© 2026 航科AI教育 K12 学习辅导 MVP</footer>
+          </div>
         </div>
       </body>
     </html>

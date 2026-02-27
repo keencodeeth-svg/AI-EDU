@@ -27,7 +27,8 @@ export default function TeacherRegisterPage() {
       if (!res.ok) {
         throw new Error(data?.error ?? "注册失败");
       }
-      router.push("/teacher");
+      router.replace("/teacher");
+      router.refresh();
     } catch (err) {
       setError((err as Error).message);
     } finally {
