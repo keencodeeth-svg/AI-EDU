@@ -37,7 +37,7 @@ export default function TeacherRegisterPage() {
   }
 
   return (
-    <div className="grid" style={{ gap: 18, maxWidth: 560 }}>
+    <div className="grid auth-page" style={{ gap: 18 }}>
       <div className="section-head">
         <div>
           <h2>教师注册</h2>
@@ -46,56 +46,56 @@ export default function TeacherRegisterPage() {
         <span className="chip">教师端</span>
       </div>
       <Card title="教师注册" tag="入驻">
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
-          <label>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label className="form-field">
             <div className="section-title">姓名</div>
             <input
+              className="form-control"
               value={name}
               onChange={(event) => setName(event.target.value)}
               placeholder="教师"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">邮箱</div>
             <input
+              className="form-control"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder="teacher@demo.com"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">密码</div>
             <input
+              className="form-control"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="默认建议至少 8 位，含大小写和数字"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+            <div className="form-note">
               实际规则由后端密码策略配置控制。
             </div>
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">邀请码</div>
             <input
+              className="form-control"
               value={inviteCode}
               onChange={(event) => setInviteCode(event.target.value)}
               placeholder="例如 HK-TEACH-2026（不区分大小写）"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+            <div className="form-note">
               若后台配置了 TEACHER_INVITE_CODE(S)，则必须填写；支持多个邀请码。
             </div>
           </label>
-          {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
+          {error ? <div className="status-note error">{error}</div> : null}
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "提交中..." : "注册并登录"}
           </button>
         </form>
-        <div style={{ marginTop: 12, fontSize: 12, color: "var(--ink-1)" }}>
+        <div className="auth-footnote">
           默认仅允许首位教师无需邀请码注册。配置了 TEACHER_INVITE_CODE(S) 后，必须提供邀请码。
         </div>
         <div className="pill-list" style={{ marginTop: 10 }}>

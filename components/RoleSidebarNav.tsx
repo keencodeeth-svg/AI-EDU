@@ -8,6 +8,7 @@ type NavLink = { href: string; label: string };
 type NavGroup = { title: string; links: NavLink[] };
 const RECENT_LINKS_KEY = "hk_aiedu_recent_links_v1";
 const GROUP_STATE_KEY = "hk_aiedu_nav_group_state_v1";
+const SIDEBAR_COLLAPSE_KEY = "hk_aiedu_sidebar_collapsed_v1";
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -30,6 +31,7 @@ export default function RoleSidebarNav({
   const pathname = usePathname();
   const [groupOpenState, setGroupOpenState] = useState<Record<string, boolean>>({});
   const [recentHrefs, setRecentHrefs] = useState<string[]>([]);
+  const [collapsed, setCollapsed] = useState(false);
   const allLinks = useMemo(() => {
     const seen = new Set<string>();
     const merged: NavLink[] = [];
@@ -40,6 +42,24 @@ export default function RoleSidebarNav({
     });
     return merged;
   }, [primaryLinks, navGroups]);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
+      setCollapsed(raw === "1");
+    } catch {
+      setCollapsed(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-sidebar", collapsed ? "collapsed" : "expanded");
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, collapsed ? "1" : "0");
+    } catch {
+      // ignore storage exceptions
+    }
+  }, [collapsed]);
 
   useEffect(() => {
     const defaults = navGroups.reduce<Record<string, boolean>>((acc, group) => {
@@ -98,20 +118,40 @@ export default function RoleSidebarNav({
     });
   }
 
+  function renderNavLink(item: NavLink, key?: string) {
+    return (
+      <Link
+        key={key ?? item.href}
+        href={item.href}
+        className={`role-side-link${isActive(pathname, item.href) ? " active" : ""}`}
+        title={collapsed ? item.label : undefined}
+        aria-label={item.label}
+      >
+        <span className="role-side-link-glyph" aria-hidden="true">
+          {item.label.slice(0, 2)}
+        </span>
+        <span className="role-side-link-text">{item.label}</span>
+      </Link>
+    );
+  }
+
   return (
-    <nav className="role-side-nav">
+    <nav className={`role-side-nav${collapsed ? " collapsed" : ""}`}>
+      <div className="role-side-control">
+        <button
+          type="button"
+          className="role-side-collapse-toggle"
+          onClick={() => setCollapsed((prev) => !prev)}
+          aria-pressed={collapsed}
+        >
+          {collapsed ? "展开侧栏" : "收起侧栏"}
+        </button>
+      </div>
+
       <div className="role-side-section">
         <div className="role-side-section-title">核心功能</div>
         <div className="role-side-links">
-          {primaryLinks.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`role-side-link${isActive(pathname, item.href) ? " active" : ""}`}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {primaryLinks.map((item) => renderNavLink(item))}
         </div>
       </div>
 
@@ -119,15 +159,7 @@ export default function RoleSidebarNav({
         <div className="role-side-section">
           <div className="role-side-section-title">最近访问</div>
           <div className="role-side-links">
-            {recentLinks.map((item) => (
-              <Link
-                key={`recent-${item.href}`}
-                href={item.href}
-                className={`role-side-link${isActive(pathname, item.href) ? " active" : ""}`}
-              >
-                {item.label}
-              </Link>
-            ))}
+            {recentLinks.map((item) => renderNavLink(item, `recent-${item.href}`))}
           </div>
         </div>
       ) : null}
@@ -150,15 +182,7 @@ export default function RoleSidebarNav({
           </div>
           {(groupOpenState[group.title] ?? true) ? (
             <div className="role-side-links">
-              {group.links.map((item) => (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={`role-side-link${isActive(pathname, item.href) ? " active" : ""}`}
-                >
-                  {item.label}
-                </Link>
-              ))}
+              {group.links.map((item) => renderNavLink(item))}
             </div>
           ) : null}
         </div>

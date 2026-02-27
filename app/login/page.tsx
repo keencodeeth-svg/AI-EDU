@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import Card from "@/components/Card";
 import { trackEvent } from "@/lib/analytics-client";
@@ -78,7 +79,7 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="grid" style={{ gap: 18, maxWidth: 520 }}>
+    <div className="grid auth-page" style={{ gap: 18, maxWidth: 520 }}>
       <div className="section-head">
         <div>
           <h2>登录航科AI教育</h2>
@@ -87,7 +88,7 @@ export default function LoginPage() {
         <span className="chip">账号中心</span>
       </div>
       <Card title="登录" tag="入口">
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
+        <form onSubmit={handleSubmit} className="auth-form">
           <div>
             <div className="section-title">选择身份</div>
             <div className="role-grid">
@@ -104,31 +105,31 @@ export default function LoginPage() {
               ))}
             </div>
           </div>
-          <label>
+          <label className="form-field">
             <div className="section-title">邮箱</div>
             <input
+              className="form-control"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder={placeholderMap[role]}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">密码</div>
             <input
+              className="form-control"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Student123"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
+          {error ? <div className="status-note error">{error}</div> : null}
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "登录中..." : "登录"}
           </button>
         </form>
-        <div style={{ marginTop: 12, fontSize: 13, color: "var(--ink-1)" }}>
+        <div className="auth-footnote">
           演示账号：student@demo.com / Student123（可切换身份后登录）
         </div>
         <div className="pill-list" style={{ marginTop: 12 }}>
@@ -137,14 +138,16 @@ export default function LoginPage() {
           <span className="pill">教师注册</span>
           <span className="pill">管理员注册</span>
         </div>
-        <div style={{ marginTop: 8, fontSize: 13, color: "var(--ink-1)" }}>
-          没有账号？<a href="/register">去注册</a>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 13, color: "var(--ink-1)" }}>
-          教师注册：<a href="/teacher/register">去注册</a>
-        </div>
-        <div style={{ marginTop: 6, fontSize: 13, color: "var(--ink-1)" }}>
-          管理员注册：<a href="/admin/register">去注册</a>
+        <div className="auth-links">
+          <div>
+            没有账号？<Link href="/register">去注册</Link>
+          </div>
+          <div>
+            教师注册：<Link href="/teacher/register">去注册</Link>
+          </div>
+          <div>
+            管理员注册：<Link href="/admin/register">去注册</Link>
+          </div>
         </div>
       </Card>
     </div>

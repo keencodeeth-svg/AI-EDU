@@ -50,7 +50,7 @@ export default function RegisterPage() {
   }
 
   return (
-    <div className="grid" style={{ gap: 18, maxWidth: 560 }}>
+    <div className="grid auth-page" style={{ gap: 18 }}>
       <div className="section-head">
         <div>
           <h2>账号注册</h2>
@@ -59,53 +59,53 @@ export default function RegisterPage() {
         <span className="chip">学生/家长</span>
       </div>
       <Card title="注册" tag="账户">
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 12 }}>
-          <label>
+        <form onSubmit={handleSubmit} className="auth-form">
+          <label className="form-field">
             <div className="section-title">角色</div>
             <select
+              className="form-control"
               value={role}
               onChange={(event) => setRole(event.target.value as "student" | "parent")}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             >
               <option value="student">学生</option>
               <option value="parent">家长</option>
             </select>
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">姓名</div>
             <input
+              className="form-control"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">邮箱</div>
             <input
+              className="form-control"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
           </label>
-          <label>
+          <label className="form-field">
             <div className="section-title">密码</div>
             <input
+              className="form-control"
               type="password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+            <div className="form-note">
               默认建议至少 8 位，包含大写字母、小写字母和数字（以系统配置为准）。
             </div>
           </label>
           {role === "student" ? (
-            <label>
+            <label className="form-field">
               <div className="section-title">年级</div>
               <select
+                className="form-control"
                 value={grade}
                 onChange={(event) => setGrade(event.target.value)}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
               >
                 {GRADE_OPTIONS.map((item) => (
                   <option key={item.value} value={item.value}>
@@ -116,35 +116,35 @@ export default function RegisterPage() {
             </label>
           ) : (
             <>
-              <label>
+              <label className="form-field">
                 <div className="section-title">绑定码（推荐）</div>
                 <input
+                  className="form-control"
                   value={observerCode}
                   onChange={(event) => setObserverCode(event.target.value)}
                   placeholder="学生资料页获取绑定码"
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
                 />
               </label>
-              <label>
+              <label className="form-field">
                 <div className="section-title">绑定学生邮箱（可选）</div>
                 <input
+                  className="form-control"
                   value={studentEmail}
                   onChange={(event) => setStudentEmail(event.target.value)}
                   placeholder="student@demo.com"
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
                 />
               </label>
             </>
           )}
 
-          {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
-          {message ? <div style={{ color: "#027a48", fontSize: 13 }}>{message}</div> : null}
+          {error ? <div className="status-note error">{error}</div> : null}
+          {message ? <div className="status-note success">{message}</div> : null}
 
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "提交中..." : "注册"}
           </button>
         </form>
-        <div style={{ marginTop: 12, fontSize: 13, color: "var(--ink-1)" }}>
+        <div className="auth-footnote">
           已有账号？<Link href="/login">去登录</Link>
         </div>
         <div className="pill-list" style={{ marginTop: 10 }}>
