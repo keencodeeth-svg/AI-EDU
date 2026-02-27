@@ -252,6 +252,34 @@ export async function runAdminContentSuite(context) {
     "Quality check response should include qualityScore"
   );
 
+  const qualityRecheck = await apiFetch("/api/admin/questions/quality/recheck", {
+    method: "POST",
+    json: {
+      subject: "math",
+      grade: "4",
+      limit: 100
+    }
+  });
+  assert.equal(
+    qualityRecheck.status,
+    200,
+    `POST /api/admin/questions/quality/recheck failed: ${qualityRecheck.raw}`
+  );
+  assert.equal(
+    typeof qualityRecheck.body?.data?.scope?.processedCount,
+    "number",
+    "Quality recheck should include scope.processedCount"
+  );
+  assert.equal(
+    typeof qualityRecheck.body?.data?.summary?.updated,
+    "number",
+    "Quality recheck should include summary.updated"
+  );
+  assert.ok(
+    Array.isArray(qualityRecheck.body?.data?.summary?.topDuplicateClusters),
+    "Quality recheck should include summary.topDuplicateClusters"
+  );
+
   const qualityList = await apiFetch(`/api/admin/questions/quality?questionId=${state.createdQuestionId}`);
   assert.equal(qualityList.status, 200, `GET /api/admin/questions/quality failed: ${qualityList.raw}`);
   assert.ok(Array.isArray(qualityList.body?.data), "Quality list should include data array");

@@ -72,6 +72,9 @@ export default function QuestionsAdminPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiErrors, setAiErrors] = useState<string[]>([]);
+  const [recheckLoading, setRecheckLoading] = useState(false);
+  const [recheckMessage, setRecheckMessage] = useState<string | null>(null);
+  const [recheckError, setRecheckError] = useState<string | null>(null);
 
   const chapterOptions = useMemo(() => {
     const filtered = knowledgePoints.filter(
@@ -353,6 +356,43 @@ export default function QuestionsAdminPage() {
     loadQuestions();
   }
 
+  async function handleRecheckQuality() {
+    setRecheckMessage(null);
+    setRecheckError(null);
+    setRecheckLoading(true);
+    try {
+      const payload: Record<string, unknown> = {};
+      if (query.subject !== "all") payload.subject = query.subject;
+      if (query.grade !== "all") payload.grade = query.grade;
+      if (query.pool === "active") payload.includeIsolated = false;
+      payload.limit = 1000;
+
+      const res = await fetch("/api/admin/questions/quality/recheck", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRecheckError(data?.error ?? "批量重算失败");
+        return;
+      }
+
+      const processedCount = Number(data?.data?.scope?.processedCount ?? 0);
+      const updated = Number(data?.data?.summary?.updated ?? 0);
+      const newlyTracked = Number(data?.data?.summary?.newlyTracked ?? 0);
+      const highRiskCount = Number(data?.data?.summary?.highRiskCount ?? 0);
+      const isolatedCount = Number(data?.data?.summary?.isolatedCount ?? 0);
+      setRecheckMessage(
+        `已重算 ${processedCount} 题（新增质检 ${newlyTracked}，变更 ${updated}，高风险 ${highRiskCount}，隔离池 ${isolatedCount}）。`
+      );
+
+      await loadQuestions();
+    } finally {
+      setRecheckLoading(false);
+    }
+  }
+
   const pageStart = meta.total === 0 ? 0 : (meta.page - 1) * meta.pageSize + 1;
   const pageEnd = meta.total === 0 ? 0 : Math.min(meta.total, meta.page * meta.pageSize);
 
@@ -421,6 +461,10 @@ export default function QuestionsAdminPage() {
           pageEnd={pageEnd}
           onDelete={handleDelete}
           onToggleIsolation={handleToggleIsolation}
+          recheckLoading={recheckLoading}
+          recheckMessage={recheckMessage}
+          recheckError={recheckError}
+          onRecheckQuality={handleRecheckQuality}
         />
       ) : null}
     </div>

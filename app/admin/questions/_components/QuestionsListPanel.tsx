@@ -34,6 +34,10 @@ type Props = {
   pageEnd: number;
   onDelete: (id: string) => Promise<void>;
   onToggleIsolation: (id: string, isolated: boolean) => Promise<void>;
+  recheckLoading: boolean;
+  recheckMessage: string | null;
+  recheckError: string | null;
+  onRecheckQuality: () => Promise<void>;
 };
 
 export default function QuestionsListPanel({
@@ -51,7 +55,11 @@ export default function QuestionsListPanel({
   pageStart,
   pageEnd,
   onDelete,
-  onToggleIsolation
+  onToggleIsolation,
+  recheckLoading,
+  recheckMessage,
+  recheckError,
+  onRecheckQuality
 }: Props) {
   const controlStyle = {
     width: "100%",
@@ -134,6 +142,13 @@ export default function QuestionsListPanel({
               ))}
             </div>
           ) : null}
+          <div className="cta-row" style={{ marginTop: 10 }}>
+            <button className="button secondary" type="button" onClick={onRecheckQuality} disabled={recheckLoading}>
+              {recheckLoading ? "重算中..." : "一键重算质检"}
+            </button>
+            {recheckMessage ? <span style={{ fontSize: 12, color: "#027a48" }}>{recheckMessage}</span> : null}
+            {recheckError ? <span style={{ fontSize: 12, color: "#b42318" }}>{recheckError}</span> : null}
+          </div>
         </div>
       ) : null}
 

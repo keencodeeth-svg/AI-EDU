@@ -315,6 +315,23 @@ export const questionQualityCheckBodySchema = v.object<{
   { allowUnknown: false }
 );
 
+export const questionQualityRecheckBodySchema = v.object<{
+  subject?: string;
+  grade?: string;
+  questionIds?: string[];
+  includeIsolated?: boolean;
+  limit?: number;
+}>(
+  {
+    subject: optionalRawString,
+    grade: optionalRawString,
+    questionIds: optionalRawStringArray,
+    includeIsolated: v.optional(v.boolean()),
+    limit: v.optional(v.number({ integer: true, min: 1, max: 2000, coerce: true }))
+  },
+  { allowUnknown: false }
+);
+
 export const questionQualityQuerySchema = v.object<{
   questionId?: string;
   subject?: string;
