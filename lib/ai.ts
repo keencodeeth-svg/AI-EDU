@@ -8,38 +8,32 @@ import {
   type LlmProvider
 } from "./ai-provider";
 import { callRoutedLLM, probeLlmProviders as probeRoutedLlmProviders } from "./ai-router";
+import { GENERATE_PROMPT, SYSTEM_PROMPT } from "./ai-prompts";
 import {
   buildExplainFallback,
   buildHomeworkFallback,
-  extractJson,
-  normalizeQuestionDraft,
-  normalizeTitle
+  extractJson
 } from "./ai-utils";
 import type {
   AssistPayload,
   AssistResponse,
-  GenerateKnowledgePointsPayload,
-  GenerateKnowledgeTreePayload,
-  GenerateQuestionPayload,
-  KnowledgePointDraft,
   KnowledgePointExtraction,
-  KnowledgeTreeDraft,
   LearningReport,
   LessonOutline,
-  QuestionCheck,
-  QuestionDraft,
   WritingFeedback,
   WrongReviewScript
 } from "./ai-types";
 
-const SYSTEM_PROMPT =
-  "你是 K12 辅导老师。请用简洁、清晰、分步骤的方式讲解，避免直接给出复杂推理。";
-
-const GENERATE_PROMPT =
-  "你是 K12 出题老师。只输出严格 JSON，不要附加解释或代码块。";
-
 export type { LlmProbeResult } from "./ai-router";
 export type { LlmProviderCapabilityHealth, LlmProviderHealth } from "./ai-provider";
+export {
+  generateKnowledgePointsDraft,
+  generateKnowledgeTreeDraft,
+  generateQuestionCheck,
+  generateQuestionDraft,
+  generateVariantDrafts,
+  generateWrongExplanation
+} from "./ai-generation-handlers";
 export type {
   AssistPayload,
   AssistResponse,
@@ -95,112 +89,6 @@ export async function probeLlmProviders(input: {
   capability?: LlmCapability;
 } = {}) {
   return probeRoutedLlmProviders(input);
-}
-
-export async function generateQuestionDraft(payload: GenerateQuestionPayload) {
-  const context = [
-    `学科：${payload.subject}`,
-    `年级：${payload.grade}`,
-    `知识点：${payload.knowledgePointTitle}`,
-    payload.chapter ? `章节：${payload.chapter}` : "",
-    payload.difficulty ? `难度：${payload.difficulty}` : "",
-    payload.questionType ? `题型：${payload.questionType}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const userPrompt = `${context}\n请生成 1 道四选一选择题，字段为: stem, options, answer, explanation。\n要求: options 为 4 个简短选项，answer 必须完全等于其中一个选项文本，不要包含 A/B/C/D 前缀。`;
-  const llm = await callRoutedLLM({
-    taskType: "question_generate",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  return normalizeQuestionDraft(parsed);
-}
-
-export async function generateWrongExplanation(payload: {
-  subject: string;
-  grade: string;
-  question: string;
-  studentAnswer: string;
-  correctAnswer: string;
-  explanation?: string;
-  knowledgePointTitle?: string;
-}) {
-  const context = [
-    `学科：${payload.subject}`,
-    `年级：${payload.grade}`,
-    payload.knowledgePointTitle ? `知识点：${payload.knowledgePointTitle}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const userPrompt = `${context}\n题目：${payload.question}\n学生答案：${payload.studentAnswer}\n正确答案：${payload.correctAnswer}\n已有解析：${payload.explanation ?? ""}\n请指出学生可能的错误原因，并用简洁语言给出纠正讲解与 2-3 条提示。返回 JSON：{\"analysis\":\"...\",\"hints\":[\"...\",\"...\"]}。不要输出多余文本。`;
-  const llm = await callRoutedLLM({
-    taskType: "explanation",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  if (!parsed || typeof parsed !== "object") return null;
-  const analysis = String((parsed as any).analysis ?? "").trim();
-  const hintsRaw = Array.isArray((parsed as any).hints) ? (parsed as any).hints : [];
-  const hints = hintsRaw.map((item: any) => String(item).trim()).filter(Boolean);
-  if (!analysis) return null;
-  return { analysis, hints: hints.slice(0, 3) };
-}
-
-export async function generateVariantDrafts(payload: {
-  subject: string;
-  grade: string;
-  knowledgePointTitle: string;
-  chapter?: string;
-  seedQuestion: string;
-  count?: number;
-  difficulty?: "easy" | "medium" | "hard";
-}) {
-  const count = Math.min(Math.max(Number(payload.count) || 2, 1), 4);
-  const context = [
-    `学科：${payload.subject}`,
-    `年级：${payload.grade}`,
-    `知识点：${payload.knowledgePointTitle}`,
-    payload.chapter ? `章节：${payload.chapter}` : "",
-    payload.difficulty ? `难度：${payload.difficulty}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const userPrompt = `${context}\n参考题目：${payload.seedQuestion}\n请生成 ${count} 道同类型变式选择题，返回 JSON：{\"items\":[{\"stem\":\"...\",\"options\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}]}。要求选项为 4 个，答案必须等于某个选项文本，不要附加 A/B/C/D。不要输出多余文本。`;
-  const llm = await callRoutedLLM({
-    taskType: "variant_generate",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  if (!parsed) return null;
-  const rawItems = Array.isArray((parsed as any).items) ? (parsed as any).items : Array.isArray(parsed) ? parsed : [];
-  if (!rawItems.length) return null;
-
-  const drafts: QuestionDraft[] = [];
-  rawItems.forEach((item: any) => {
-    const draft = normalizeQuestionDraft(item);
-    if (draft) drafts.push(draft);
-  });
-
-  return drafts.length ? drafts.slice(0, count) : null;
 }
 
 export async function generateExplainVariants(payload: {
@@ -602,151 +490,6 @@ export async function generateLearningReport(payload: {
     highlights: highlights.map((item: any) => String(item).trim()).filter(Boolean),
     reminders: reminders.map((item: any) => String(item).trim()).filter(Boolean)
   } as LearningReport;
-}
-
-export async function generateQuestionCheck(payload: {
-  stem: string;
-  options: string[];
-  answer: string;
-  explanation?: string;
-  subject?: string;
-  grade?: string;
-}) {
-  const context = [
-    payload.subject ? `学科：${payload.subject}` : "",
-    payload.grade ? `年级：${payload.grade}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const userPrompt = `${context}\n题目：${payload.stem}\n选项：${payload.options.join(" | ")}\n答案：${payload.answer}\n解析：${payload.explanation ?? ""}\n请检查是否存在题目歧义、答案错误或选项重复。输出 JSON：{\"issues\":[\"...\"],\"risk\":\"low|medium|high\",\"suggestedAnswer\":\"...\",\"notes\":\"...\"}。不要输出多余文本。`;
-  const llm = await callRoutedLLM({
-    taskType: "question_check",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  if (!parsed || typeof parsed !== "object") return null;
-
-  const issues = Array.isArray((parsed as any).issues) ? (parsed as any).issues : [];
-  const riskRaw = String((parsed as any).risk ?? "low").toLowerCase();
-  const risk = ["low", "medium", "high"].includes(riskRaw) ? (riskRaw as "low" | "medium" | "high") : "low";
-  const suggestedAnswer = String((parsed as any).suggestedAnswer ?? "").trim();
-  const notes = String((parsed as any).notes ?? "").trim();
-
-  return {
-    issues: issues.map((item: any) => String(item).trim()).filter(Boolean),
-    risk,
-    suggestedAnswer: suggestedAnswer || undefined,
-    notes: notes || undefined
-  } as QuestionCheck;
-}
-
-export async function generateKnowledgePointsDraft(payload: GenerateKnowledgePointsPayload) {
-  const count = Math.min(Math.max(Number(payload.count) || 5, 1), 10);
-  const context = [
-    `学科：${payload.subject}`,
-    `年级：${payload.grade}`,
-    payload.chapter ? `章节：${payload.chapter}` : ""
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const userPrompt = `${context}\n请生成 ${count} 个知识点名称，返回 JSON。格式: {\"items\":[{\"title\":\"...\",\"chapter\":\"...\"}]}。\n要求: title 简洁准确，chapter 如果已提供则使用，否则给出合理章节名。不要输出多余文本。`;
-  const llm = await callRoutedLLM({
-    taskType: "knowledge_points_generate",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  if (!parsed) return null;
-
-  const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed.items) ? parsed.items : [];
-  if (!rawItems.length) return null;
-
-  const seen = new Set<string>();
-  const items: KnowledgePointDraft[] = [];
-
-  for (const item of rawItems) {
-    const title = normalizeTitle(String(item?.title ?? "")).trim();
-    const chapter = String(item?.chapter ?? payload.chapter ?? "未归类").trim();
-    if (!title) continue;
-    const key = `${title}|${chapter}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    items.push({ title, chapter });
-    if (items.length >= count) break;
-  }
-
-  return items.length ? items : null;
-}
-
-export async function generateKnowledgeTreeDraft(payload: GenerateKnowledgeTreePayload) {
-  const unitCount = Math.min(Math.max(Number(payload.unitCount) || 6, 1), 12);
-  const chaptersPerUnit = Math.min(Math.max(Number(payload.chaptersPerUnit) || 2, 1), 4);
-  const pointsPerChapter = Math.min(Math.max(Number(payload.pointsPerChapter) || 4, 2), 8);
-  const edition = payload.edition ?? "人教版";
-  const volume = payload.volume ?? "上册";
-
-  const context = [
-    `学科：${payload.subject}`,
-    `年级：${payload.grade}`,
-    `教材版本：${edition}`,
-    `册次：${volume}`
-  ].join("\n");
-
-  const userPrompt = `${context}\n请输出整本书的知识点树，按“单元->章节->知识点”分层，返回 JSON：{\"units\":[{\"title\":\"第一单元\",\"chapters\":[{\"title\":\"...\",\"points\":[{\"title\":\"...\"}]}]}]}。\n单元数量约 ${unitCount} 个，每单元 ${chaptersPerUnit} 章，每章 ${pointsPerChapter} 个知识点。不要输出多余文本。`;
-  const llm = await callRoutedLLM({
-    taskType: "knowledge_tree_generate",
-    messages: [
-      { role: "system", content: GENERATE_PROMPT },
-      { role: "user", content: userPrompt }
-    ],
-    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
-  });
-  if (!llm?.text) return null;
-  const parsed = extractJson(llm.text);
-  if (!parsed) return null;
-
-  const rawUnits = Array.isArray(parsed.units) ? parsed.units : Array.isArray(parsed) ? parsed : [];
-  if (!rawUnits.length) return null;
-
-  const units: KnowledgeTreeDraft["units"] = [];
-
-  for (const rawUnit of rawUnits) {
-    const unitTitle = normalizeTitle(String(rawUnit?.title ?? "")).trim();
-    if (!unitTitle) continue;
-    const rawChapters = Array.isArray(rawUnit?.chapters) ? rawUnit.chapters : [];
-    const chapters: KnowledgeTreeDraft["units"][number]["chapters"] = [];
-
-    for (const rawChapter of rawChapters) {
-      const chapterTitle = normalizeTitle(String(rawChapter?.title ?? "")).trim();
-      if (!chapterTitle) continue;
-      const rawPoints = Array.isArray(rawChapter?.points) ? rawChapter.points : [];
-      const points = rawPoints
-        .map((point: any) => ({ title: normalizeTitle(String(point?.title ?? "")).trim() }))
-        .filter((point: any) => point.title);
-
-      if (!points.length) continue;
-      const trimmedPoints = points.slice(0, pointsPerChapter);
-      chapters.push({ title: chapterTitle, points: trimmedPoints });
-      if (chapters.length >= chaptersPerUnit) break;
-    }
-
-    if (!chapters.length) continue;
-    units.push({ title: unitTitle, chapters });
-    if (units.length >= unitCount) break;
-  }
-
-  return units.length ? { units } : null;
 }
 
 export async function generateAssistAnswer(payload: AssistPayload): Promise<AssistResponse> {
