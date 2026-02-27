@@ -62,9 +62,9 @@ export default function QuestionsToolsPanel({
             />
           </label>
         </div>
-        {importMessage ? <div style={{ marginTop: 8 }}>{importMessage}</div> : null}
+        {importMessage ? <div className="status-note success" style={{ marginTop: 8 }}>{importMessage}</div> : null}
         {importErrors.length ? (
-          <div style={{ marginTop: 8, color: "#b42318", fontSize: 13 }}>
+          <div className="status-note error" style={{ marginTop: 8, display: "grid", gap: 4 }}>
             {importErrors.slice(0, 5).map((err) => (
               <div key={err}>{err}</div>
             ))}
@@ -176,9 +176,9 @@ export default function QuestionsToolsPanel({
             {aiLoading ? "生成中..." : "开始生成"}
           </button>
         </form>
-        {aiMessage ? <div style={{ marginTop: 8 }}>{aiMessage}</div> : null}
+        {aiMessage ? <div className="status-note success" style={{ marginTop: 8 }}>{aiMessage}</div> : null}
         {aiErrors.length ? (
-          <div style={{ marginTop: 8, color: "#b42318", fontSize: 13 }}>
+          <div className="status-note error" style={{ marginTop: 8, display: "grid", gap: 4 }}>
             {aiErrors.slice(0, 5).map((err) => (
               <div key={err}>{err}</div>
             ))}

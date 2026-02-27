@@ -740,7 +740,7 @@ export default function LibraryPage() {
               <input type="file" accept=".json,application/json" onChange={(event) => handleBatchFileChange(event.target.files?.[0] ?? null)} />
             </label>
             {batchPreview ? (
-              <div className="card" style={{ fontSize: 12, color: "var(--ink-1)" }}>
+              <div className="status-note info">
                 预览：教材 {batchPreview.textbooks} 条，习题 {batchPreview.questions} 条
               </div>
             ) : null}
@@ -824,8 +824,8 @@ export default function LibraryPage() {
         </Card>
       ) : null}
 
-      {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
-      {message ? <div style={{ color: "#027a48", fontSize: 13 }}>{message}</div> : null}
+      {error ? <div className="status-note error">{error}</div> : null}
+      {message ? <div className="status-note success">{message}</div> : null}
 
       <Card title="分学科管理" tag="筛选">
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
@@ -929,7 +929,12 @@ export default function LibraryPage() {
       </Card>
 
       <Card title="资料管理列表" tag="管理">
-        {loading ? <p>加载中...</p> : null}
+        {loading ? (
+          <div className="empty-state">
+            <p className="empty-state-title">加载中</p>
+            <p style={{ margin: 0 }}>正在读取教材与课件列表。</p>
+          </div>
+        ) : null}
         {!loading ? (
           <div className="grid" style={{ gap: 14 }}>
             {groupedBySubject.map((group) => (
@@ -990,8 +995,7 @@ export default function LibraryPage() {
                           </button>
                           {user?.role === "admin" ? (
                             <button
-                              className="button ghost"
-                              style={{ borderColor: "#fecaca", color: "#b42318" }}
+                              className="button danger"
                               type="button"
                               onClick={() => removeItem(item)}
                               disabled={deletingId === item.id}
@@ -1006,7 +1010,12 @@ export default function LibraryPage() {
                 </div>
               </details>
             ))}
-            {!groupedBySubject.length ? <p>当前筛选条件下暂无资料。</p> : null}
+            {!groupedBySubject.length ? (
+              <div className="empty-state">
+                <p className="empty-state-title">暂无资料</p>
+                <p style={{ margin: 0 }}>当前筛选条件下没有可展示内容，请调整学科或关键词。</p>
+              </div>
+            ) : null}
             {groupedBySubject.length ? (
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                 当前页展示 {items.length} 条，筛选总量 {meta.total} 条。

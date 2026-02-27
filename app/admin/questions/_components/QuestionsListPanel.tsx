@@ -146,8 +146,8 @@ export default function QuestionsListPanel({
             <button className="button secondary" type="button" onClick={onRecheckQuality} disabled={recheckLoading}>
               {recheckLoading ? "重算中..." : "一键重算质检"}
             </button>
-            {recheckMessage ? <span style={{ fontSize: 12, color: "#027a48" }}>{recheckMessage}</span> : null}
-            {recheckError ? <span style={{ fontSize: 12, color: "#b42318" }}>{recheckError}</span> : null}
+            {recheckMessage ? <span className="status-note success">{recheckMessage}</span> : null}
+            {recheckError ? <span className="status-note error">{recheckError}</span> : null}
           </div>
         </div>
       ) : null}
@@ -480,13 +480,16 @@ export default function QuestionsListPanel({
         </div>
 
         <div className="masonry-list">
-          {loading ? <p>加载中...</p> : null}
+          {loading ? (
+            <div className="empty-state full-span">
+              <p className="empty-state-title">加载中</p>
+              <p style={{ margin: 0 }}>正在读取题目与质量信息。</p>
+            </div>
+          ) : null}
           {!loading && list.length === 0 ? (
-            <div className="card full-span">
-              <div className="section-title" style={{ marginTop: 0 }}>
-                暂无结果
-              </div>
-              <div style={{ color: "var(--ink-1)", fontSize: 13 }}>请调整筛选条件后重试。</div>
+            <div className="empty-state full-span">
+              <p className="empty-state-title">暂无结果</p>
+              <p style={{ margin: 0 }}>请调整筛选条件后重试。</p>
             </div>
           ) : null}
           {list.map((item) => (
@@ -545,7 +548,7 @@ export default function QuestionsListPanel({
                 >
                   {item.isolated ? "移出隔离池" : "加入隔离池"}
                 </button>
-                <button className="button secondary" type="button" onClick={() => onDelete(item.id)}>
+                <button className="button danger" type="button" onClick={() => onDelete(item.id)}>
                   删除
                 </button>
               </div>

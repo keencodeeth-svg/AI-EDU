@@ -386,6 +386,12 @@ a {
   color: var(--brand-0);
 }
 
+.button.danger {
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.35);
+  color: #b42318;
+}
+
 .button:hover {
   transform: translateY(-1px);
 }
@@ -424,6 +430,51 @@ a {
   color: #9a5d0a;
   font-size: 12px;
   font-weight: 600;
+}
+
+.status-note {
+  font-size: 13px;
+  border-radius: 10px;
+  border: 1px solid transparent;
+  padding: 8px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-note.success {
+  color: #027a48;
+  background: rgba(2, 122, 72, 0.08);
+  border-color: rgba(2, 122, 72, 0.2);
+}
+
+.status-note.error {
+  color: #b42318;
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.18);
+}
+
+.status-note.info {
+  color: var(--ink-1);
+  background: rgba(27, 108, 168, 0.08);
+  border-color: rgba(27, 108, 168, 0.2);
+}
+
+.empty-state {
+  display: grid;
+  gap: 6px;
+  padding: 14px;
+  border-radius: 12px;
+  border: 1px dashed rgba(27, 108, 168, 0.35);
+  background: rgba(255, 255, 255, 0.68);
+  color: var(--ink-1);
+}
+
+.empty-state-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink-0);
 }
 
 input,
