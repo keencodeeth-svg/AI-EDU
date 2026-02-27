@@ -96,7 +96,7 @@ export default function TeacherSubmissionsPage() {
                 setClassId(next);
                 load(next, status);
               }}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+              style={{ width: "100%" }}
             >
               <option value="">全部班级</option>
               {classes.map((klass) => (
@@ -115,7 +115,7 @@ export default function TeacherSubmissionsPage() {
                 setStatus(next);
                 load(classId, next);
               }}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+              style={{ width: "100%" }}
             >
               <option value="all">全部</option>
               <option value="completed">已提交</option>
@@ -129,7 +129,7 @@ export default function TeacherSubmissionsPage() {
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder="学生/作业名称"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
+              style={{ width: "100%" }}
             />
           </label>
           <div className="cta-row">
@@ -138,12 +138,15 @@ export default function TeacherSubmissionsPage() {
             </Link>
           </div>
         </div>
-        {error ? <div style={{ marginTop: 10, color: "#b42318", fontSize: 13 }}>{error}</div> : null}
+        {error ? <div className="status-note error">{error}</div> : null}
       </Card>
 
       <Card title="提交列表" tag="列表">
         {loading ? (
-          <p>加载中...</p>
+          <div className="empty-state">
+            <p className="empty-state-title">加载中</p>
+            <p>正在拉取提交记录。</p>
+          </div>
         ) : filtered.length ? (
           <div style={{ overflowX: "auto" }}>
             <table className="gradebook-table">
@@ -193,7 +196,10 @@ export default function TeacherSubmissionsPage() {
             </table>
           </div>
         ) : (
-          <p>暂无记录。</p>
+          <div className="empty-state">
+            <p className="empty-state-title">暂无记录</p>
+            <p>当前筛选条件下没有提交数据。</p>
+          </div>
         )}
       </Card>
     </div>

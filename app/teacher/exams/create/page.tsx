@@ -280,7 +280,10 @@ export default function CreateTeacherExamPage() {
               <div className="section-title">定向学生（至少 1 人）</div>
               <div className="card" style={{ padding: 12, display: "grid", gap: 8 }}>
                 {classStudents.length === 0 ? (
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>当前班级暂无学生。</div>
+                  <div className="empty-state">
+                    <p className="empty-state-title">暂无学生</p>
+                    <p>当前班级没有可选学生。</p>
+                  </div>
                 ) : (
                   classStudents.map((student) => (
                     <label key={student.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -339,8 +342,8 @@ export default function CreateTeacherExamPage() {
             <p>考试发布后会自动分配给班级内学生，并支持自动保存与提交统计。</p>
           </div>
 
-          {message ? <div style={{ color: "#1a7f37", fontSize: 13 }}>{message}</div> : null}
-          {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
+          {message ? <div className="status-note success">{message}</div> : null}
+          {error ? <div className="status-note error">{error}</div> : null}
 
           <div className="cta-row">
             <button

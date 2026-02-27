@@ -51,7 +51,7 @@ export default function TeacherExamsPage() {
   if (error) {
     return (
       <Card title="在线考试">
-        <p>{error}</p>
+        <div className="status-note error">{error}</div>
         <Link className="button secondary" href="/teacher" style={{ marginTop: 12 }}>
           返回教师端
         </Link>
@@ -86,9 +86,15 @@ export default function TeacherExamsPage() {
 
       <Card title="考试列表" tag="进度">
         {loading ? (
-          <p>加载中...</p>
+          <div className="empty-state">
+            <p className="empty-state-title">加载中</p>
+            <p>正在同步考试列表，请稍候。</p>
+          </div>
         ) : list.length === 0 ? (
-          <p>暂无考试，先创建第一场考试。</p>
+          <div className="empty-state">
+            <p className="empty-state-title">暂无考试</p>
+            <p>先创建第一场考试。</p>
+          </div>
         ) : (
           <div className="grid" style={{ gap: 12 }}>
             {list.map((item) => (
