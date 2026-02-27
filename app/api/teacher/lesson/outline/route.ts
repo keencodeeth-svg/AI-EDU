@@ -74,6 +74,7 @@ export const POST = withApi(async (request) => {
 
   const quality = assessAiQuality({
     kind: "assist",
+    taskType: "lesson_outline",
     provider: "unknown",
     textBlocks: [
       body.topic,

@@ -277,6 +277,7 @@ export const POST = withApi(async (request) => {
     };
   const quality = assessAiQuality({
     kind: "assist",
+    taskType: "wrong_review_script",
     provider: "unknown",
     textBlocks: [
       ...reviewOrder.map((item) => `${item.title} ${item.teachFocus}`),

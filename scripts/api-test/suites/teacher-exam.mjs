@@ -417,6 +417,16 @@ export async function runTeacherExamSuite(context) {
     "string",
     "Lesson outline should include quality.riskLevel"
   );
+  assert.equal(
+    typeof teacherOutline.body?.data?.quality?.minQualityScore,
+    "number",
+    "Lesson outline should include quality.minQualityScore"
+  );
+  assert.equal(
+    typeof teacherOutline.body?.data?.quality?.policyViolated,
+    "boolean",
+    "Lesson outline should include quality.policyViolated"
+  );
 
   const wrongReviewScript = await apiFetch("/api/teacher/lesson/wrong-review", {
     method: "POST",
@@ -431,6 +441,11 @@ export async function runTeacherExamSuite(context) {
     typeof wrongReviewScript.body?.data?.quality?.confidenceScore,
     "number",
     "Wrong-review script should include quality.confidenceScore"
+  );
+  assert.equal(
+    wrongReviewScript.body?.data?.quality?.taskType,
+    "wrong_review_script",
+    "Wrong-review script should include mapped quality.taskType"
   );
 
   const classReviewPack = await apiFetch("/api/teacher/lesson/review-pack", {
@@ -454,6 +469,11 @@ export async function runTeacherExamSuite(context) {
     typeof classReviewPack.body?.data?.quality?.confidenceScore,
     "number",
     "Class review-pack should include quality.confidenceScore"
+  );
+  assert.equal(
+    classReviewPack.body?.data?.quality?.taskType,
+    "wrong_review_script",
+    "Class review-pack should include mapped quality.taskType"
   );
   const firstCause = classReviewPack.body?.data?.commonCauseStats?.[0];
   if (firstCause) {

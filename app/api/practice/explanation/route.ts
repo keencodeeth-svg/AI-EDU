@@ -68,6 +68,7 @@ export const POST = withApi(async (request) => {
   });
   const quality = assessAiQuality({
     kind: "explanation",
+    taskType: "explanation",
     provider: variants.provider,
     textBlocks: [variants.text, variants.visual, variants.analogy],
     listCountHint: 3

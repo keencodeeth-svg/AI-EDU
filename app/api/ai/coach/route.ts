@@ -49,6 +49,7 @@ export const POST = withApi(async (request) => {
     : null;
   const quality = assessAiQuality({
     kind: "coach",
+    taskType: "assist",
     provider: assist.provider,
     textBlocks: [assist.answer, ...(assist.steps ?? []), ...(assist.hints ?? []), feedback ?? ""],
     listCountHint: checkpoints.length + (assist.steps?.length ?? 0)

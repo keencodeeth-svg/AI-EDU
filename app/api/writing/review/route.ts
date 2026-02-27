@@ -65,6 +65,7 @@ export const POST = withApi(async (request) => {
 
   const quality = assessAiQuality({
     kind: "writing",
+    taskType: "writing_feedback",
     provider,
     textBlocks: [
       feedback.summary,
