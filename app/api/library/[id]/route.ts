@@ -59,13 +59,17 @@ export const DELETE = withApi(async (_request, context) => {
     notFound("not found");
   }
 
-  await addAdminLog({
-    adminId: user.id,
-    action: "delete_library_item",
-    entityType: "library",
-    entityId: params.id,
-    detail: item.title
-  });
+  try {
+    await addAdminLog({
+      adminId: user.id,
+      action: "delete_library_item",
+      entityType: "library",
+      entityId: params.id,
+      detail: item.title
+    });
+  } catch {
+    // Logging failure should not block a completed delete operation.
+  }
 
   return {
     data: {

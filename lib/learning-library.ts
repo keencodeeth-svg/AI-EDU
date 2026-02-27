@@ -530,6 +530,16 @@ export async function deleteLearningLibraryItem(id: string) {
     return true;
   }
 
+  // Defensive cleanup for environments where cascade or annotation table may be missing.
+  try {
+    await query("DELETE FROM learning_library_annotations WHERE item_id = $1", [id]);
+  } catch (error) {
+    const pgError = error as { code?: string };
+    if (pgError.code !== "42P01") {
+      throw error;
+    }
+  }
+
   const rows = await query<{ id: string }>(
     "DELETE FROM learning_library_items WHERE id = $1 RETURNING id",
     [id]

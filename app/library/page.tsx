@@ -146,7 +146,7 @@ export default function LibraryPage() {
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch("/api/library");
+      const res = await fetch("/api/library", { cache: "no-store" });
       const data = await res.json();
       if (!res.ok) {
         setError(data?.error ?? "资料加载失败");
@@ -442,11 +442,23 @@ export default function LibraryPage() {
     setDeletingId(item.id);
     try {
       const res = await fetch(`/api/library/${item.id}`, { method: "DELETE" });
-      const data = await res.json();
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
       if (!res.ok) {
+        if (res.status === 404) {
+          setItems((prev) => prev.filter((entry) => entry.id !== item.id));
+          setMessage("资料不存在或已删除");
+          await loadItems();
+          return;
+        }
         setError(data?.error ?? "删除失败");
         return;
       }
+      setItems((prev) => prev.filter((entry) => entry.id !== item.id));
       setMessage("资料已删除");
       await loadItems();
     } finally {
