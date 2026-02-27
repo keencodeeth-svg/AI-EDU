@@ -152,7 +152,7 @@ export default function QuestionsListPanel({
         </div>
       ) : null}
 
-      <div className="grid" style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))" }}>
+      <div className="grid" style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
         <label>
           <div className="section-title">搜索</div>
           <input
@@ -208,36 +208,6 @@ export default function QuestionsListPanel({
           </select>
         </label>
         <label>
-          <div className="section-title">难度</div>
-          <select
-            value={query.difficulty}
-            onChange={(event) => patchQuery({ difficulty: event.target.value })}
-            style={controlStyle}
-          >
-            <option value="all">全部难度</option>
-            {facets.difficulties.map((item) => (
-              <option value={item.value} key={item.value}>
-                {(difficultyLabel[item.value] ?? item.value) + ` (${item.count})`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <div className="section-title">题型</div>
-          <select
-            value={query.questionType}
-            onChange={(event) => patchQuery({ questionType: event.target.value })}
-            style={controlStyle}
-          >
-            <option value="all">全部题型</option>
-            {facets.questionTypes.map((item) => (
-              <option value={item.value} key={item.value}>
-                {(questionTypeLabel[item.value] ?? item.value) + ` (${item.count})`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           <div className="section-title">题目池</div>
           <select
             value={query.pool}
@@ -251,45 +221,97 @@ export default function QuestionsListPanel({
             <option value="active">排除隔离池</option>
           </select>
         </label>
-        <label>
-          <div className="section-title">质量风险</div>
-          <select
-            value={query.riskLevel}
-            onChange={(event) =>
-              patchQuery({ riskLevel: event.target.value as "all" | "low" | "medium" | "high" })
-            }
-            style={controlStyle}
-          >
-            <option value="all">全部风险</option>
-            <option value="high">高风险</option>
-            <option value="medium">中风险</option>
-            <option value="low">低风险</option>
-          </select>
-        </label>
-        <label>
-          <div className="section-title">答案冲突</div>
-          <select
-            value={query.answerConflict}
-            onChange={(event) =>
-              patchQuery({ answerConflict: event.target.value as "all" | "yes" | "no" })
-            }
-            style={controlStyle}
-          >
-            <option value="all">全部</option>
-            <option value="yes">仅冲突</option>
-            <option value="no">排除冲突</option>
-          </select>
-        </label>
-        <label>
-          <div className="section-title">重复簇 ID</div>
-          <input
-            value={query.duplicateClusterId}
-            onChange={(event) => patchQuery({ duplicateClusterId: event.target.value })}
-            placeholder="输入簇 ID（支持包含匹配）"
-            style={controlStyle}
-          />
-        </label>
       </div>
+
+      <details style={{ marginTop: 8 }} open={Boolean(query.riskLevel !== "all" || query.answerConflict !== "all" || query.duplicateClusterId.trim() || query.difficulty !== "all" || query.questionType !== "all")}>
+        <summary
+          style={{
+            cursor: "pointer",
+            listStyle: "none",
+            fontSize: 13,
+            fontWeight: 700,
+            color: "var(--ink-1)",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 8
+          }}
+        >
+          高级筛选（质检/风险）
+        </summary>
+        <div
+          className="grid"
+          style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", marginTop: 8 }}
+        >
+          <label>
+            <div className="section-title">难度</div>
+            <select
+              value={query.difficulty}
+              onChange={(event) => patchQuery({ difficulty: event.target.value })}
+              style={controlStyle}
+            >
+              <option value="all">全部难度</option>
+              {facets.difficulties.map((item) => (
+                <option value={item.value} key={item.value}>
+                  {(difficultyLabel[item.value] ?? item.value) + ` (${item.count})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <div className="section-title">题型</div>
+            <select
+              value={query.questionType}
+              onChange={(event) => patchQuery({ questionType: event.target.value })}
+              style={controlStyle}
+            >
+              <option value="all">全部题型</option>
+              {facets.questionTypes.map((item) => (
+                <option value={item.value} key={item.value}>
+                  {(questionTypeLabel[item.value] ?? item.value) + ` (${item.count})`}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <div className="section-title">质量风险</div>
+            <select
+              value={query.riskLevel}
+              onChange={(event) =>
+                patchQuery({ riskLevel: event.target.value as "all" | "low" | "medium" | "high" })
+              }
+              style={controlStyle}
+            >
+              <option value="all">全部风险</option>
+              <option value="high">高风险</option>
+              <option value="medium">中风险</option>
+              <option value="low">低风险</option>
+            </select>
+          </label>
+          <label>
+            <div className="section-title">答案冲突</div>
+            <select
+              value={query.answerConflict}
+              onChange={(event) =>
+                patchQuery({ answerConflict: event.target.value as "all" | "yes" | "no" })
+              }
+              style={controlStyle}
+            >
+              <option value="all">全部</option>
+              <option value="yes">仅冲突</option>
+              <option value="no">排除冲突</option>
+            </select>
+          </label>
+          <label>
+            <div className="section-title">重复簇 ID</div>
+            <input
+              value={query.duplicateClusterId}
+              onChange={(event) => patchQuery({ duplicateClusterId: event.target.value })}
+              placeholder="输入簇 ID（支持包含匹配）"
+              style={controlStyle}
+            />
+          </label>
+        </div>
+      </details>
 
       <div className="cta-row" style={{ marginTop: 10 }}>
         <button

@@ -184,11 +184,12 @@ export default function LibraryPage() {
   const [contentFilter, setContentFilter] = useState<"all" | "textbook" | "courseware" | "lesson_plan">("all");
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(24);
+  const [pageSize, setPageSize] = useState(16);
   const [meta, setMeta] = useState<LibraryMeta>(DEFAULT_META);
   const [facets, setFacets] = useState<LibraryFacets>(DEFAULT_FACETS);
   const [summary, setSummary] = useState<LibrarySummary>(DEFAULT_SUMMARY);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [expandedSubjects, setExpandedSubjects] = useState<string[]>([]);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -300,6 +301,21 @@ export default function LibraryPage() {
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
   }, [items]);
+
+  useEffect(() => {
+    setExpandedSubjects((prev) => {
+      const visibleSubjects = new Set(groupedBySubject.map((item) => item.subject));
+      const kept = prev.filter((item) => visibleSubjects.has(item));
+      if (kept.length) return kept;
+      return groupedBySubject[0]?.subject ? [groupedBySubject[0].subject] : [];
+    });
+  }, [groupedBySubject]);
+
+  function toggleExpandedSubject(subject: string) {
+    setExpandedSubjects((prev) =>
+      prev.includes(subject) ? prev.filter((item) => item !== subject) : [...prev, subject]
+    );
+  }
 
   async function submitImport(event: React.FormEvent) {
     event.preventDefault();
@@ -812,6 +828,25 @@ export default function LibraryPage() {
       {message ? <div style={{ color: "#027a48", fontSize: 13 }}>{message}</div> : null}
 
       <Card title="分学科管理" tag="筛选">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
+          <button
+            className={subjectFilter === "all" ? "button secondary" : "button ghost"}
+            type="button"
+            onClick={() => setSubjectFilter("all")}
+          >
+            全部学科
+          </button>
+          {subjectList.map((subject) => (
+            <button
+              key={subject}
+              className={subjectFilter === subject ? "button secondary" : "button ghost"}
+              type="button"
+              onClick={() => setSubjectFilter(subject)}
+            >
+              {SUBJECT_LABELS[subject] ?? subject}
+            </button>
+          ))}
+        </div>
         <div className="grid grid-3">
           <label>
             <div className="section-title">学科</div>
@@ -862,6 +897,7 @@ export default function LibraryPage() {
               onChange={(event) => setPageSize(Number(event.target.value))}
               style={{ padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
             >
+              <option value={16}>16</option>
               <option value={12}>12</option>
               <option value={24}>24</option>
               <option value={48}>48</option>
@@ -897,10 +933,30 @@ export default function LibraryPage() {
         {!loading ? (
           <div className="grid" style={{ gap: 14 }}>
             {groupedBySubject.map((group) => (
-              <div className="card" key={group.subject}>
-                <div className="section-title">
-                  {group.label}（{group.list.length}）
-                </div>
+              <details
+                key={group.subject}
+                className="card"
+                open={expandedSubjects.includes(group.subject)}
+              >
+                <summary
+                  onClick={(event) => {
+                    event.preventDefault();
+                    toggleExpandedSubject(group.subject);
+                  }}
+                  style={{
+                    cursor: "pointer",
+                    listStyle: "none",
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    gap: 8
+                  }}
+                >
+                  <span className="section-title" style={{ margin: 0 }}>
+                    {group.label}
+                  </span>
+                  <span className="badge">{group.list.length} 条</span>
+                </summary>
                 <div className="grid" style={{ gap: 10, marginTop: 10 }}>
                   {group.list.map((item) => {
                     const textbookLinkBlocked = item.contentType === "textbook" && item.sourceType === "link";
@@ -948,7 +1004,7 @@ export default function LibraryPage() {
                     );
                   })}
                 </div>
-              </div>
+              </details>
             ))}
             {!groupedBySubject.length ? <p>当前筛选条件下暂无资料。</p> : null}
             {groupedBySubject.length ? (

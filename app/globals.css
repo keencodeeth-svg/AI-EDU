@@ -16,10 +16,10 @@
   --font-display: "Songti SC", "STSong", "SimSun", "Noto Serif SC", serif;
   --layout-max-width: 1680px;
   --layout-pad-x: clamp(18px, 2.8vw, 44px);
-  --layout-pad-y: 18px;
-  --grid-gap: 12px;
-  --card-pad-y: 14px;
-  --card-pad-x: 16px;
+  --layout-pad-y: 14px;
+  --grid-gap: 10px;
+  --card-pad-y: 12px;
+  --card-pad-x: 14px;
   --title-gap-top: 10px;
   --title-gap-bottom: 6px;
 }
@@ -83,7 +83,7 @@ a {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px var(--layout-pad-x) 10px;
+  padding: 14px var(--layout-pad-x) 9px;
   position: sticky;
   top: 0;
   backdrop-filter: blur(12px);
@@ -116,7 +116,7 @@ a {
 }
 
 .nav-links a {
-  padding: 8px 14px;
+  padding: 7px 12px;
   border-radius: 999px;
   border: 1px solid transparent;
   transition: all 160ms ease;
@@ -135,7 +135,7 @@ a {
 
 .nav-more summary {
   list-style: none;
-  padding: 8px 14px;
+  padding: 7px 12px;
   border-radius: 999px;
   border: 1px solid transparent;
   background: rgba(255, 255, 255, 0.6);
@@ -182,7 +182,7 @@ a {
 
 .main {
   flex: 1;
-  padding: var(--layout-pad-y) var(--layout-pad-x) 44px;
+  padding: var(--layout-pad-y) var(--layout-pad-x) 34px;
   max-width: var(--layout-max-width);
   width: 100%;
   margin: 0 auto;
