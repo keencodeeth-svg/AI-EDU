@@ -57,6 +57,7 @@ export default function TeacherAiToolsPage() {
   const [wrongResult, setWrongResult] = useState<any>(null);
   const [reviewPackResult, setReviewPackResult] = useState<any>(null);
   const [reviewPackAssigningId, setReviewPackAssigningId] = useState<string | null>(null);
+  const [reviewPackAssigningAll, setReviewPackAssigningAll] = useState(false);
   const [reviewPackAssignMessage, setReviewPackAssignMessage] = useState<string | null>(null);
   const [reviewPackAssignError, setReviewPackAssignError] = useState<string | null>(null);
   const [checkForm, setCheckForm] = useState({
@@ -149,6 +150,8 @@ export default function TeacherAiToolsPage() {
   async function handleReviewPack(event: React.FormEvent) {
     event.preventDefault();
     if (!wrongForm.classId) return;
+    setReviewPackAssignMessage(null);
+    setReviewPackAssignError(null);
     setLoading(true);
     const res = await fetch("/api/teacher/lesson/review-pack", {
       method: "POST",
@@ -188,6 +191,37 @@ export default function TeacherAiToolsPage() {
     return `${year}-${month}-${day}`;
   }
 
+  async function createReviewPackAssignment(item: any) {
+    const dueDate = formatDateForInput(Number(item?.dueInDays ?? 1));
+    const questionCount = Math.max(3, Math.min(12, Number(item?.suggestedCount ?? 5)));
+    const res = await fetch("/api/teacher/assignments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        classId: wrongForm.classId,
+        title: `${item?.title ?? "课后复练"}（AI讲评包）`,
+        description: `来源于班级共性错因讲评包，建议在 ${item?.dueInDays ?? 1} 天内完成。`,
+        dueDate,
+        questionCount,
+        knowledgePointId: item?.knowledgePointId,
+        mode: "bank",
+        submissionType: "quiz"
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: data?.error ?? "布置失败"
+      };
+    }
+    return {
+      ok: true,
+      title: data?.data?.title ?? item?.title ?? "课后复练",
+      dueDate: data?.data?.dueDate ?? dueDate
+    };
+  }
+
   async function handleAssignReviewSheet(item: any) {
     if (!wrongForm.classId) return;
     const assignKey = String(item?.id ?? "");
@@ -196,37 +230,61 @@ export default function TeacherAiToolsPage() {
     setReviewPackAssigningId(assignKey);
 
     try {
-      const dueDate = formatDateForInput(Number(item?.dueInDays ?? 1));
-      const questionCount = Math.max(3, Math.min(12, Number(item?.suggestedCount ?? 5)));
-      const res = await fetch("/api/teacher/assignments", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          classId: wrongForm.classId,
-          title: `${item?.title ?? "课后复练"}（AI讲评包）`,
-          description: `来源于班级共性错因讲评包，建议在 ${item?.dueInDays ?? 1} 天内完成。`,
-          dueDate,
-          questionCount,
-          knowledgePointId: item?.knowledgePointId,
-          mode: "bank",
-          submissionType: "quiz"
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setReviewPackAssignError(data?.error ?? "布置失败");
+      const result = await createReviewPackAssignment(item);
+      if (!result.ok) {
+        setReviewPackAssignError(result.error);
         return;
       }
       setReviewPackAssignMessage(
-        `已布置：${data?.data?.title ?? item?.title ?? "课后复练"}，截止 ${new Date(
-          data?.data?.dueDate ?? dueDate
-        ).toLocaleDateString("zh-CN")}`
+        `已布置：${result.title}，截止 ${new Date(result.dueDate).toLocaleDateString("zh-CN")}`
       );
     } catch {
       setReviewPackAssignError("布置失败");
     } finally {
       setReviewPackAssigningId(null);
     }
+  }
+
+  async function handleAssignAllReviewSheets() {
+    if (!wrongForm.classId) return;
+    const items = reviewPackResult?.afterClassReviewSheet ?? [];
+    if (!items.length) {
+      setReviewPackAssignMessage(null);
+      setReviewPackAssignError("暂无可布置的复练单");
+      return;
+    }
+    setReviewPackAssignMessage(null);
+    setReviewPackAssignError(null);
+    setReviewPackAssigningAll(true);
+
+    let successCount = 0;
+    const failed: string[] = [];
+    for (const item of items) {
+      try {
+        const result = await createReviewPackAssignment(item);
+        if (result.ok) {
+          successCount += 1;
+        } else {
+          failed.push(`${item?.title ?? "未命名复练"}：${result.error}`);
+        }
+      } catch {
+        failed.push(`${item?.title ?? "未命名复练"}：布置失败`);
+      }
+    }
+
+    if (successCount > 0) {
+      setReviewPackAssignMessage(`已批量布置 ${successCount}/${items.length} 条复练单`);
+    } else {
+      setReviewPackAssignMessage(null);
+    }
+
+    if (failed.length > 0) {
+      const brief = failed.slice(0, 3).join("；");
+      setReviewPackAssignError(`失败 ${failed.length} 条：${brief}`);
+    } else {
+      setReviewPackAssignError(null);
+    }
+    setReviewPackAssigningAll(false);
   }
 
   function renderQualityCard(payload: any) {
@@ -641,6 +699,16 @@ export default function TeacherAiToolsPage() {
             </div>
             <div className="card">
               <div className="section-title">课后复练单</div>
+              <div className="cta-row" style={{ marginTop: 8 }}>
+                <button
+                  className="button primary"
+                  type="button"
+                  disabled={reviewPackAssigningAll || !(reviewPackResult.afterClassReviewSheet ?? []).length}
+                  onClick={handleAssignAllReviewSheets}
+                >
+                  {reviewPackAssigningAll ? "批量布置中..." : "一键布置全部复练单"}
+                </button>
+              </div>
               <div className="grid" style={{ gap: 8, marginTop: 8 }}>
                 {(reviewPackResult.afterClassReviewSheet ?? []).map((item: any) => (
                   <div className="card" key={item.id}>
@@ -652,7 +720,7 @@ export default function TeacherAiToolsPage() {
                       <button
                         className="button ghost"
                         type="button"
-                        disabled={reviewPackAssigningId === item.id}
+                        disabled={reviewPackAssigningAll || reviewPackAssigningId === item.id}
                         onClick={() => handleAssignReviewSheet(item)}
                       >
                         {reviewPackAssigningId === item.id ? "布置中..." : "一键布置该条复练"}
