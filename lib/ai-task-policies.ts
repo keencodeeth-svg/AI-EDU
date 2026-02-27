@@ -1,5 +1,6 @@
 import crypto from "crypto";
 import { getEffectiveAiProviderChain, type AiProviderKey } from "./ai-config";
+import { isDbEnabled, query } from "./db";
 import { readJson, writeJson } from "./storage";
 
 export type AiTaskType =
@@ -29,6 +30,29 @@ type AiTaskPolicyRecord = {
 };
 
 type AiTaskPolicyStore = Partial<Record<AiTaskType, AiTaskPolicyRecord>>;
+
+type DbAiTaskPolicyRow = {
+  task_type: string;
+  provider_chain: string[] | null;
+  timeout_ms: number | null;
+  max_retries: number | null;
+  budget_limit: number | null;
+  min_quality_score: number | null;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+type DbAiCallLogRow = {
+  id: string;
+  task_type: string;
+  provider: string;
+  latency_ms: number | null;
+  status: string;
+  error_code: string | null;
+  error_message: string | null;
+  meta: Record<string, unknown> | null;
+  created_at: string;
+};
 
 export type AiTaskPolicy = {
   taskType: AiTaskType;
@@ -65,6 +89,7 @@ export type AiCallLog = {
 const AI_TASK_POLICIES_FILE = "ai-task-policies.json";
 const AI_CALL_LOGS_FILE = "ai-call-logs.json";
 const MAX_CALL_LOGS = 20000;
+const POLICY_STORE_CACHE_TTL_MS = 8000;
 
 const TASK_OPTIONS: Array<{
   taskType: AiTaskType;
@@ -128,6 +153,10 @@ const PROVIDER_ALIASES: Record<string, AiProviderKey> = {
   seed: "seedance"
 };
 
+let policyStoreCache: AiTaskPolicyStore = readPolicyStoreFromFile();
+let policyStoreCacheSyncedAt = 0;
+let policyStoreSyncing: Promise<void> | null = null;
+
 function clampInt(value: number, min: number, max: number) {
   const n = Number(value);
   if (!Number.isFinite(n)) {
@@ -167,12 +196,20 @@ function findTaskOption(taskType: AiTaskType) {
   return TASK_OPTIONS.find((item) => item.taskType === taskType) ?? TASK_OPTIONS[0];
 }
 
-function readPolicyStore() {
+function isKnownTaskType(value: string): value is AiTaskType {
+  return TASK_OPTIONS.some((item) => item.taskType === value);
+}
+
+function readPolicyStoreFromFile() {
   const saved = readJson<AiTaskPolicyStore | null>(AI_TASK_POLICIES_FILE, null);
   if (!saved || typeof saved !== "object") {
     return {} as AiTaskPolicyStore;
   }
   return saved;
+}
+
+function persistPolicyStoreToFile(store: AiTaskPolicyStore) {
+  writeJson(AI_TASK_POLICIES_FILE, store);
 }
 
 function toPolicy(taskType: AiTaskType, record?: AiTaskPolicyRecord): AiTaskPolicy {
@@ -195,21 +232,113 @@ function toPolicy(taskType: AiTaskType, record?: AiTaskPolicyRecord): AiTaskPoli
   };
 }
 
+async function syncPolicyStoreFromDb(force = false) {
+  if (!isDbEnabled()) return;
+
+  const now = Date.now();
+  if (!force && policyStoreCacheSyncedAt && now - policyStoreCacheSyncedAt < POLICY_STORE_CACHE_TTL_MS) {
+    return;
+  }
+  if (policyStoreSyncing) {
+    return policyStoreSyncing;
+  }
+
+  policyStoreSyncing = (async () => {
+    try {
+      const rows = await query<DbAiTaskPolicyRow>(
+        `SELECT task_type, provider_chain, timeout_ms, max_retries, budget_limit, min_quality_score, updated_at, updated_by
+         FROM ai_task_policies`
+      );
+      const nextStore: AiTaskPolicyStore = {};
+      if (!rows.length) {
+        const fileStore = readPolicyStoreFromFile();
+        const entries = Object.entries(fileStore) as Array<[AiTaskType, AiTaskPolicyRecord]>;
+        await Promise.all(
+          entries.map(async ([taskType, record]) => {
+            if (!isKnownTaskType(taskType)) return;
+            const normalized: AiTaskPolicyRecord = {
+              providerChain: normalizeProviderChain(record.providerChain ?? []),
+              timeoutMs: clampInt(record.timeoutMs ?? TASK_DEFAULTS[taskType].timeoutMs, 500, 30000),
+              maxRetries: clampInt(record.maxRetries ?? TASK_DEFAULTS[taskType].maxRetries, 0, 5),
+              budgetLimit: clampInt(record.budgetLimit ?? TASK_DEFAULTS[taskType].budgetLimit, 100, 100000),
+              minQualityScore: clampInt(record.minQualityScore ?? TASK_DEFAULTS[taskType].minQualityScore, 0, 100),
+              updatedAt: record.updatedAt ?? new Date().toISOString(),
+              updatedBy: record.updatedBy
+            };
+            nextStore[taskType] = normalized;
+            await query(
+              `INSERT INTO ai_task_policies
+                (task_type, provider_chain, timeout_ms, max_retries, budget_limit, min_quality_score, updated_at, updated_by)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+               ON CONFLICT (task_type) DO NOTHING`,
+              [
+                taskType,
+                normalized.providerChain ?? [],
+                normalized.timeoutMs ?? TASK_DEFAULTS[taskType].timeoutMs,
+                normalized.maxRetries ?? TASK_DEFAULTS[taskType].maxRetries,
+                normalized.budgetLimit ?? TASK_DEFAULTS[taskType].budgetLimit,
+                normalized.minQualityScore ?? TASK_DEFAULTS[taskType].minQualityScore,
+                normalized.updatedAt ?? new Date().toISOString(),
+                normalized.updatedBy ?? null
+              ]
+            );
+          })
+        );
+      } else {
+        rows.forEach((row) => {
+          if (!isKnownTaskType(row.task_type)) {
+            return;
+          }
+          nextStore[row.task_type] = {
+            providerChain: normalizeProviderChain(row.provider_chain ?? []),
+            timeoutMs: row.timeout_ms ?? undefined,
+            maxRetries: row.max_retries ?? undefined,
+            budgetLimit: row.budget_limit ?? undefined,
+            minQualityScore: row.min_quality_score ?? undefined,
+            updatedAt: row.updated_at,
+            updatedBy: row.updated_by ?? undefined
+          };
+        });
+      }
+      policyStoreCache = nextStore;
+      policyStoreCacheSyncedAt = Date.now();
+    } catch {
+      // ignore db read failures; keep in-memory cache
+    } finally {
+      policyStoreSyncing = null;
+    }
+  })();
+
+  return policyStoreSyncing;
+}
+
+function getCachedPolicyStore() {
+  if (isDbEnabled()) {
+    void syncPolicyStoreFromDb();
+  }
+  return policyStoreCache;
+}
+
+export async function refreshAiTaskPolicies() {
+  await syncPolicyStoreFromDb(true);
+  return getAiTaskPolicies();
+}
+
 export function listAiTaskOptions() {
   return TASK_OPTIONS.map((item) => ({ ...item }));
 }
 
 export function getAiTaskPolicy(taskType: AiTaskType) {
-  const store = readPolicyStore();
+  const store = getCachedPolicyStore();
   return toPolicy(taskType, store[taskType]);
 }
 
 export function getAiTaskPolicies() {
-  const store = readPolicyStore();
+  const store = getCachedPolicyStore();
   return TASK_OPTIONS.map((item) => toPolicy(item.taskType, store[item.taskType]));
 }
 
-export function saveAiTaskPolicy(input: {
+export async function saveAiTaskPolicy(input: {
   taskType: AiTaskType;
   providerChain?: string[];
   timeoutMs?: number;
@@ -218,8 +347,7 @@ export function saveAiTaskPolicy(input: {
   minQualityScore?: number;
   updatedBy?: string;
 }) {
-  const store = readPolicyStore();
-  const previous = store[input.taskType] ?? {};
+  const previous = policyStoreCache[input.taskType] ?? {};
   const defaults = TASK_DEFAULTS[input.taskType];
   const next: AiTaskPolicyRecord = {
     providerChain:
@@ -235,12 +363,43 @@ export function saveAiTaskPolicy(input: {
     updatedAt: new Date().toISOString(),
     updatedBy: input.updatedBy?.trim() || undefined
   };
-  store[input.taskType] = next;
-  writeJson(AI_TASK_POLICIES_FILE, store);
+
+  policyStoreCache[input.taskType] = next;
+  policyStoreCacheSyncedAt = Date.now();
+
+  if (!isDbEnabled()) {
+    persistPolicyStoreToFile(policyStoreCache);
+    return toPolicy(input.taskType, next);
+  }
+
+  await query(
+    `INSERT INTO ai_task_policies
+      (task_type, provider_chain, timeout_ms, max_retries, budget_limit, min_quality_score, updated_at, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (task_type) DO UPDATE
+     SET provider_chain = EXCLUDED.provider_chain,
+         timeout_ms = EXCLUDED.timeout_ms,
+         max_retries = EXCLUDED.max_retries,
+         budget_limit = EXCLUDED.budget_limit,
+         min_quality_score = EXCLUDED.min_quality_score,
+         updated_at = EXCLUDED.updated_at,
+         updated_by = EXCLUDED.updated_by`,
+    [
+      input.taskType,
+      next.providerChain ?? [],
+      next.timeoutMs ?? TASK_DEFAULTS[input.taskType].timeoutMs,
+      next.maxRetries ?? TASK_DEFAULTS[input.taskType].maxRetries,
+      next.budgetLimit ?? TASK_DEFAULTS[input.taskType].budgetLimit,
+      next.minQualityScore ?? TASK_DEFAULTS[input.taskType].minQualityScore,
+      next.updatedAt ?? new Date().toISOString(),
+      next.updatedBy ?? null
+    ]
+  );
+
   return toPolicy(input.taskType, next);
 }
 
-export function saveAiTaskPolicies(
+export async function saveAiTaskPolicies(
   items: Array<{
     taskType: AiTaskType;
     providerChain?: string[];
@@ -251,13 +410,12 @@ export function saveAiTaskPolicies(
   }>,
   updatedBy?: string
 ) {
-  const store = readPolicyStore();
   const now = new Date().toISOString();
 
   items.forEach((item) => {
-    const previous = store[item.taskType] ?? {};
+    const previous = policyStoreCache[item.taskType] ?? {};
     const defaults = TASK_DEFAULTS[item.taskType];
-    store[item.taskType] = {
+    policyStoreCache[item.taskType] = {
       providerChain: item.providerChain !== undefined ? normalizeProviderChain(item.providerChain) : previous.providerChain,
       timeoutMs: clampInt(item.timeoutMs ?? previous.timeoutMs ?? defaults.timeoutMs, 500, 30000),
       maxRetries: clampInt(item.maxRetries ?? previous.maxRetries ?? defaults.maxRetries, 0, 5),
@@ -268,23 +426,70 @@ export function saveAiTaskPolicies(
     };
   });
 
-  writeJson(AI_TASK_POLICIES_FILE, store);
-  return TASK_OPTIONS.map((option) => toPolicy(option.taskType, store[option.taskType]));
-}
+  policyStoreCacheSyncedAt = Date.now();
 
-export function resetAiTaskPolicy(taskType?: AiTaskType) {
-  if (!taskType) {
-    writeJson(AI_TASK_POLICIES_FILE, {});
+  if (!isDbEnabled()) {
+    persistPolicyStoreToFile(policyStoreCache);
     return getAiTaskPolicies();
   }
-  const store = readPolicyStore();
-  delete store[taskType];
-  writeJson(AI_TASK_POLICIES_FILE, store);
+
+  await Promise.all(
+    items.map(async (item) => {
+      const record = policyStoreCache[item.taskType] ?? {};
+      await query(
+        `INSERT INTO ai_task_policies
+          (task_type, provider_chain, timeout_ms, max_retries, budget_limit, min_quality_score, updated_at, updated_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (task_type) DO UPDATE
+         SET provider_chain = EXCLUDED.provider_chain,
+             timeout_ms = EXCLUDED.timeout_ms,
+             max_retries = EXCLUDED.max_retries,
+             budget_limit = EXCLUDED.budget_limit,
+             min_quality_score = EXCLUDED.min_quality_score,
+             updated_at = EXCLUDED.updated_at,
+             updated_by = EXCLUDED.updated_by`,
+        [
+          item.taskType,
+          record.providerChain ?? [],
+          record.timeoutMs ?? TASK_DEFAULTS[item.taskType].timeoutMs,
+          record.maxRetries ?? TASK_DEFAULTS[item.taskType].maxRetries,
+          record.budgetLimit ?? TASK_DEFAULTS[item.taskType].budgetLimit,
+          record.minQualityScore ?? TASK_DEFAULTS[item.taskType].minQualityScore,
+          record.updatedAt ?? now,
+          record.updatedBy ?? null
+        ]
+      );
+    })
+  );
+
+  return getAiTaskPolicies();
+}
+
+export async function resetAiTaskPolicy(taskType?: AiTaskType) {
+  if (!taskType) {
+    policyStoreCache = {};
+    policyStoreCacheSyncedAt = Date.now();
+    if (!isDbEnabled()) {
+      persistPolicyStoreToFile(policyStoreCache);
+      return getAiTaskPolicies();
+    }
+    await query("DELETE FROM ai_task_policies");
+    return getAiTaskPolicies();
+  }
+
+  delete policyStoreCache[taskType];
+  policyStoreCacheSyncedAt = Date.now();
+
+  if (!isDbEnabled()) {
+    persistPolicyStoreToFile(policyStoreCache);
+    return toPolicy(taskType, undefined);
+  }
+
+  await query("DELETE FROM ai_task_policies WHERE task_type = $1", [taskType]);
   return toPolicy(taskType, undefined);
 }
 
 export function recordAiCallLog(input: Omit<AiCallLog, "id" | "createdAt">) {
-  const list = readJson<AiCallLog[]>(AI_CALL_LOGS_FILE, []);
   const item: AiCallLog = {
     id: `ai-call-log-${crypto.randomBytes(8).toString("hex")}`,
     taskType: input.taskType,
@@ -308,19 +513,102 @@ export function recordAiCallLog(input: Omit<AiCallLog, "id" | "createdAt">) {
     errorMessage: input.errorMessage?.slice(0, 280),
     createdAt: new Date().toISOString()
   };
-  list.push(item);
-  const next = list.length > MAX_CALL_LOGS ? list.slice(list.length - MAX_CALL_LOGS) : list;
-  writeJson(AI_CALL_LOGS_FILE, next);
+
+  if (!isDbEnabled()) {
+    const list = readJson<AiCallLog[]>(AI_CALL_LOGS_FILE, []);
+    list.push(item);
+    const next = list.length > MAX_CALL_LOGS ? list.slice(list.length - MAX_CALL_LOGS) : list;
+    writeJson(AI_CALL_LOGS_FILE, next);
+    return;
+  }
+
+  const meta = {
+    capability: item.capability,
+    ok: item.ok,
+    fallbackCount: item.fallbackCount,
+    timeout: item.timeout,
+    requestChars: item.requestChars,
+    responseChars: item.responseChars,
+    qualityScore: item.qualityScore ?? null,
+    policyHit: item.policyHit ?? null,
+    policyDetail: item.policyDetail ?? ""
+  };
+
+  void query(
+    `INSERT INTO ai_call_logs
+      (id, task_type, provider, latency_ms, status, error_code, error_message, meta, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [
+      item.id,
+      item.taskType,
+      item.provider,
+      item.latencyMs,
+      item.ok ? "success" : "failed",
+      item.timeout ? "timeout" : item.policyHit ?? null,
+      item.errorMessage ?? null,
+      meta,
+      item.createdAt
+    ]
+  ).catch(() => {
+    // observability should never block ai business flow
+  });
 }
 
-function getRecentAiCallLogs(limit = 8000) {
+function numberFrom(value: unknown, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return n;
+}
+
+function mapDbCallLogRow(row: DbAiCallLogRow): AiCallLog {
+  const taskType = isKnownTaskType(row.task_type) ? row.task_type : "assist";
+  const meta = row.meta ?? {};
+  const capability = meta.capability === "vision" ? "vision" : "chat";
+  const policyHitRaw = meta.policyHit;
+  const policyHit =
+    policyHitRaw === "budget_limit" || policyHitRaw === "quality_threshold" ? policyHitRaw : undefined;
+  const qualityScoreValue = numberFrom(meta.qualityScore, NaN);
+
+  return {
+    id: row.id,
+    taskType,
+    provider: row.provider,
+    capability,
+    ok: row.status === "success",
+    latencyMs: Math.max(0, Math.round(numberFrom(row.latency_ms, 0))),
+    fallbackCount: Math.max(0, Math.round(numberFrom(meta.fallbackCount, 0))),
+    timeout: Boolean(meta.timeout) || row.error_code === "timeout",
+    requestChars: Math.max(0, Math.round(numberFrom(meta.requestChars, 0))),
+    responseChars: Math.max(0, Math.round(numberFrom(meta.responseChars, 0))),
+    qualityScore: Number.isFinite(qualityScoreValue) ? clampInt(qualityScoreValue, 0, 100) : undefined,
+    policyHit,
+    policyDetail: typeof meta.policyDetail === "string" ? meta.policyDetail : undefined,
+    errorMessage: row.error_message ?? undefined,
+    createdAt: row.created_at
+  };
+}
+
+async function getRecentAiCallLogs(limit = 8000) {
   const safeLimit = Math.max(100, Math.min(MAX_CALL_LOGS, Math.floor(limit)));
-  const list = readJson<AiCallLog[]>(AI_CALL_LOGS_FILE, []);
-  return list.slice(-safeLimit).reverse();
+
+  if (!isDbEnabled()) {
+    const list = readJson<AiCallLog[]>(AI_CALL_LOGS_FILE, []);
+    return list.slice(-safeLimit).reverse();
+  }
+
+  const rows = await query<DbAiCallLogRow>(
+    `SELECT id, task_type, provider, latency_ms, status, error_code, error_message, meta, created_at
+     FROM ai_call_logs
+     ORDER BY created_at DESC
+     LIMIT $1`,
+    [safeLimit]
+  );
+
+  return rows.map(mapDbCallLogRow);
 }
 
-export function getAiCallMetricsSummary(limit = 20) {
-  const logs = getRecentAiCallLogs(8000);
+export async function getAiCallMetricsSummary(limit = 20) {
+  const logs = await getRecentAiCallLogs(8000);
   const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
   const latencies = logs.map((item) => item.latencyMs);
   const successCalls = logs.filter((item) => item.ok).length;

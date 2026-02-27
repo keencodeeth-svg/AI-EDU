@@ -821,6 +821,28 @@ CREATE TABLE IF NOT EXISTS ai_provider_configs (
 
 CREATE INDEX IF NOT EXISTS ai_provider_configs_enabled_idx ON ai_provider_configs (enabled, weight);
 
+CREATE TABLE IF NOT EXISTS ai_provider_runtime_config (
+  id TEXT PRIMARY KEY,
+  provider_chain TEXT[] NOT NULL DEFAULT '{}',
+  updated_at TIMESTAMPTZ NOT NULL,
+  updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ai_provider_runtime_config_updated_idx ON ai_provider_runtime_config (updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS ai_task_policies (
+  task_type TEXT PRIMARY KEY,
+  provider_chain TEXT[] NOT NULL DEFAULT '{}',
+  timeout_ms INT NOT NULL DEFAULT 8000,
+  max_retries INT NOT NULL DEFAULT 1,
+  budget_limit INT NOT NULL DEFAULT 1800,
+  min_quality_score INT NOT NULL DEFAULT 70,
+  updated_at TIMESTAMPTZ NOT NULL,
+  updated_by TEXT
+);
+
+CREATE INDEX IF NOT EXISTS ai_task_policies_updated_idx ON ai_task_policies (updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS ai_task_policies_runtime (
   id TEXT PRIMARY KEY,
   task_type TEXT UNIQUE NOT NULL,

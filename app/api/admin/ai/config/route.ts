@@ -7,6 +7,7 @@ import {
   getEnvAiProviderChain,
   getRuntimeAiProviderConfig,
   listAiProviderOptions,
+  refreshRuntimeAiProviderConfig,
   saveRuntimeAiProviderConfig
 } from "@/lib/ai-config";
 
@@ -23,7 +24,8 @@ const updateBodySchema = v.object<{
   { allowUnknown: false }
 );
 
-function buildPayload() {
+async function buildPayload() {
+  await refreshRuntimeAiProviderConfig();
   const runtime = getRuntimeAiProviderConfig();
   return {
     availableProviders: listAiProviderOptions(),
@@ -40,7 +42,7 @@ export const GET = withApi(async () => {
   if (!user) {
     unauthorized();
   }
-  return { data: buildPayload() };
+  return { data: await buildPayload() };
 });
 
 export const POST = withApi(async (request) => {
@@ -54,7 +56,7 @@ export const POST = withApi(async (request) => {
     badRequest("missing providerChain");
   }
 
-  const next = saveRuntimeAiProviderConfig({
+  const next = await saveRuntimeAiProviderConfig({
     providerChain: body.reset ? [] : body.providerChain ?? [],
     updatedBy: user.id
   });
@@ -67,5 +69,5 @@ export const POST = withApi(async (request) => {
     detail: next.providerChain.join(",") || "env_fallback"
   });
 
-  return { data: buildPayload() };
+  return { data: await buildPayload() };
 });

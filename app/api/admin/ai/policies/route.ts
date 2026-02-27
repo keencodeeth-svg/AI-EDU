@@ -2,6 +2,7 @@ import { addAdminLog } from "@/lib/admin-log";
 import {
   getAiTaskPolicies,
   listAiTaskOptions,
+  refreshAiTaskPolicies,
   resetAiTaskPolicy,
   saveAiTaskPolicies,
   saveAiTaskPolicy,
@@ -73,7 +74,8 @@ const updateBodySchema = v.object<{
   { allowUnknown: false }
 );
 
-function buildPayload() {
+async function buildPayload() {
+  await refreshAiTaskPolicies();
   return {
     tasks: listAiTaskOptions(),
     policies: getAiTaskPolicies()
@@ -85,7 +87,7 @@ export const GET = withApi(async () => {
   if (!admin) {
     unauthorized();
   }
-  return { data: buildPayload() };
+  return { data: await buildPayload() };
 });
 
 export const POST = withApi(async (request) => {
@@ -101,7 +103,7 @@ export const POST = withApi(async (request) => {
     if (body.taskType && !taskType) {
       badRequest("invalid taskType");
     }
-    const resetResult = resetAiTaskPolicy(taskType ?? undefined);
+    const resetResult = await resetAiTaskPolicy(taskType ?? undefined);
     await addAdminLog({
       adminId: admin.id,
       action: "reset_ai_task_policy",
@@ -109,7 +111,7 @@ export const POST = withApi(async (request) => {
       entityId: taskType ?? "all",
       detail: Array.isArray(resetResult) ? "reset all ai task policies" : `reset ${taskType}`
     });
-    return { data: buildPayload() };
+    return { data: await buildPayload() };
   }
 
   if (body.policies?.length) {
@@ -128,7 +130,7 @@ export const POST = withApi(async (request) => {
       };
     });
 
-    saveAiTaskPolicies(validPolicies, admin.id);
+    await saveAiTaskPolicies(validPolicies, admin.id);
     await addAdminLog({
       adminId: admin.id,
       action: "batch_update_ai_task_policy",
@@ -136,7 +138,7 @@ export const POST = withApi(async (request) => {
       entityId: "batch",
       detail: validPolicies.map((item) => item.taskType).join(",")
     });
-    return { data: buildPayload() };
+    return { data: await buildPayload() };
   }
 
   const taskType = asTaskType(body.taskType);
@@ -144,7 +146,7 @@ export const POST = withApi(async (request) => {
     badRequest("taskType required");
   }
 
-  const next = saveAiTaskPolicy({
+  const next = await saveAiTaskPolicy({
     taskType,
     providerChain: body.providerChain,
     timeoutMs: body.timeoutMs,
@@ -162,5 +164,5 @@ export const POST = withApi(async (request) => {
     detail: `${taskType}:${next.providerChain.join("->")}`
   });
 
-  return { data: buildPayload() };
+  return { data: await buildPayload() };
 });
