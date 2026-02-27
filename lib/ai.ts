@@ -1,6 +1,7 @@
 import { retrieveKnowledgePoints, retrieveSimilarQuestion } from "./rag";
 import { getEffectiveAiProviderChain } from "./ai-config";
 import { getAiTaskPolicy, recordAiCallLog, type AiTaskType } from "./ai-task-policies";
+import { assessAiQuality } from "./ai-quality-control";
 
 export type AssistPayload = {
   question: string;
@@ -387,6 +388,34 @@ function countMessageChars(messages: ChatMessage[]) {
   return messages.reduce((sum, item) => sum + normalizeMessageContentToText(item.content).length, 0);
 }
 
+type AiQualityKind = Parameters<typeof assessAiQuality>[0]["kind"];
+
+function resolveQualityKindByTask(taskType: AiTaskType): AiQualityKind {
+  if (taskType === "explanation") return "explanation";
+  if (taskType === "writing_feedback") return "writing";
+  if (taskType === "homework_review") return "assignment_review";
+  return "assist";
+}
+
+function evaluateTaskOutputQuality(params: {
+  taskType: AiTaskType;
+  provider: string;
+  text: string;
+}) {
+  const quality = assessAiQuality({
+    kind: resolveQualityKindByTask(params.taskType),
+    taskType: params.taskType,
+    provider: params.provider,
+    textBlocks: [params.text],
+    listCountHint: 1
+  });
+  return {
+    confidenceScore: quality.confidenceScore,
+    minQualityScore: quality.minQualityScore ?? 0,
+    policyViolated: Boolean(quality.policyViolated)
+  };
+}
+
 async function runWithTimeout<T>(runner: () => Promise<T>, timeoutMs: number) {
   if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
     try {
@@ -465,6 +494,28 @@ async function callRoutedLLM(params: {
   const retries = Math.max(0, policy.maxRetries);
   const timeoutMs = policy.timeoutMs;
 
+  if (requestChars > policy.budgetLimit) {
+    try {
+      recordAiCallLog({
+        taskType,
+        provider: "policy",
+        capability,
+        ok: false,
+        latencyMs: 0,
+        fallbackCount: 0,
+        timeout: false,
+        requestChars,
+        responseChars: 0,
+        policyHit: "budget_limit",
+        policyDetail: `${requestChars}/${policy.budgetLimit}`,
+        errorMessage: `budget limit exceeded: ${requestChars} > ${policy.budgetLimit}`
+      });
+    } catch {
+      // observability should never block ai business flow
+    }
+    return null;
+  }
+
   for (let providerIndex = 0; providerIndex < chain.length; providerIndex += 1) {
     const provider = chain[providerIndex];
     if (provider === "mock") continue;
@@ -476,28 +527,35 @@ async function callRoutedLLM(params: {
         const prompt = params.customPrompt ?? buildCustomPrompt(params.messages);
         const result = await runWithTimeout(() => callCustomLLM(prompt), timeoutMs);
         const text = typeof result.value === "string" ? result.value : null;
+        const quality = text ? evaluateTaskOutputQuality({ taskType, provider, text }) : null;
+        const qualityRejected = Boolean(quality?.policyViolated);
 
         try {
           recordAiCallLog({
             taskType,
             provider,
             capability,
-            ok: Boolean(text),
+            ok: Boolean(text) && !qualityRejected,
             latencyMs: Date.now() - startedAt,
             fallbackCount: providerIndex,
             timeout: result.timeout,
             requestChars,
             responseChars: text?.length ?? 0,
-            errorMessage: text ? "" : result.error || "empty response"
+            qualityScore: quality?.confidenceScore,
+            policyHit: qualityRejected ? "quality_threshold" : undefined,
+            policyDetail: qualityRejected
+              ? `${quality?.confidenceScore ?? 0} < ${quality?.minQualityScore ?? policy.minQualityScore}`
+              : undefined,
+            errorMessage: qualityRejected ? "quality below minQualityScore" : text ? "" : result.error || "empty response"
           });
         } catch {
           // observability should never block ai business flow
         }
 
-        if (text) {
-          return { text, provider } as const;
+        if (text && !qualityRejected) {
+          return { text, provider, qualityScore: quality?.confidenceScore, policyHit: false } as const;
         }
-        if (result.timeout) {
+        if (qualityRejected || result.timeout) {
           break;
         }
         continue;
@@ -537,29 +595,41 @@ async function callRoutedLLM(params: {
         timeoutMs
       );
       const text = typeof result.value === "string" ? result.value : null;
+      const quality = text ? evaluateTaskOutputQuality({ taskType, provider: config.provider, text }) : null;
+      const qualityRejected = Boolean(quality?.policyViolated);
 
       try {
         recordAiCallLog({
           taskType,
           provider: config.provider,
           capability,
-          ok: Boolean(text),
+          ok: Boolean(text) && !qualityRejected,
           latencyMs: Date.now() - startedAt,
           fallbackCount: providerIndex,
           timeout: result.timeout,
           requestChars,
           responseChars: text?.length ?? 0,
-          errorMessage: text ? "" : result.error || "empty response"
+          qualityScore: quality?.confidenceScore,
+          policyHit: qualityRejected ? "quality_threshold" : undefined,
+          policyDetail: qualityRejected
+            ? `${quality?.confidenceScore ?? 0} < ${quality?.minQualityScore ?? policy.minQualityScore}`
+            : undefined,
+          errorMessage: qualityRejected ? "quality below minQualityScore" : text ? "" : result.error || "empty response"
         });
       } catch {
         // observability should never block ai business flow
       }
 
-      if (text) {
-        return { text, provider: config.provider } as const;
+      if (text && !qualityRejected) {
+        return {
+          text,
+          provider: config.provider,
+          qualityScore: quality?.confidenceScore,
+          policyHit: false
+        } as const;
       }
 
-      if (result.timeout) {
+      if (qualityRejected || result.timeout) {
         break;
       }
     }

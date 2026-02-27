@@ -56,6 +56,8 @@ export type AiCallLog = {
   requestChars: number;
   responseChars: number;
   qualityScore?: number;
+  policyHit?: "budget_limit" | "quality_threshold";
+  policyDetail?: string;
   errorMessage?: string;
   createdAt: string;
 };
@@ -298,6 +300,11 @@ export function recordAiCallLog(input: Omit<AiCallLog, "id" | "createdAt">) {
       typeof input.qualityScore === "number" && Number.isFinite(input.qualityScore)
         ? clampInt(input.qualityScore, 0, 100)
         : undefined,
+    policyHit:
+      input.policyHit === "budget_limit" || input.policyHit === "quality_threshold"
+        ? input.policyHit
+        : undefined,
+    policyDetail: input.policyDetail?.slice(0, 160),
     errorMessage: input.errorMessage?.slice(0, 280),
     createdAt: new Date().toISOString()
   };
@@ -410,6 +417,8 @@ export function getAiCallMetricsSummary(limit = 20) {
         latencyMs: item.latencyMs,
         timeout: item.timeout,
         fallbackCount: item.fallbackCount,
+        policyHit: item.policyHit,
+        policyDetail: item.policyDetail ?? "",
         errorMessage: item.errorMessage ?? "",
         createdAt: item.createdAt
       }))

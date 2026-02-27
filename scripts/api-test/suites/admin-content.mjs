@@ -31,6 +31,70 @@ export async function runAdminContentSuite(context) {
   );
   assert.ok(Array.isArray(observabilityMetrics.body?.data?.routes), "Observability metrics should include routes");
 
+  const aiPolicies = await apiFetch("/api/admin/ai/policies");
+  assert.equal(aiPolicies.status, 200, `GET /api/admin/ai/policies failed: ${aiPolicies.raw}`);
+  const assistPolicy = (aiPolicies.body?.data?.policies ?? []).find((item) => item.taskType === "assist");
+  assert.ok(assistPolicy, "Assist task policy should exist");
+
+  const tightenAssistBudget = await apiFetch("/api/admin/ai/policies", {
+    method: "POST",
+    json: {
+      taskType: "assist",
+      providerChain: assistPolicy.providerChain,
+      timeoutMs: assistPolicy.timeoutMs,
+      maxRetries: assistPolicy.maxRetries,
+      budgetLimit: 100,
+      minQualityScore: assistPolicy.minQualityScore
+    }
+  });
+  assert.equal(
+    tightenAssistBudget.status,
+    200,
+    `POST /api/admin/ai/policies (tighten assist budget) failed: ${tightenAssistBudget.raw}`
+  );
+
+  const budgetHitQuestion = `API_TEST_BUDGET_HIT_${Date.now().toString(36)}_${"超预算测试".repeat(60)}`;
+  const assistBudgetHit = await apiFetch("/api/ai/assist", {
+    method: "POST",
+    json: {
+      question: budgetHitQuestion,
+      subject: "math",
+      grade: "4"
+    }
+  });
+  assert.equal(assistBudgetHit.status, 200, `POST /api/ai/assist failed: ${assistBudgetHit.raw}`);
+
+  const aiMetricsAfterBudgetHit = await apiFetch("/api/admin/ai/metrics?limit=20");
+  assert.equal(
+    aiMetricsAfterBudgetHit.status,
+    200,
+    `GET /api/admin/ai/metrics after budget hit failed: ${aiMetricsAfterBudgetHit.raw}`
+  );
+  const budgetHitFailure = (aiMetricsAfterBudgetHit.body?.data?.recentFailures ?? []).find(
+    (item) => item.taskType === "assist" && item.policyHit === "budget_limit"
+  );
+  assert.ok(
+    budgetHitFailure,
+    "AI metrics recentFailures should include policyHit=budget_limit after assist budget test"
+  );
+
+  const restoreAssistPolicy = await apiFetch("/api/admin/ai/policies", {
+    method: "POST",
+    json: {
+      taskType: "assist",
+      providerChain: assistPolicy.providerChain,
+      timeoutMs: assistPolicy.timeoutMs,
+      maxRetries: assistPolicy.maxRetries,
+      budgetLimit: assistPolicy.budgetLimit,
+      minQualityScore: assistPolicy.minQualityScore
+    }
+  });
+  assert.equal(
+    restoreAssistPolicy.status,
+    200,
+    `POST /api/admin/ai/policies (restore assist policy) failed: ${restoreAssistPolicy.raw}`
+  );
+
   const experimentFlags = await apiFetch("/api/admin/experiments/flags");
   assert.equal(
     experimentFlags.status,
