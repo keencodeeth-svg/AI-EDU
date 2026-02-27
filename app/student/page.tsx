@@ -66,6 +66,24 @@ type TodayTaskPayload = {
   tasks: TodayTask[];
 };
 
+type MotivationBadge = {
+  id: string;
+  title: string;
+  description: string;
+};
+
+type MotivationPayload = {
+  streak: number;
+  badges: MotivationBadge[];
+  weekly?: {
+    accuracy?: number;
+  };
+};
+
+type JoinRequest = {
+  status?: string;
+};
+
 type EntryCategory = "priority" | "practice" | "growth";
 type IconName = "book" | "pencil" | "rocket" | "chart" | "brain" | "trophy" | "board" | "puzzle";
 
@@ -303,12 +321,12 @@ function getTodayTaskStatusLabel(status: TodayTaskStatus) {
 export default function StudentPage() {
   const trackedTaskExposureRef = useRef<string | null>(null);
   const [plan, setPlan] = useState<PlanItem[]>([]);
-  const [motivation, setMotivation] = useState<{ streak: number; badges: any[]; weekly: any } | null>(null);
+  const [motivation, setMotivation] = useState<MotivationPayload | null>(null);
   const [todayTasks, setTodayTasks] = useState<TodayTaskPayload | null>(null);
   const [todayTaskError, setTodayTaskError] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState("");
-  const [joinMessage, setJoinMessage] = useState<string | null>(null);
-  const [joinRequests, setJoinRequests] = useState<any[]>([]);
+  const [joinMessage, setJoinMessage] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState<EntryCategory>("priority");
   const [showAllEntries, setShowAllEntries] = useState(false);
@@ -333,7 +351,7 @@ export default function StudentPage() {
       });
     fetch("/api/student/motivation")
       .then((res) => res.json())
-      .then((data) => setMotivation(data?.data ?? data));
+      .then((data) => setMotivation(data?.data ?? data ?? null));
     fetch("/api/student/join-requests")
       .then((res) => res.json())
       .then((data) => setJoinRequests(data.data ?? []));
@@ -425,13 +443,20 @@ export default function StudentPage() {
   async function handleJoinClass(event: React.FormEvent) {
     event.preventDefault();
     setJoinMessage(null);
+    if (!joinCode.trim()) {
+      setJoinMessage({ text: "请输入邀请码后再提交。", tone: "error" });
+      return;
+    }
     const res = await fetch("/api/student/join-class", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: joinCode })
+      body: JSON.stringify({ code: joinCode.trim() })
     });
     const data = await res.json();
-    setJoinMessage(data?.message ?? (res.ok ? "已提交" : "加入失败"));
+    setJoinMessage({
+      text: data?.message ?? (res.ok ? "已提交" : "加入失败"),
+      tone: res.ok ? "success" : "error"
+    });
     setJoinCode("");
     fetch("/api/student/join-requests")
       .then((resp) => resp.json())
@@ -462,20 +487,20 @@ export default function StudentPage() {
             <EduIcon name={item.icon} />
             <p>{item.description}</p>
           </div>
-          <form onSubmit={handleJoinClass} style={{ display: "grid", gap: 10 }}>
+          <form className="compact-form" onSubmit={handleJoinClass}>
             <input
+              className="form-control"
               value={joinCode}
               onChange={(event) => setJoinCode(event.target.value)}
               placeholder="输入老师提供的邀请码"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             />
             <button className="button primary" type="submit">
               {item.cta}
             </button>
           </form>
-          {joinMessage ? <div style={{ marginTop: 8, fontSize: 12 }}>{joinMessage}</div> : null}
+          {joinMessage ? <div className={`status-note ${joinMessage.tone}`}>{joinMessage.text}</div> : null}
           {pendingJoinCount ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>已有 {pendingJoinCount} 条待审核申请。</div>
+            <p className="meta-note">已有 {pendingJoinCount} 条待审核申请。</p>
           ) : null}
         </Card>
       );
@@ -489,15 +514,17 @@ export default function StudentPage() {
           <EduIcon name={item.icon} />
           <p>{item.description}</p>
         </div>
-        <Link className="button secondary" href={item.href} style={{ marginTop: 12 }}>
-          {item.cta}
-        </Link>
+        <div className="cta-row entry-card-actions">
+          <Link className="button secondary" href={item.href}>
+            {item.cta}
+          </Link>
+        </div>
       </Card>
     );
   }
 
   return (
-    <div className="grid" style={{ gap: 18 }}>
+    <div className="grid dashboard-stack">
       <div className="section-head">
         <div>
           <h2>学习控制台</h2>
@@ -506,26 +533,27 @@ export default function StudentPage() {
         <span className="chip">学期进行中</span>
       </div>
 
-      <div className="grid grid-2" style={{ alignItems: "start" }}>
+      <div className="grid grid-2 grid-start">
         <Card title="今日任务" tag="队列">
-          {todayTaskError ? <p>{todayTaskError}</p> : null}
+          {todayTaskError ? <div className="status-note error">{todayTaskError}</div> : null}
           {topTodayTasks.length === 0 ? (
-            <p>当前暂无待处理任务，保持节奏即可。</p>
+            <div className="empty-state">
+              <p className="empty-state-title">当前暂无待处理任务</p>
+              <p className="meta-text">保持节奏即可，建议先进入学习工具完成一次练习。</p>
+            </div>
           ) : (
-            <div className="grid" style={{ gap: 8 }}>
+            <div className="stack-8">
               {topTodayTasks.map((task, index) => (
-                <div className="card" key={task.id}>
+                <div className="card task-card" key={task.id}>
                   <div className="card-header">
-                    <div className="section-title" style={{ fontSize: 14 }}>
+                    <div className="section-title task-title">
                       TOP {index + 1} · {task.title}
                     </div>
                     <span className="card-tag">{getTodayTaskStatusLabel(task.status)}</span>
                   </div>
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>{task.description}</div>
-                  <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
-                    推荐原因：{task.recommendedReason}
-                  </div>
-                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  <p className="meta-text">{task.description}</p>
+                  <p className="meta-text">推荐原因：{task.recommendedReason}</p>
+                  <div className="badge-row">
                     {task.tags.slice(0, 2).map((tag) => (
                       <span className="badge" key={`${task.id}-${tag}`}>
                         {tag}
@@ -533,13 +561,9 @@ export default function StudentPage() {
                     ))}
                     <span className="badge">预计 {task.effortMinutes} 分钟</span>
                     <span className="badge">预期收益 {task.expectedGain}</span>
-                    {task.dueAt ? (
-                      <span style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                        截止 {new Date(task.dueAt).toLocaleString("zh-CN")}
-                      </span>
-                    ) : null}
+                    {task.dueAt ? <span className="meta-text">截止 {new Date(task.dueAt).toLocaleString("zh-CN")}</span> : null}
                   </div>
-                  <div className="cta-row" style={{ marginTop: 8 }}>
+                  <div className="cta-row cta-row-tight">
                     <Link className="button ghost" href={task.href} onClick={() => handleTaskEvent(task, "task_started")}>
                       去完成
                     </Link>
@@ -562,7 +586,7 @@ export default function StudentPage() {
               ))}
             </div>
           )}
-          <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+          <div className="badge-row summary-badges">
             <span className="badge">必做 {todayTasks?.summary?.mustDo ?? 0}</span>
             <span className="badge">逾期 {todayTasks?.summary?.overdue ?? 0}</span>
             <span className="badge">今日到期 {todayTasks?.summary?.dueToday ?? 0}</span>
@@ -571,10 +595,8 @@ export default function StudentPage() {
             <span className="badge">复练任务 {todayTasks?.summary?.bySource?.wrongReview ?? 0}</span>
             <span className="badge">Top3 预计 {todayTasks?.summary?.top3EstimatedMinutes ?? 0} 分钟</span>
           </div>
-          {hiddenTodayTaskCount > 0 ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>还有 {hiddenTodayTaskCount} 项任务待处理。</div>
-          ) : null}
-          <div className="cta-row" style={{ marginTop: 12 }}>
+          {hiddenTodayTaskCount > 0 ? <p className="meta-note">还有 {hiddenTodayTaskCount} 项任务待处理。</p> : null}
+          <div className="cta-row">
             <button className="button secondary" type="button" onClick={refreshPlan}>
               {refreshing ? "刷新中..." : "刷新学习计划"}
             </button>
@@ -583,25 +605,25 @@ export default function StudentPage() {
 
         <Card title="学习激励" tag="成长">
           <div className="grid grid-2">
-            <div className="card">
-              <div className="section-title">连续学习</div>
-              <p>{motivation?.streak ?? 0} 天</p>
+            <div className="kpi">
+              <div className="section-title kpi-title">连续学习</div>
+              <div className="kpi-value">{motivation?.streak ?? 0} 天</div>
             </div>
-            <div className="card">
-              <div className="section-title">本周正确率</div>
-              <p>{motivation?.weekly?.accuracy ?? 0}%</p>
+            <div className="kpi">
+              <div className="section-title kpi-title">本周正确率</div>
+              <div className="kpi-value">{motivation?.weekly?.accuracy ?? 0}%</div>
             </div>
           </div>
-          <div className="grid" style={{ gap: 8, marginTop: 12 }}>
+          <div className="stack-8 panel-section">
             <div className="badge">徽章</div>
             {motivation?.badges?.length ? (
-              motivation.badges.map((badge: any) => (
-                <div key={badge.id}>
+              motivation.badges.map((badge) => (
+                <div className="meta-text" key={badge.id}>
                   {badge.title} - {badge.description}
                 </div>
               ))
             ) : (
-              <p>完成一次练习即可获得首枚徽章。</p>
+              <div className="status-note info">完成一次练习即可获得首枚徽章。</div>
             )}
           </div>
         </Card>
@@ -615,7 +637,7 @@ export default function StudentPage() {
         <span className="chip">{CATEGORY_META[activeCategory].label}</span>
       </div>
 
-      <div className="cta-row" style={{ marginTop: 0 }}>
+      <div className="cta-row no-margin">
         {ENTRY_CATEGORIES.map((category) => (
           <button
             key={category}

@@ -170,6 +170,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html lang="zh-CN">
       <body>
+        <a className="skip-link" href="#main-content">
+          跳转到主内容
+        </a>
         <div className="app-shell with-side-nav">
           <aside className="app-sidebar">
             <div className="brand">航科AI教育</div>
@@ -184,7 +187,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <UserMenu user={user} />
               </div>
             </header>
-            <main className="main">{children}</main>
+            <main className="main" id="main-content">
+              {children}
+            </main>
             <footer className="site-footer">© 2026 航科AI教育 K12 学习辅导 MVP</footer>
           </div>
         </div>

@@ -74,6 +74,28 @@ a {
   text-decoration: none;
 }
 
+.skip-link {
+  position: fixed;
+  left: 14px;
+  top: 12px;
+  z-index: 40;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(27, 108, 168, 0.4);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--brand-0);
+  font-size: 12px;
+  font-weight: 600;
+  transform: translateY(-160%);
+  transition: transform var(--motion-fast) var(--ease-standard);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(27, 108, 168, 0.18);
+}
+
 .app-shell {
   min-height: 100vh;
   display: flex;
@@ -434,6 +456,40 @@ a {
   margin: 0 auto;
 }
 
+.dashboard-stack {
+  gap: 18px;
+}
+
+.grid-start {
+  align-items: start;
+}
+
+.stack-8 {
+  display: grid;
+  gap: 8px;
+}
+
+.meta-text {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-1);
+  line-height: 1.55;
+}
+
+.meta-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--ink-1);
+  line-height: 1.45;
+}
+
+.badge-row {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
 .section-head {
   display: flex;
   align-items: flex-end;
@@ -617,6 +673,15 @@ a {
   margin-top: 12px;
 }
 
+.cta-row.no-margin {
+  margin-top: 0;
+}
+
+.cta-row.cta-row-tight {
+  margin-top: 8px;
+  gap: 8px;
+}
+
 .button {
   display: inline-flex;
   align-items: center;
@@ -699,6 +764,10 @@ a {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+.kpi-title {
+  margin-top: 0;
 }
 
 .kpi-value {
@@ -1063,6 +1132,33 @@ textarea:focus {
 .feature-card p {
   margin: 0;
   color: var(--ink-1);
+}
+
+.entry-card-actions {
+  margin-top: 12px;
+}
+
+.task-card .card-header {
+  margin-bottom: 8px;
+}
+
+.task-title {
+  font-size: 14px;
+  font-family: var(--font-body);
+  letter-spacing: 0.1px;
+  margin: 0;
+}
+
+.task-card .meta-text + .meta-text {
+  margin-top: 4px;
+}
+
+.summary-badges {
+  margin-top: 10px;
+}
+
+.panel-section {
+  margin-top: 12px;
 }
 
 .hero-visual {
