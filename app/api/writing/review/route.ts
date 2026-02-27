@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { generateWritingFeedback } from "@/lib/ai";
+import { generateWritingFeedback, getPrimaryLlmProvider } from "@/lib/ai";
 import { addWritingSubmission } from "@/lib/writing";
 import { assessAiQuality } from "@/lib/ai-quality-control";
 import { badRequest, unauthorized, withApi } from "@/lib/api/http";
@@ -61,7 +61,7 @@ export const POST = withApi(async (request) => {
     content
   });
   const feedback = generated ?? fallbackFeedback(content);
-  const provider = generated ? process.env.LLM_PROVIDER ?? "llm" : "rule";
+  const provider = generated ? getPrimaryLlmProvider() : "rule";
 
   const quality = assessAiQuality({
     kind: "writing",

@@ -75,6 +75,15 @@ export default function AdminPage() {
             打开实验中心
           </Link>
         </Card>
+        <Card title="AI 模型路由" tag="AI">
+          <div className="feature-card">
+            <EduIcon name="brain" />
+            <p>配置智谱/DeepSeek/Kimi/MiniMax/Seedance 的主备链路并在线测试。</p>
+          </div>
+          <Link className="button secondary" href="/admin/ai-models" style={{ marginTop: 12 }}>
+            打开模型中心
+          </Link>
+        </Card>
         <Card title="接口可观测性" tag="运维">
           <div className="feature-card">
             <EduIcon name="chart" />

@@ -305,7 +305,16 @@ npm run seed:bulk
 
 ## AI 配置（可选）
 
-默认使用 mock 讲解。若需要接入模型，设置以下环境变量：
+默认使用 `mock`。现在已支持多模型切换与回退链：
+- `zhipu`
+- `deepseek`
+- `kimi`
+- `minimax`
+- `seedance`
+- `compatible`（OpenAI 兼容接口）
+- `custom`（自定义 prompt 接口）
+
+单模型示例（智谱）：
 
 ```
 LLM_PROVIDER=zhipu
@@ -314,6 +323,26 @@ LLM_MODEL=glm-4.7
 LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 LLM_CHAT_PATH=/chat/completions
 ```
+
+多模型回退示例（按顺序自动降级）：
+
+```
+LLM_PROVIDER_CHAIN=zhipu,deepseek,kimi,minimax,seedance
+ZHIPU_API_KEY=...
+DEEPSEEK_API_KEY=...
+KIMI_API_KEY=...
+MINIMAX_API_KEY=...
+SEEDANCE_API_KEY=...
+```
+
+Provider 专属变量（推荐）：
+- `ZHIPU_*`
+- `DEEPSEEK_*`
+- `KIMI_*`
+- `MINIMAX_*`
+- `SEEDANCE_*`
+
+通用变量兼容保留（主要用于 `zhipu/compatible`）：`LLM_API_KEY`、`LLM_MODEL`、`LLM_BASE_URL`、`LLM_CHAT_PATH`。
 
 若使用自定义接口：
 

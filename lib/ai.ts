@@ -1,4 +1,5 @@
 import { retrieveKnowledgePoints, retrieveSimilarQuestion } from "./rag";
+import { getEffectiveAiProviderChain } from "./ai-config";
 
 export type AssistPayload = {
   question: string;
@@ -142,64 +143,372 @@ const GENERATE_PROMPT =
 
 type ChatMessage = { role: "system" | "user" | "assistant"; content: string | any[] };
 
+type LlmProvider =
+  | "mock"
+  | "custom"
+  | "compatible"
+  | "zhipu"
+  | "deepseek"
+  | "kimi"
+  | "minimax"
+  | "seedance";
+
+type LlmCapability = "chat" | "vision";
+
+export type LlmProbeResult = {
+  provider: string;
+  ok: boolean;
+  latencyMs: number;
+  message: string;
+};
+
+type LlmResolvedConfig = {
+  provider: Exclude<LlmProvider, "mock" | "custom">;
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+  chatPath: string;
+};
+
+const PROVIDER_PREFIX: Record<Exclude<LlmProvider, "mock" | "custom" | "compatible">, string> = {
+  zhipu: "ZHIPU",
+  deepseek: "DEEPSEEK",
+  kimi: "KIMI",
+  minimax: "MINIMAX",
+  seedance: "SEEDANCE"
+};
+
+const PROVIDER_ALIASES: Record<string, LlmProvider> = {
+  mock: "mock",
+  custom: "custom",
+  compatible: "compatible",
+  openai_compatible: "compatible",
+  zhipu: "zhipu",
+  glm: "zhipu",
+  bigmodel: "zhipu",
+  deepseek: "deepseek",
+  kimi: "kimi",
+  moonshot: "kimi",
+  minimax: "minimax",
+  seedance: "seedance",
+  seed: "seedance"
+};
+
+const PROVIDER_DEFAULTS: Record<
+  Exclude<LlmProvider, "mock" | "custom" | "compatible">,
+  { baseUrl: string; model: string; visionModel: string; chatPath: string }
+> = {
+  zhipu: {
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4.7",
+    visionModel: "glm-4v-plus",
+    chatPath: "/chat/completions"
+  },
+  deepseek: {
+    baseUrl: "https://api.deepseek.com/v1",
+    model: "deepseek-chat",
+    visionModel: "deepseek-chat",
+    chatPath: "/chat/completions"
+  },
+  kimi: {
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "moonshot-v1-8k",
+    visionModel: "moonshot-v1-8k",
+    chatPath: "/chat/completions"
+  },
+  minimax: {
+    baseUrl: "https://api.minimax.chat/v1",
+    model: "MiniMax-Text-01",
+    visionModel: "MiniMax-Text-01",
+    chatPath: "/chat/completions"
+  },
+  seedance: {
+    baseUrl: "https://ark.cn-beijing.volces.com/api/v3",
+    model: "seedance-1.0",
+    visionModel: "seedance-1.0",
+    chatPath: "/chat/completions"
+  }
+};
+
+function firstNonEmpty(...values: Array<string | null | undefined>) {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return "";
+}
+
+function normalizeProviderToken(value: string): LlmProvider | null {
+  const token = value.trim().toLowerCase();
+  if (!token) return null;
+  return PROVIDER_ALIASES[token] ?? null;
+}
+
+function normalizeProviderChain(values?: string[]) {
+  if (!Array.isArray(values)) return [] as LlmProvider[];
+  const unique = new Set<LlmProvider>();
+  values.forEach((item) => {
+    const normalized = normalizeProviderToken(item);
+    if (normalized) {
+      unique.add(normalized);
+    }
+  });
+  return Array.from(unique);
+}
+
+function getProviderChain() {
+  const effective = getEffectiveAiProviderChain();
+  const normalized = normalizeProviderChain(effective);
+  if (normalized.length) {
+    return normalized;
+  }
+  return ["mock"] as LlmProvider[];
+}
+
+export function getPrimaryLlmProvider() {
+  return getProviderChain()[0] ?? "mock";
+}
+
+export function getCurrentLlmProviderChain() {
+  return [...getProviderChain()];
+}
+
+function getProviderConfig(provider: Exclude<LlmProvider, "mock" | "custom">, capability: LlmCapability) {
+  if (provider === "compatible") {
+    const baseUrl = firstNonEmpty(process.env.LLM_BASE_URL);
+    const apiKey = firstNonEmpty(process.env.LLM_API_KEY);
+    const model = firstNonEmpty(
+      capability === "vision" ? process.env.LLM_VISION_MODEL : "",
+      process.env.LLM_MODEL
+    );
+    const chatPath = firstNonEmpty(process.env.LLM_CHAT_PATH, "/chat/completions");
+    if (!baseUrl || !apiKey || !model) return null;
+    return {
+      provider,
+      baseUrl,
+      apiKey,
+      model,
+      chatPath
+    } as LlmResolvedConfig;
+  }
+
+  const prefix = PROVIDER_PREFIX[provider];
+  const defaults = PROVIDER_DEFAULTS[provider];
+  const baseUrl = firstNonEmpty(
+    process.env[`${prefix}_BASE_URL`],
+    provider === "zhipu" ? process.env.LLM_BASE_URL : "",
+    defaults.baseUrl
+  );
+  const apiKey = firstNonEmpty(
+    process.env[`${prefix}_API_KEY`],
+    provider === "zhipu" ? process.env.LLM_API_KEY : ""
+  );
+  const model = firstNonEmpty(
+    capability === "vision" ? process.env[`${prefix}_VISION_MODEL`] : "",
+    process.env[`${prefix}_MODEL`],
+    provider === "zhipu"
+      ? capability === "vision"
+        ? process.env.LLM_VISION_MODEL
+        : process.env.LLM_MODEL
+      : "",
+    capability === "vision" ? defaults.visionModel : defaults.model
+  );
+  const chatPath = firstNonEmpty(
+    process.env[`${prefix}_CHAT_PATH`],
+    provider === "zhipu" ? process.env.LLM_CHAT_PATH : "",
+    defaults.chatPath
+  );
+
+  if (!baseUrl || !apiKey || !model) return null;
+  return {
+    provider,
+    baseUrl,
+    apiKey,
+    model,
+    chatPath
+  } as LlmResolvedConfig;
+}
+
+export function hasConfiguredLlmProvider(capability: LlmCapability = "chat") {
+  return getProviderChain().some((provider) => {
+    if (provider === "mock") return false;
+    if (provider === "custom") {
+      return Boolean(firstNonEmpty(process.env.LLM_ENDPOINT));
+    }
+    return Boolean(getProviderConfig(provider, capability));
+  });
+}
+
+function normalizeMessageContentToText(content: string | any[]) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((item) => {
+      if (typeof item === "string") return item;
+      if (item && typeof item === "object") {
+        if (item.type === "text") return String(item.text ?? "");
+        if (item.type === "image_url") return "[image]";
+      }
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCustomPrompt(messages: ChatMessage[]) {
+  return messages
+    .map((item) => `${item.role.toUpperCase()}: ${normalizeMessageContentToText(item.content)}`)
+    .join("\n")
+    .trim();
+}
+
 async function callCustomLLM(prompt: string) {
   const endpoint = process.env.LLM_ENDPOINT;
   if (!endpoint) return null;
-
-  const res = await fetch(endpoint, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": process.env.LLM_API_KEY ?? "" },
-    body: JSON.stringify({ prompt })
-  });
-
-  if (!res.ok) {
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: process.env.LLM_API_KEY ?? "" },
+      body: JSON.stringify({ prompt })
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    return data.text ?? null;
+  } catch {
     return null;
   }
-
-  const data = await res.json();
-  return data.text ?? null;
 }
 
 async function callChatCompletions(params: {
   baseUrl: string;
   apiKey: string;
   model: string;
+  chatPath?: string;
   messages: ChatMessage[];
   temperature?: number;
 }) {
-  const { baseUrl, apiKey, model, messages, temperature } = params;
-  const path = process.env.LLM_CHAT_PATH ?? "/chat/completions";
+  const { baseUrl, apiKey, model, chatPath, messages, temperature } = params;
+  const path = chatPath ?? process.env.LLM_CHAT_PATH ?? "/chat/completions";
   const url = `${baseUrl.replace(/\/$/, "")}${path}`;
-
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`
-    },
-    body: JSON.stringify({
-      model,
-      messages,
-      temperature: temperature ?? 0.4,
-      stream: false
-    })
-  });
-
-  if (!res.ok) {
+  try {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature: temperature ?? 0.4,
+        stream: false
+      })
+    });
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    const text = data?.choices?.[0]?.message?.content;
+    return typeof text === "string" ? text : null;
+  } catch {
     return null;
   }
-
-  const data = await res.json();
-  const text = data?.choices?.[0]?.message?.content;
-  return typeof text === "string" ? text : null;
 }
 
-async function callZhipuLLM(messages: ChatMessage[]) {
-  const apiKey = process.env.LLM_API_KEY;
-  if (!apiKey) return null;
-  const baseUrl = process.env.LLM_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4";
-  const model = process.env.LLM_MODEL ?? "glm-4.7";
-  return callChatCompletions({ baseUrl, apiKey, model, messages });
+async function callRoutedLLM(params: {
+  messages: ChatMessage[];
+  temperature?: number;
+  capability?: LlmCapability;
+  customPrompt?: string;
+  chain?: LlmProvider[];
+}) {
+  const chain = params.chain?.length ? params.chain : getProviderChain();
+  const capability = params.capability ?? "chat";
+
+  for (const provider of chain) {
+    if (provider === "mock") continue;
+    if (provider === "custom") {
+      const prompt = params.customPrompt ?? buildCustomPrompt(params.messages);
+      const text = await callCustomLLM(prompt);
+      if (text) {
+        return { text, provider } as const;
+      }
+      continue;
+    }
+
+    const config = getProviderConfig(provider, capability);
+    if (!config) continue;
+
+    const text = await callChatCompletions({
+      baseUrl: config.baseUrl,
+      apiKey: config.apiKey,
+      model: config.model,
+      chatPath: config.chatPath,
+      messages: params.messages,
+      temperature: params.temperature
+    });
+    if (text) {
+      return { text, provider: config.provider } as const;
+    }
+  }
+
+  return null;
+}
+
+export async function probeLlmProviders(input: {
+  providers?: string[];
+  capability?: LlmCapability;
+} = {}) {
+  const capability = input.capability ?? "chat";
+  const providerCandidates = normalizeProviderChain(input.providers);
+  const providers = providerCandidates.length ? providerCandidates : getProviderChain();
+  const results: LlmProbeResult[] = [];
+
+  for (const provider of providers) {
+    if (provider === "mock") {
+      results.push({
+        provider,
+        ok: true,
+        latencyMs: 0,
+        message: "mock provider ready"
+      });
+      continue;
+    }
+
+    const startedAt = Date.now();
+    const response = await callRoutedLLM({
+      chain: [provider],
+      capability,
+      temperature: 0,
+      messages: [
+        { role: "system", content: "You are a health-check assistant." },
+        { role: "user", content: "Reply with one short sentence: pong." }
+      ],
+      customPrompt: "Reply with one short sentence: pong."
+    });
+    const latencyMs = Date.now() - startedAt;
+
+    if (response?.text) {
+      results.push({
+        provider,
+        ok: true,
+        latencyMs,
+        message: "connection ok"
+      });
+    } else {
+      results.push({
+        provider,
+        ok: false,
+        latencyMs,
+        message: "connection failed or missing credentials"
+      });
+    }
+  }
+
+  return results;
 }
 
 function extractJson(text: string) {
@@ -264,9 +573,6 @@ function normalizeDraft(input: any): QuestionDraft | null {
 }
 
 export async function generateQuestionDraft(payload: GenerateQuestionPayload) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     `学科：${payload.subject}`,
     `年级：${payload.grade}`,
@@ -279,19 +585,15 @@ export async function generateQuestionDraft(payload: GenerateQuestionPayload) {
     .join("\n");
 
   const userPrompt = `${context}\n请生成 1 道四选一选择题，字段为: stem, options, answer, explanation。\n要求: options 为 4 个简短选项，answer 必须完全等于其中一个选项文本，不要包含 A/B/C/D 前缀。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   return normalizeDraft(parsed);
 }
 
@@ -304,9 +606,6 @@ export async function generateWrongExplanation(payload: {
   explanation?: string;
   knowledgePointTitle?: string;
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     `学科：${payload.subject}`,
     `年级：${payload.grade}`,
@@ -316,19 +615,15 @@ export async function generateWrongExplanation(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n题目：${payload.question}\n学生答案：${payload.studentAnswer}\n正确答案：${payload.correctAnswer}\n已有解析：${payload.explanation ?? ""}\n请指出学生可能的错误原因，并用简洁语言给出纠正讲解与 2-3 条提示。返回 JSON：{\"analysis\":\"...\",\"hints\":[\"...\",\"...\"]}。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
   const analysis = String((parsed as any).analysis ?? "").trim();
   const hintsRaw = Array.isArray((parsed as any).hints) ? (parsed as any).hints : [];
@@ -346,9 +641,6 @@ export async function generateVariantDrafts(payload: {
   count?: number;
   difficulty?: "easy" | "medium" | "hard";
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const count = Math.min(Math.max(Number(payload.count) || 2, 1), 4);
   const context = [
     `学科：${payload.subject}`,
@@ -361,19 +653,15 @@ export async function generateVariantDrafts(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n参考题目：${payload.seedQuestion}\n请生成 ${count} 道同类型变式选择题，返回 JSON：{\"items\":[{\"stem\":\"...\",\"options\":[\"...\"],\"answer\":\"...\",\"explanation\":\"...\"}]}。要求选项为 4 个，答案必须等于某个选项文本，不要附加 A/B/C/D。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed) return null;
   const rawItems = Array.isArray((parsed as any).items) ? (parsed as any).items : Array.isArray(parsed) ? parsed : [];
   if (!rawItems.length) return null;
@@ -418,11 +706,6 @@ export async function generateExplainVariants(payload: {
   explanation?: string;
   knowledgePointTitle?: string;
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") {
-    return buildExplainFallback(payload);
-  }
-
   const context = [
     `学科：${payload.subject}`,
     `年级：${payload.grade}`,
@@ -432,25 +715,21 @@ export async function generateExplainVariants(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n题目：${payload.stem}\n答案：${payload.answer}\n解析：${payload.explanation ?? ""}\n请给出三种版本讲解：文字版、图解版、生活类比版。输出 JSON：{\"text\":\"...\",\"visual\":\"...\",\"analogy\":\"...\"}。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${SYSTEM_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return buildExplainFallback(payload);
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${SYSTEM_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return buildExplainFallback(payload);
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return buildExplainFallback(payload);
   const textExplain = String((parsed as any).text ?? "").trim();
   const visual = String((parsed as any).visual ?? "").trim();
   const analogy = String((parsed as any).analogy ?? "").trim();
   if (!textExplain || !visual || !analogy) return buildExplainFallback(payload);
-  return { text: textExplain, visual, analogy, provider };
+  return { text: textExplain, visual, analogy, provider: llm.provider };
 }
 
 function buildHomeworkFallback(payload: {
@@ -518,18 +797,6 @@ export async function generateHomeworkReview(payload: {
   submissionText?: string | null;
   images: Array<{ mimeType: string; base64: string; fileName: string }>;
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") {
-    return buildHomeworkFallback({
-      subject: payload.subject,
-      grade: payload.grade,
-      focus: payload.focus,
-      uploadCount: payload.images.length,
-      submissionType: payload.submissionType,
-      submissionText: payload.submissionText
-    });
-  }
-
   const isEssay = payload.submissionType === "essay";
   const context = [
     `学科：${payload.subject}`,
@@ -551,29 +818,22 @@ export async function generateHomeworkReview(payload: {
 
   const userText = `${context}\n请对作业进行批改，输出 JSON：${isEssay ? essaySchema : homeworkSchema}。不要输出多余文本。`;
 
-  const visionModel = process.env.LLM_VISION_MODEL ?? process.env.LLM_MODEL ?? "glm-4.7";
   const content: any[] = [{ type: "text", text: userText }];
   payload.images.slice(0, 4).forEach((img) => {
     content.push({ type: "image_url", image_url: { url: `data:${img.mimeType};base64,${img.base64}` } });
   });
 
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callChatCompletions({
-      baseUrl: process.env.LLM_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4",
-      apiKey: process.env.LLM_API_KEY ?? "",
-      model: visionModel,
-      messages: [
-        { role: "system", content: "你是老师，擅长批改作业。请给出可执行的点评与评分。" },
-        { role: "user", content }
-      ],
-      temperature: 0.3
-    });
-  } else if (provider === "custom") {
-    text = await callCustomLLM(userText);
-  }
+  const llm = await callRoutedLLM({
+    messages: [
+      { role: "system", content: "你是老师，擅长批改作业。请给出可执行的点评与评分。" },
+      { role: "user", content }
+    ],
+    temperature: 0.3,
+    capability: payload.images.length ? "vision" : "chat",
+    customPrompt: userText
+  });
 
-  if (!text) {
+  if (!llm?.text) {
     return buildHomeworkFallback({
       subject: payload.subject,
       grade: payload.grade,
@@ -584,7 +844,7 @@ export async function generateHomeworkReview(payload: {
     });
   }
 
-  const parsed = extractJson(text);
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") {
     return buildHomeworkFallback({
       subject: payload.subject,
@@ -644,7 +904,7 @@ export async function generateHomeworkReview(payload: {
     suggestions: suggestions.slice(0, 5),
     rubric: rubric.slice(0, 5),
     writing: writingBlock,
-    provider
+    provider: llm.provider
   };
 }
 
@@ -654,27 +914,20 @@ export async function generateWritingFeedback(payload: {
   title?: string;
   content: string;
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [`学科：${payload.subject}`, `年级：${payload.grade}`, payload.title ? `题目：${payload.title}` : ""]
     .filter(Boolean)
     .join("\n");
 
   const userPrompt = `${context}\n写作内容：${payload.content}\n请给出结构、语法、词汇三个维度的评分（0-100），并提供简短总结、优点、改进建议。返回 JSON：{\"scores\":{\"structure\":80,\"grammar\":78,\"vocab\":75},\"summary\":\"...\",\"strengths\":[\"...\"],\"improvements\":[\"...\"],\"corrected\":\"...\"}。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
 
   const scores = (parsed as any).scores ?? {};
@@ -712,13 +965,10 @@ export async function extractKnowledgePointCandidates(payload: {
   text: string;
   candidates?: string[];
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
+  const primaryProvider = getProviderChain()[0] ?? "mock";
   const text = payload.text.trim().slice(0, 3000);
   if (!text) {
     return { points: [], provider: "rule" } as KnowledgePointExtraction;
-  }
-  if (provider === "mock") {
-    return { points: [], provider: "mock" } as KnowledgePointExtraction;
   }
 
   const candidateText = (payload.candidates ?? []).slice(0, 60).join("、");
@@ -732,23 +982,20 @@ export async function extractKnowledgePointCandidates(payload: {
 
   const userPrompt = `${context}\n文本内容：${text}\n请提取最相关的知识点，返回 JSON：{"points":["知识点1","知识点2"]}。只输出 JSON，不要解释。`;
 
-  let raw: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    raw = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    raw = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) {
+    return { points: [], provider: primaryProvider } as KnowledgePointExtraction;
   }
 
-  if (!raw) {
-    return { points: [], provider } as KnowledgePointExtraction;
-  }
-
-  const parsed = extractJson(raw);
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") {
-    return { points: [], provider } as KnowledgePointExtraction;
+    return { points: [], provider: llm.provider } as KnowledgePointExtraction;
   }
 
   const pointsRaw = Array.isArray((parsed as any).points) ? (parsed as any).points : [];
@@ -761,7 +1008,7 @@ export async function extractKnowledgePointCandidates(payload: {
     )
   );
 
-  return { points, provider } as KnowledgePointExtraction;
+  return { points, provider: llm.provider } as KnowledgePointExtraction;
 }
 
 export async function generateLessonOutline(payload: {
@@ -770,9 +1017,6 @@ export async function generateLessonOutline(payload: {
   topic: string;
   knowledgePoints?: string[];
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     `学科：${payload.subject}`,
     `年级：${payload.grade}`,
@@ -783,19 +1027,15 @@ export async function generateLessonOutline(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n请生成课堂讲稿结构，输出 JSON：{\"objectives\":[\"...\"],\"keyPoints\":[\"...\"],\"slides\":[{\"title\":\"...\",\"bullets\":[\"...\"]}],\"blackboardSteps\":[\"...\"]}。slides 为 PPT 大纲，blackboardSteps 为板书步骤。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
   const objectives = Array.isArray((parsed as any).objectives) ? (parsed as any).objectives : [];
   const keyPoints = Array.isArray((parsed as any).keyPoints) ? (parsed as any).keyPoints : [];
@@ -825,9 +1065,6 @@ export async function generateWrongReviewScript(payload: {
   className?: string;
   wrongPoints: string[];
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     `学科：${payload.subject}`,
     `年级：${payload.grade}`,
@@ -838,19 +1075,15 @@ export async function generateWrongReviewScript(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n请输出“错题讲评课”脚本，JSON 格式：{\"agenda\":[\"...\"],\"script\":[\"...\"],\"reminders\":[\"...\"]}。script 为讲评课流程话术分段。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
 
   const agenda = Array.isArray((parsed as any).agenda) ? (parsed as any).agenda : [];
@@ -869,9 +1102,6 @@ export async function generateLearningReport(payload: {
   summary: string;
   weakPoints: string[];
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     payload.className ? `班级：${payload.className}` : "",
     `摘要：${payload.summary}`,
@@ -881,19 +1111,15 @@ export async function generateLearningReport(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n请生成学情报告，输出 JSON：{\"report\":\"...\",\"highlights\":[\"...\"],\"reminders\":[\"...\"]}。report 为简短段落，reminders 为重点提醒。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
   const report = String((parsed as any).report ?? "").trim();
   const highlights = Array.isArray((parsed as any).highlights) ? (parsed as any).highlights : [];
@@ -915,9 +1141,6 @@ export async function generateQuestionCheck(payload: {
   subject?: string;
   grade?: string;
 }) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const context = [
     payload.subject ? `学科：${payload.subject}` : "",
     payload.grade ? `年级：${payload.grade}` : ""
@@ -926,19 +1149,15 @@ export async function generateQuestionCheck(payload: {
     .join("\n");
 
   const userPrompt = `${context}\n题目：${payload.stem}\n选项：${payload.options.join(" | ")}\n答案：${payload.answer}\n解析：${payload.explanation ?? ""}\n请检查是否存在题目歧义、答案错误或选项重复。输出 JSON：{\"issues\":[\"...\"],\"risk\":\"low|medium|high\",\"suggestedAnswer\":\"...\",\"notes\":\"...\"}。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed || typeof parsed !== "object") return null;
 
   const issues = Array.isArray((parsed as any).issues) ? (parsed as any).issues : [];
@@ -956,9 +1175,6 @@ export async function generateQuestionCheck(payload: {
 }
 
 export async function generateKnowledgePointsDraft(payload: GenerateKnowledgePointsPayload) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const count = Math.min(Math.max(Number(payload.count) || 5, 1), 10);
   const context = [
     `学科：${payload.subject}`,
@@ -969,19 +1185,15 @@ export async function generateKnowledgePointsDraft(payload: GenerateKnowledgePoi
     .join("\n");
 
   const userPrompt = `${context}\n请生成 ${count} 个知识点名称，返回 JSON。格式: {\"items\":[{\"title\":\"...\",\"chapter\":\"...\"}]}。\n要求: title 简洁准确，chapter 如果已提供则使用，否则给出合理章节名。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed) return null;
 
   const rawItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed.items) ? parsed.items : [];
@@ -1005,9 +1217,6 @@ export async function generateKnowledgePointsDraft(payload: GenerateKnowledgePoi
 }
 
 export async function generateKnowledgeTreeDraft(payload: GenerateKnowledgeTreePayload) {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
-  if (provider === "mock") return null;
-
   const unitCount = Math.min(Math.max(Number(payload.unitCount) || 6, 1), 12);
   const chaptersPerUnit = Math.min(Math.max(Number(payload.chaptersPerUnit) || 2, 1), 4);
   const pointsPerChapter = Math.min(Math.max(Number(payload.pointsPerChapter) || 4, 2), 8);
@@ -1022,19 +1231,15 @@ export async function generateKnowledgeTreeDraft(payload: GenerateKnowledgeTreeP
   ].join("\n");
 
   const userPrompt = `${context}\n请输出整本书的知识点树，按“单元->章节->知识点”分层，返回 JSON：{\"units\":[{\"title\":\"第一单元\",\"chapters\":[{\"title\":\"...\",\"points\":[{\"title\":\"...\"}]}]}]}。\n单元数量约 ${unitCount} 个，每单元 ${chaptersPerUnit} 章，每章 ${pointsPerChapter} 个知识点。不要输出多余文本。`;
-
-  let text: string | null = null;
-  if (provider === "zhipu" || provider === "compatible") {
-    text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: GENERATE_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-  } else if (provider === "custom") {
-    text = await callCustomLLM(`${GENERATE_PROMPT}\n${userPrompt}`);
-  }
-
-  if (!text) return null;
-  const parsed = extractJson(text);
+    ],
+    customPrompt: `${GENERATE_PROMPT}\n${userPrompt}`
+  });
+  if (!llm?.text) return null;
+  const parsed = extractJson(llm.text);
   if (!parsed) return null;
 
   const rawUnits = Array.isArray(parsed.units) ? parsed.units : Array.isArray(parsed) ? parsed : [];
@@ -1071,7 +1276,6 @@ export async function generateKnowledgeTreeDraft(payload: GenerateKnowledgeTreeP
 }
 
 export async function generateAssistAnswer(payload: AssistPayload): Promise<AssistResponse> {
-  const provider = process.env.LLM_PROVIDER ?? "mock";
   const question = payload.question.trim();
   const subject = payload.subject;
   const grade = payload.grade;
@@ -1090,34 +1294,21 @@ export async function generateAssistAnswer(payload: AssistPayload): Promise<Assi
 
   const userPrompt = `问题：${question}\n${contextLines.join("\n")}\n请用 3-5 句话讲清楚思路。`;
 
-  if (provider === "zhipu" || provider === "compatible") {
-    const text = await callZhipuLLM([
+  const llm = await callRoutedLLM({
+    messages: [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: userPrompt }
-    ]);
-    if (text) {
-      return {
-        answer: text,
-        steps: ["识别题干关键点", "匹配知识点", "给出清晰步骤"],
-        hints: ["先理解题意", "注意单位一致"],
-        sources: relatedKps.map((kp) => kp.title),
-        provider
-      };
-    }
-  }
-
-  if (provider === "custom") {
-    const prompt = `${SYSTEM_PROMPT}\n${userPrompt}`;
-    const text = await callCustomLLM(prompt);
-    if (text) {
-      return {
-        answer: text,
-        steps: ["识别题干关键点", "匹配知识点", "给出清晰步骤"],
-        hints: ["先理解题意", "注意单位一致"],
-        sources: relatedKps.map((kp) => kp.title),
-        provider
-      };
-    }
+    ],
+    customPrompt: `${SYSTEM_PROMPT}\n${userPrompt}`
+  });
+  if (llm?.text) {
+    return {
+      answer: llm.text,
+      steps: ["识别题干关键点", "匹配知识点", "给出清晰步骤"],
+      hints: ["先理解题意", "注意单位一致"],
+      sources: relatedKps.map((kp) => kp.title),
+      provider: llm.provider
+    };
   }
 
   if (relatedQuestion) {

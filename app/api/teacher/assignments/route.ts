@@ -4,7 +4,7 @@ import { getClassById, getClassesByTeacher, getClassStudentIds } from "@/lib/cla
 import { createKnowledgePoint, createQuestion, getKnowledgePoints, getQuestions } from "@/lib/content";
 import type { Difficulty, KnowledgePoint } from "@/lib/types";
 import { createNotification } from "@/lib/notifications";
-import { generateQuestionDraft } from "@/lib/ai";
+import { generateQuestionDraft, hasConfiguredLlmProvider } from "@/lib/ai";
 import { getModuleById, getModulesByClass } from "@/lib/modules";
 import { apiSuccess, badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
@@ -146,8 +146,7 @@ export const POST = withApi(async (request, _context, { requestId }) => {
   let fallbackMode: "bank" | null = null;
 
   if (submissionType === "quiz" && mode === "ai") {
-    const provider = process.env.LLM_PROVIDER ?? "mock";
-    if (provider === "mock") {
+    if (!hasConfiguredLlmProvider("chat")) {
       fallbackMode = "bank";
     }
   }
