@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getKnowledgePoints, getQuestions } from "@/lib/content";
 import { generateWrongReviewScript } from "@/lib/ai";
+import { assessAiQuality } from "@/lib/ai-quality-control";
 import { getAttemptsByUsers } from "@/lib/progress";
 import { notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
@@ -123,6 +124,21 @@ export const POST = withApi(async (request) => {
       ],
       reminders: ["讲评顺序遵循错因频次", "避免一次讲太多知识点", "每段讲评后都要有即时练习"]
     };
+  const quality = assessAiQuality({
+    kind: "assist",
+    provider: "unknown",
+    textBlocks: [
+      ...reviewOrder.map((item) => `${item.title} ${item.teachFocus}`),
+      ...(script.agenda ?? []),
+      ...(script.script ?? []),
+      ...(script.reminders ?? [])
+    ],
+    listCountHint:
+      reviewOrder.length +
+      (script.agenda?.length ?? 0) +
+      (script.script?.length ?? 0) +
+      (script.reminders?.length ?? 0)
+  });
 
   return {
     data: {
@@ -140,7 +156,9 @@ export const POST = withApi(async (request) => {
       exemplarQuestions,
       classTasks,
       afterClassReviewSheet,
-      script
+      script,
+      quality,
+      manualReviewRule: quality.needsHumanReview ? "建议教师先人工核查讲评顺序与示例题后再下发。" : ""
     }
   };
 });

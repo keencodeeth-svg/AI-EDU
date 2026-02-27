@@ -5,6 +5,7 @@ import { getKnowledgePoints } from "@/lib/content";
 import { createLearningLibraryItem, listLearningLibraryItems, type LearningLibraryItem } from "@/lib/learning-library";
 import { canAccessLearningLibraryItem } from "@/lib/library-access";
 import { retrieveLibraryCitations, toCitationPrompts } from "@/lib/library-rag";
+import { assessAiQuality } from "@/lib/ai-quality-control";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -162,12 +163,27 @@ export const POST = withApi(async (request) => {
     generatedByAi: true,
     status: "published"
   });
+  const quality = assessAiQuality({
+    kind: "assist",
+    provider: "unknown",
+    textBlocks: [
+      topic,
+      ...(outline.objectives ?? []),
+      ...(outline.keyPoints ?? []),
+      ...(outline.slides ?? []).flatMap((slide) => [slide.title, ...(slide.bullets ?? [])]),
+      ...(outline.blackboardSteps ?? []),
+      ...citations.map((citation) => citation.snippet)
+    ],
+    listCountHint: (outline.slides?.length ?? 0) + citations.length
+  });
 
   return {
     data: {
       item,
       outline,
-      citations
+      citations,
+      quality,
+      manualReviewRule: quality.needsHumanReview ? "建议教师抽检教材引用与关键教学结论后再下发。" : ""
     }
   };
 });

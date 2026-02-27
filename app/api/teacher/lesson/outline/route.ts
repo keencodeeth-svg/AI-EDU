@@ -2,6 +2,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getClassById } from "@/lib/classes";
 import { getKnowledgePoints } from "@/lib/content";
 import { generateLessonOutline } from "@/lib/ai";
+import { assessAiQuality } from "@/lib/ai-quality-control";
 import { notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -71,13 +72,28 @@ export const POST = withApi(async (request) => {
       blackboardSteps: ["写出关键概念", "列出解题步骤", "标注易错点", "总结方法"]
     };
 
+  const quality = assessAiQuality({
+    kind: "assist",
+    provider: "unknown",
+    textBlocks: [
+      body.topic,
+      ...(outline.objectives ?? []),
+      ...(outline.keyPoints ?? []),
+      ...(outline.slides ?? []).flatMap((slide) => [slide.title, ...(slide.bullets ?? [])]),
+      ...(outline.blackboardSteps ?? [])
+    ],
+    listCountHint: (outline.objectives?.length ?? 0) + (outline.slides?.length ?? 0)
+  });
+
   return {
     data: {
       className,
       subject,
       grade,
       topic: body.topic,
-      outline
+      outline,
+      quality,
+      manualReviewRule: quality.needsHumanReview ? "建议教师抽检关键教学结论后再直接上课使用。" : ""
     }
   };
 });

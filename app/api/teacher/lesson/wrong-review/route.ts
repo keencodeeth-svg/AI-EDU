@@ -3,6 +3,7 @@ import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
 import { generateWrongReviewScript } from "@/lib/ai";
+import { assessAiQuality } from "@/lib/ai-quality-control";
 import { notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -69,6 +70,17 @@ export const POST = withApi(async (request) => {
       ],
       reminders: ["强调审题与条件匹配", "提醒步骤书写规范", "布置对应巩固练习"]
     };
+  const quality = assessAiQuality({
+    kind: "assist",
+    provider: "unknown",
+    textBlocks: [
+      ...wrongPoints,
+      ...(script.agenda ?? []),
+      ...(script.script ?? []),
+      ...(script.reminders ?? [])
+    ],
+    listCountHint: (script.agenda?.length ?? 0) + (script.script?.length ?? 0)
+  });
 
   return {
     data: {
@@ -77,7 +89,9 @@ export const POST = withApi(async (request) => {
       grade: klass.grade,
       rangeDays,
       wrongPoints: ranked,
-      script
+      script,
+      quality,
+      manualReviewRule: quality.needsHumanReview ? "建议教师先人工核对错因归纳与话术后再课堂使用。" : ""
     }
   };
 });
