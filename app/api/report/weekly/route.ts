@@ -163,7 +163,15 @@ export const GET = withApi(async () => {
     };
   });
   const completedCount = actionItemsWithReceipt.filter((item) => item.receipt?.status === "done").length;
-  const effectScore = receipts.reduce((sum, item) => sum + item.effectScore, 0);
+  const skippedCount = actionItemsWithReceipt.filter((item) => item.receipt?.status === "skipped").length;
+  const pendingCount = Math.max(0, actionItemsWithReceipt.length - completedCount - skippedCount);
+  const doneEffectScore = receipts
+    .filter((item) => item.status === "done")
+    .reduce((sum, item) => sum + item.effectScore, 0);
+  const skippedPenaltyScore = receipts
+    .filter((item) => item.status === "skipped")
+    .reduce((sum, item) => sum + item.effectScore, 0);
+  const effectScore = doneEffectScore + skippedPenaltyScore;
 
   return {
     student: { id: student.id, name: student.name, grade: student.grade },
@@ -178,16 +186,21 @@ export const GET = withApi(async () => {
     execution: {
       suggestedCount: actionItemsWithReceipt.length,
       completedCount,
+      skippedCount,
+      pendingCount,
       completionRate: actionItemsWithReceipt.length
         ? Math.round((completedCount / actionItemsWithReceipt.length) * 100)
         : 0,
-      lastCompletedAt: receipts[0]?.completedAt ?? null
+      lastCompletedAt: receipts.find((item) => item.status === "done")?.completedAt ?? null,
+      lastActionAt: receipts[0]?.completedAt ?? null
     },
     effect: {
       accuracyDelta: stats.accuracy - previousStats.accuracy,
       weeklyAccuracy: stats.accuracy,
       previousAccuracy: previousStats.accuracy,
-      receiptEffectScore: effectScore
+      receiptEffectScore: effectScore,
+      doneEffectScore,
+      skippedPenaltyScore
     }
   };
 });

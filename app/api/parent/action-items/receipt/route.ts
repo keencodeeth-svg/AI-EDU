@@ -40,6 +40,13 @@ function normalizeStatus(input?: string) {
   return input === "skipped" ? "skipped" : "done";
 }
 
+function calculateEffectScore(input: { status: "done" | "skipped"; estimatedMinutes: number }) {
+  if (input.status === "done") {
+    return Math.max(5, Math.min(30, Math.round(input.estimatedMinutes / 2)));
+  }
+  return -Math.max(3, Math.min(20, Math.round(input.estimatedMinutes / 4)));
+}
+
 export const GET = withApi(async (request) => {
   const user = await getCurrentUser();
   if (!user || user.role !== "parent") {
@@ -80,7 +87,11 @@ export const POST = withApi(async (request) => {
   const source = normalizeSource(body.source);
   const status = normalizeStatus(body.status);
   const estimatedMinutes = body.estimatedMinutes ?? 0;
-  const effectScore = status === "done" ? Math.max(5, Math.min(30, Math.round(estimatedMinutes / 2))) : -5;
+  const note = body.note?.trim() ?? "";
+  if (status === "skipped" && note.length < 2) {
+    badRequest("skipped status requires note");
+  }
+  const effectScore = calculateEffectScore({ status, estimatedMinutes });
 
   const receipt = await upsertParentActionReceipt({
     parentId: user.id,
@@ -88,7 +99,7 @@ export const POST = withApi(async (request) => {
     source,
     actionItemId,
     status,
-    note: body.note ?? undefined,
+    note: note || undefined,
     estimatedMinutes,
     effectScore
   });

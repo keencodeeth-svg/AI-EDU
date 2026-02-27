@@ -167,6 +167,15 @@ export const GET = withApi(async () => {
     };
   });
   const completedCount = actionItemsWithReceipt.filter((item) => item.receipt?.status === "done").length;
+  const skippedCount = actionItemsWithReceipt.filter((item) => item.receipt?.status === "skipped").length;
+  const pendingCount = Math.max(0, actionItemsWithReceipt.length - completedCount - skippedCount);
+  const doneEffectScore = receipts
+    .filter((item) => item.status === "done")
+    .reduce((sum, item) => sum + item.effectScore, 0);
+  const skippedPenaltyScore = receipts
+    .filter((item) => item.status === "skipped")
+    .reduce((sum, item) => sum + item.effectScore, 0);
+  const receiptEffectScore = doneEffectScore + skippedPenaltyScore;
 
   const reminderText = [
     `${student.name}本周作业提醒：待完成 ${pending.length} 份。`,
@@ -195,14 +204,19 @@ export const GET = withApi(async () => {
     execution: {
       suggestedCount: actionItemsWithReceipt.length,
       completedCount,
+      skippedCount,
+      pendingCount,
       completionRate: actionItemsWithReceipt.length
         ? Math.round((completedCount / actionItemsWithReceipt.length) * 100)
         : 0,
-      lastCompletedAt: receipts[0]?.completedAt ?? null
+      lastCompletedAt: receipts.find((item) => item.status === "done")?.completedAt ?? null,
+      lastActionAt: receipts[0]?.completedAt ?? null
     },
     effect: {
       pendingDelta: pending.length - completed.length,
-      receiptEffectScore: receipts.reduce((sum, item) => sum + item.effectScore, 0)
+      receiptEffectScore,
+      doneEffectScore,
+      skippedPenaltyScore
     }
   };
 });

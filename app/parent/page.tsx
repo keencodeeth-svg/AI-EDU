@@ -13,6 +13,7 @@ export default function ParentPage() {
   const [assignmentList, setAssignmentList] = useState<any[]>([]);
   const [assignmentSummary, setAssignmentSummary] = useState<any>(null);
   const [assignmentExecution, setAssignmentExecution] = useState<any>(null);
+  const [assignmentEffect, setAssignmentEffect] = useState<any>(null);
   const [assignmentReminder, setAssignmentReminder] = useState("");
   const [assignmentActionItems, setAssignmentActionItems] = useState<any[]>([]);
   const [assignmentParentTips, setAssignmentParentTips] = useState<string[]>([]);
@@ -20,6 +21,8 @@ export default function ParentPage() {
   const [assignmentCopied, setAssignmentCopied] = useState(false);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [receiptLoadingKey, setReceiptLoadingKey] = useState<string | null>(null);
+  const [receiptNotes, setReceiptNotes] = useState<Record<string, string>>({});
+  const [receiptError, setReceiptError] = useState<string | null>(null);
 
   const loadWeekly = useCallback(async () => {
     const res = await fetch("/api/report/weekly");
@@ -33,6 +36,7 @@ export default function ParentPage() {
     setAssignmentList(data.data ?? []);
     setAssignmentSummary(data.summary ?? null);
     setAssignmentExecution(data.execution ?? null);
+    setAssignmentEffect(data.effect ?? null);
     setAssignmentReminder(data.reminderText ?? "");
     setAssignmentActionItems(data.actionItems ?? []);
     setAssignmentParentTips(data.parentTips ?? []);
@@ -53,25 +57,42 @@ export default function ParentPage() {
       .then((data) => setFavorites(data.data ?? []));
   }, [loadAssignments, loadWeekly]);
 
-  async function markReceipt(source: "weekly_report" | "assignment_plan", item: any) {
+  async function submitReceipt(source: "weekly_report" | "assignment_plan", item: any, status: "done" | "skipped") {
     const key = `${source}:${item.id}`;
-    setReceiptLoadingKey(key);
-    await fetch("/api/parent/action-items/receipt", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        source,
-        actionItemId: item.id,
-        status: "done",
-        estimatedMinutes: item.estimatedMinutes ?? 0
-      })
-    });
-    if (source === "weekly_report") {
-      await loadWeekly();
-    } else {
-      await loadAssignments();
+    const note = (receiptNotes[key] ?? "").trim();
+    if (status === "skipped" && note.length < 2) {
+      setReceiptError("如选择“暂时跳过”，请填写至少 2 个字的原因。");
+      return;
     }
-    setReceiptLoadingKey(null);
+
+    setReceiptError(null);
+    setReceiptLoadingKey(key);
+    try {
+      const res = await fetch("/api/parent/action-items/receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          source,
+          actionItemId: item.id,
+          status,
+          note: note || undefined,
+          estimatedMinutes: item.estimatedMinutes ?? 0
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setReceiptError(data?.error ?? "回执提交失败");
+        return;
+      }
+
+      if (source === "weekly_report") {
+        await loadWeekly();
+      } else {
+        await loadAssignments();
+      }
+    } finally {
+      setReceiptLoadingKey(null);
+    }
   }
 
   if (!report) {
@@ -128,6 +149,9 @@ export default function ParentPage() {
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="section-title">本周可执行行动卡（预计 {report.estimatedMinutes ?? 0} 分钟）</div>
+          {receiptError ? (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{receiptError}</div>
+          ) : null}
           <div className="grid" style={{ gap: 8, marginTop: 8 }}>
             {(report.actionItems ?? []).map((item: any) => (
               <div className="card" key={item.id}>
@@ -136,17 +160,44 @@ export default function ParentPage() {
                 <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
                 <div style={{ fontSize: 12, color: "var(--ink-1)" }}>家长提示：{item.parentTip}</div>
                 <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  执行状态：{item.receipt?.status === "done" ? "已打卡" : "未打卡"}
+                  执行状态：
+                  {item.receipt?.status === "done"
+                    ? "已打卡"
+                    : item.receipt?.status === "skipped"
+                      ? "已跳过"
+                      : "未打卡"}
                   {item.receipt?.completedAt ? ` · ${new Date(item.receipt.completedAt).toLocaleString("zh-CN")}` : ""}
                 </div>
+                {typeof item.receipt?.effectScore === "number" ? (
+                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>本次效果分：{item.receipt.effectScore}</div>
+                ) : null}
+                <label style={{ marginTop: 8, display: "block" }}>
+                  <div style={{ fontSize: 12, color: "var(--ink-1)", marginBottom: 4 }}>备注/跳过原因（可选）</div>
+                  <input
+                    value={receiptNotes[`weekly_report:${item.id}`] ?? item.receipt?.note ?? ""}
+                    onChange={(event) =>
+                      setReceiptNotes((prev) => ({ ...prev, [`weekly_report:${item.id}`]: event.target.value }))
+                    }
+                    placeholder="例如：今天有校内活动，改为明天执行"
+                    style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
+                  />
+                </label>
                 <div className="cta-row" style={{ marginTop: 8 }}>
                   <button
                     className="button ghost"
                     type="button"
                     disabled={receiptLoadingKey === `weekly_report:${item.id}`}
-                    onClick={() => markReceipt("weekly_report", item)}
+                    onClick={() => submitReceipt("weekly_report", item, "done")}
                   >
                     {receiptLoadingKey === `weekly_report:${item.id}` ? "打卡中..." : "执行打卡"}
+                  </button>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={receiptLoadingKey === `weekly_report:${item.id}`}
+                    onClick={() => submitReceipt("weekly_report", item, "skipped")}
+                  >
+                    {receiptLoadingKey === `weekly_report:${item.id}` ? "提交中..." : "暂时跳过"}
                   </button>
                 </div>
               </div>
@@ -155,7 +206,9 @@ export default function ParentPage() {
         </div>
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
           执行闭环：建议 {report.execution?.suggestedCount ?? 0} 项 · 已打卡 {report.execution?.completedCount ?? 0} 项 ·
-          完成率 {report.execution?.completionRate ?? 0}% · 效果分 {report.effect?.receiptEffectScore ?? 0}
+          已跳过 {report.execution?.skippedCount ?? 0} 项 · 待执行 {report.execution?.pendingCount ?? 0} 项 ·
+          完成率 {report.execution?.completionRate ?? 0}% · 净效果分 {report.effect?.receiptEffectScore ?? 0}
+          （完成贡献 {report.effect?.doneEffectScore ?? 0}，跳过影响 {report.effect?.skippedPenaltyScore ?? 0}）
         </div>
       </Card>
       <Card title="薄弱点与建议" tag="诊断">
@@ -267,6 +320,9 @@ export default function ParentPage() {
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="section-title">作业行动卡（预计 {assignmentEstimatedMinutes} 分钟）</div>
+          {receiptError ? (
+            <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{receiptError}</div>
+          ) : null}
           {assignmentActionItems.length ? (
             <div className="grid" style={{ gap: 8, marginTop: 8 }}>
               {assignmentActionItems.map((item) => (
@@ -275,19 +331,46 @@ export default function ParentPage() {
                   <p>{item.description}</p>
                   <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
                   <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                    执行状态：{item.receipt?.status === "done" ? "已打卡" : "未打卡"}
+                    执行状态：
+                    {item.receipt?.status === "done"
+                      ? "已打卡"
+                      : item.receipt?.status === "skipped"
+                        ? "已跳过"
+                        : "未打卡"}
                     {item.receipt?.completedAt
                       ? ` · ${new Date(item.receipt.completedAt).toLocaleString("zh-CN")}`
                       : ""}
                   </div>
+                  {typeof item.receipt?.effectScore === "number" ? (
+                    <div style={{ fontSize: 12, color: "var(--ink-1)" }}>本次效果分：{item.receipt.effectScore}</div>
+                  ) : null}
+                  <label style={{ marginTop: 8, display: "block" }}>
+                    <div style={{ fontSize: 12, color: "var(--ink-1)", marginBottom: 4 }}>备注/跳过原因（可选）</div>
+                    <input
+                      value={receiptNotes[`assignment_plan:${item.id}`] ?? item.receipt?.note ?? ""}
+                      onChange={(event) =>
+                        setReceiptNotes((prev) => ({ ...prev, [`assignment_plan:${item.id}`]: event.target.value }))
+                      }
+                      placeholder="例如：本周外出，周末补做"
+                      style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
+                    />
+                  </label>
                   <div className="cta-row" style={{ marginTop: 8 }}>
                     <button
                       className="button ghost"
                       type="button"
                       disabled={receiptLoadingKey === `assignment_plan:${item.id}`}
-                      onClick={() => markReceipt("assignment_plan", item)}
+                      onClick={() => submitReceipt("assignment_plan", item, "done")}
                     >
                       {receiptLoadingKey === `assignment_plan:${item.id}` ? "打卡中..." : "执行打卡"}
+                    </button>
+                    <button
+                      className="button secondary"
+                      type="button"
+                      disabled={receiptLoadingKey === `assignment_plan:${item.id}`}
+                      onClick={() => submitReceipt("assignment_plan", item, "skipped")}
+                    >
+                      {receiptLoadingKey === `assignment_plan:${item.id}` ? "提交中..." : "暂时跳过"}
                     </button>
                   </div>
                 </div>
@@ -300,7 +383,9 @@ export default function ParentPage() {
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
           执行闭环：建议 {assignmentExecution?.suggestedCount ?? 0} 项 · 已打卡{" "}
           {assignmentExecution?.completedCount ?? 0} 项 · 完成率{" "}
-          {assignmentExecution?.completionRate ?? 0}%
+          {assignmentExecution?.completionRate ?? 0}% · 已跳过 {assignmentExecution?.skippedCount ?? 0} 项 ·
+          待执行 {assignmentExecution?.pendingCount ?? 0} 项 · 净效果分 {assignmentEffect?.receiptEffectScore ?? 0}
+          （完成贡献 {assignmentEffect?.doneEffectScore ?? 0}，跳过影响 {assignmentEffect?.skippedPenaltyScore ?? 0}）
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="section-title">作业清单</div>
