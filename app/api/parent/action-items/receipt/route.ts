@@ -33,11 +33,35 @@ const querySchema = v.object<{ source?: string }>(
 );
 
 function normalizeSource(input?: string) {
-  return input === "assignment_plan" ? "assignment_plan" : "weekly_report";
+  const value = (input ?? "weekly_report").trim();
+  if (value === "weekly_report" || value === "assignment_plan") {
+    return value;
+  }
+  badRequest("invalid source");
 }
 
 function normalizeStatus(input?: string) {
-  return input === "skipped" ? "skipped" : "done";
+  const value = (input ?? "done").trim();
+  if (value === "done" || value === "skipped") {
+    return value;
+  }
+  badRequest("invalid status");
+}
+
+function isKnownActionItemId(source: "weekly_report" | "assignment_plan", actionItemId: string) {
+  if (source === "weekly_report") {
+    const weeklySet = new Set(["daily-practice", "keep-strength", "wrong-review", "advance-practice"]);
+    if (weeklySet.has(actionItemId)) return true;
+    return /^weak-[a-z0-9-]+$/i.test(actionItemId);
+  }
+  const assignmentSet = new Set([
+    "clear-overdue",
+    "due-soon",
+    "daily-checklist",
+    "review-today",
+    "stable-rhythm"
+  ]);
+  return assignmentSet.has(actionItemId);
 }
 
 function calculateEffectScore(input: { status: "done" | "skipped"; estimatedMinutes: number }) {
@@ -85,6 +109,9 @@ export const POST = withApi(async (request) => {
   }
 
   const source = normalizeSource(body.source);
+  if (!isKnownActionItemId(source, actionItemId)) {
+    badRequest("invalid actionItemId for source");
+  }
   const status = normalizeStatus(body.status);
   const estimatedMinutes = body.estimatedMinutes ?? 0;
   const note = body.note?.trim() ?? "";

@@ -20,6 +20,19 @@ export type ParentActionReceipt = {
   updatedAt: string;
 };
 
+export type ParentActionHistorySummary = {
+  totalCount: number;
+  doneCount: number;
+  skippedCount: number;
+  doneMinutes: number;
+  avgEffectScore: number;
+  last7dDoneCount: number;
+  last7dSkippedCount: number;
+  last7dEffectScore: number;
+  streakDays: number;
+  lastActionAt: string | null;
+};
+
 type DbParentActionReceipt = {
   id: string;
   parent_id: string;
@@ -185,4 +198,69 @@ export async function upsertParentActionReceipt(input: {
     ]
   );
   return row ? mapDb(row) : null;
+}
+
+function toDateKey(date: Date) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+export function summarizeParentActionReceipts(
+  receipts: ParentActionReceipt[],
+  nowInput: Date = new Date()
+): ParentActionHistorySummary {
+  const doneCount = receipts.filter((item) => item.status === "done").length;
+  const skippedCount = receipts.filter((item) => item.status === "skipped").length;
+  const doneMinutes = receipts
+    .filter((item) => item.status === "done")
+    .reduce((sum, item) => sum + clamp(item.estimatedMinutes, 0, 240), 0);
+  const effectTotal = receipts.reduce((sum, item) => sum + clamp(item.effectScore, -100, 100), 0);
+
+  const now = new Date(nowInput);
+  const start7d = new Date(now);
+  start7d.setDate(start7d.getDate() - 6);
+  start7d.setHours(0, 0, 0, 0);
+  const start7dTs = start7d.getTime();
+
+  const within7d = receipts.filter((item) => {
+    const ts = new Date(item.completedAt).getTime();
+    return Number.isFinite(ts) && ts >= start7dTs;
+  });
+  const last7dDoneCount = within7d.filter((item) => item.status === "done").length;
+  const last7dSkippedCount = within7d.filter((item) => item.status === "skipped").length;
+  const last7dEffectScore = within7d.reduce((sum, item) => sum + clamp(item.effectScore, -100, 100), 0);
+
+  const doneDaySet = new Set(
+    receipts
+      .filter((item) => item.status === "done")
+      .map((item) => new Date(item.completedAt))
+      .filter((date) => Number.isFinite(date.getTime()))
+      .map((date) => toDateKey(date))
+  );
+  let streakDays = 0;
+  const cursor = new Date(now);
+  cursor.setHours(0, 0, 0, 0);
+  while (streakDays < 90) {
+    const key = toDateKey(cursor);
+    if (!doneDaySet.has(key)) {
+      break;
+    }
+    streakDays += 1;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  return {
+    totalCount: receipts.length,
+    doneCount,
+    skippedCount,
+    doneMinutes,
+    avgEffectScore: receipts.length ? Math.round(effectTotal / receipts.length) : 0,
+    last7dDoneCount,
+    last7dSkippedCount,
+    last7dEffectScore,
+    streakDays,
+    lastActionAt: receipts[0]?.completedAt ?? null
+  };
 }

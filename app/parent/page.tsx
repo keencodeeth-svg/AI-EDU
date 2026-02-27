@@ -207,8 +207,10 @@ export default function ParentPage() {
         <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
           执行闭环：建议 {report.execution?.suggestedCount ?? 0} 项 · 已打卡 {report.execution?.completedCount ?? 0} 项 ·
           已跳过 {report.execution?.skippedCount ?? 0} 项 · 待执行 {report.execution?.pendingCount ?? 0} 项 ·
-          完成率 {report.execution?.completionRate ?? 0}% · 净效果分 {report.effect?.receiptEffectScore ?? 0}
-          （完成贡献 {report.effect?.doneEffectScore ?? 0}，跳过影响 {report.effect?.skippedPenaltyScore ?? 0}）
+          完成率 {report.execution?.completionRate ?? 0}% · 连续执行 {report.execution?.streakDays ?? 0} 天 ·
+          累计执行时长 {report.execution?.doneMinutes ?? 0} 分钟 · 净效果分 {report.effect?.receiptEffectScore ?? 0}
+          （最近7日 {report.effect?.last7dEffectScore ?? 0}，平均每次 {report.effect?.avgEffectScore ?? 0}，完成贡献{" "}
+          {report.effect?.doneEffectScore ?? 0}，跳过影响 {report.effect?.skippedPenaltyScore ?? 0}）
         </div>
       </Card>
       <Card title="薄弱点与建议" tag="诊断">
@@ -384,8 +386,10 @@ export default function ParentPage() {
           执行闭环：建议 {assignmentExecution?.suggestedCount ?? 0} 项 · 已打卡{" "}
           {assignmentExecution?.completedCount ?? 0} 项 · 完成率{" "}
           {assignmentExecution?.completionRate ?? 0}% · 已跳过 {assignmentExecution?.skippedCount ?? 0} 项 ·
-          待执行 {assignmentExecution?.pendingCount ?? 0} 项 · 净效果分 {assignmentEffect?.receiptEffectScore ?? 0}
-          （完成贡献 {assignmentEffect?.doneEffectScore ?? 0}，跳过影响 {assignmentEffect?.skippedPenaltyScore ?? 0}）
+          待执行 {assignmentExecution?.pendingCount ?? 0} 项 · 连续执行 {assignmentExecution?.streakDays ?? 0} 天 ·
+          累计执行时长 {assignmentExecution?.doneMinutes ?? 0} 分钟 · 净效果分 {assignmentEffect?.receiptEffectScore ?? 0}
+          （最近7日 {assignmentEffect?.last7dEffectScore ?? 0}，平均每次 {assignmentEffect?.avgEffectScore ?? 0}，完成贡献{" "}
+          {assignmentEffect?.doneEffectScore ?? 0}，跳过影响 {assignmentEffect?.skippedPenaltyScore ?? 0}）
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="section-title">作业清单</div>

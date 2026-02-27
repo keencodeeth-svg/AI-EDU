@@ -258,9 +258,19 @@ export async function runLearningSuite(context) {
     "Parent assignments should include execution.pendingCount"
   );
   assert.equal(
+    typeof parentAssignments.body?.execution?.streakDays,
+    "number",
+    "Parent assignments should include execution.streakDays"
+  );
+  assert.equal(
     typeof parentAssignments.body?.effect?.receiptEffectScore,
     "number",
     "Parent assignments should include effect.receiptEffectScore"
+  );
+  assert.equal(
+    typeof parentAssignments.body?.effect?.last7dEffectScore,
+    "number",
+    "Parent assignments should include effect.last7dEffectScore"
   );
 
   const parentWeekly = await apiFetch("/api/report/weekly");
@@ -277,9 +287,34 @@ export async function runLearningSuite(context) {
     "Parent weekly report should include effect.doneEffectScore"
   );
   assert.equal(
+    typeof parentWeekly.body?.execution?.streakDays,
+    "number",
+    "Parent weekly report should include execution.streakDays"
+  );
+  assert.equal(
     typeof parentWeekly.body?.effect?.skippedPenaltyScore,
     "number",
     "Parent weekly report should include effect.skippedPenaltyScore"
+  );
+  assert.equal(
+    typeof parentWeekly.body?.effect?.last7dEffectScore,
+    "number",
+    "Parent weekly report should include effect.last7dEffectScore"
+  );
+
+  const invalidActionItemReceipt = await apiFetch("/api/parent/action-items/receipt", {
+    method: "POST",
+    json: {
+      source: "weekly_report",
+      actionItemId: "invalid-action-item",
+      status: "done",
+      estimatedMinutes: 10
+    }
+  });
+  assert.equal(
+    invalidActionItemReceipt.status,
+    400,
+    "Receipt should reject unknown actionItemId for source"
   );
 
   const firstWeeklyAction = parentWeekly.body?.actionItems?.[0];

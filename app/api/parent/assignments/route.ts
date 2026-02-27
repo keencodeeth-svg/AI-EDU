@@ -3,7 +3,8 @@ import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentProgressByStudent, getAssignmentsByClassIds } from "@/lib/assignments";
 import {
   buildParentActionReceiptKey,
-  listParentActionReceipts
+  listParentActionReceipts,
+  summarizeParentActionReceipts
 } from "@/lib/parent-action-receipts";
 import { getWrongReviewQueue } from "@/lib/wrong-review";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
@@ -176,6 +177,7 @@ export const GET = withApi(async () => {
     .filter((item) => item.status === "skipped")
     .reduce((sum, item) => sum + item.effectScore, 0);
   const receiptEffectScore = doneEffectScore + skippedPenaltyScore;
+  const history = summarizeParentActionReceipts(receipts);
 
   const reminderText = [
     `${student.name}本周作业提醒：待完成 ${pending.length} 份。`,
@@ -210,13 +212,25 @@ export const GET = withApi(async () => {
         ? Math.round((completedCount / actionItemsWithReceipt.length) * 100)
         : 0,
       lastCompletedAt: receipts.find((item) => item.status === "done")?.completedAt ?? null,
-      lastActionAt: receipts[0]?.completedAt ?? null
+      lastActionAt: receipts[0]?.completedAt ?? null,
+      streakDays: history.streakDays,
+      doneMinutes: history.doneMinutes
     },
     effect: {
       pendingDelta: pending.length - completed.length,
       receiptEffectScore,
       doneEffectScore,
-      skippedPenaltyScore
+      skippedPenaltyScore,
+      last7dEffectScore: history.last7dEffectScore,
+      avgEffectScore: history.avgEffectScore
+    },
+    history: {
+      totalCount: history.totalCount,
+      doneCount: history.doneCount,
+      skippedCount: history.skippedCount,
+      last7dDoneCount: history.last7dDoneCount,
+      last7dSkippedCount: history.last7dSkippedCount,
+      lastActionAt: history.lastActionAt
     }
   };
 });
