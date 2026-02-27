@@ -1,7 +1,6 @@
-import { getCurrentUser } from "@/lib/auth";
-import { getClassById } from "@/lib/classes";
-import { getModuleById, updateModule } from "@/lib/modules";
-import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { updateModule } from "@/lib/modules";
+import { withApi } from "@/lib/api/http";
+import { requireTeacherModule } from "@/lib/guard";
 import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
@@ -22,19 +21,8 @@ const updateModuleBodySchema = v.object<{
 );
 
 export const PUT = withApi(async (request, context) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
   const moduleId = context.params.id;
-  const moduleRecord = await getModuleById(moduleId);
-  if (!moduleRecord) {
-    notFound("not found");
-  }
-  const klass = await getClassById(moduleRecord.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("not found");
-  }
+  await requireTeacherModule(moduleId);
 
   const body = await parseJson(request, updateModuleBodySchema);
 

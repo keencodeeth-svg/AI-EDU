@@ -1,7 +1,7 @@
-import { getCurrentUser } from "@/lib/auth";
-import { getClassById, getClassesByTeacher } from "@/lib/classes";
+import { getClassesByTeacher } from "@/lib/classes";
 import { createModule, getModulesByClass } from "@/lib/modules";
-import { notFound, unauthorized, withApi } from "@/lib/api/http";
+import { withApi } from "@/lib/api/http";
+import { requireRoleOrThrow, requireTeacherClass } from "@/lib/guard";
 import { parseJson, parseSearchParams, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
@@ -31,34 +31,22 @@ const createModuleBodySchema = v.object<{
 );
 
 export const GET = withApi(async (request) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
+  const user = await requireRoleOrThrow("teacher");
   const query = parseSearchParams(request, modulesQuerySchema);
   const classId = query.classId ?? "";
   if (!classId) {
     const classes = await getClassesByTeacher(user.id);
     return { data: [], classes };
   }
-  const klass = await getClassById(classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("class not found");
-  }
+  await requireTeacherClass(classId);
   const modules = await getModulesByClass(classId);
   return { data: modules };
 });
 
 export const POST = withApi(async (request) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
+  await requireRoleOrThrow("teacher");
   const body = await parseJson(request, createModuleBodySchema);
-  const klass = await getClassById(body.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("class not found");
-  }
+  await requireTeacherClass(body.classId);
   const created = await createModule({
     classId: body.classId,
     title: body.title,

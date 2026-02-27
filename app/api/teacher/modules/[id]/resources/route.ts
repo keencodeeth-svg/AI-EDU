@@ -1,7 +1,6 @@
-import { getCurrentUser } from "@/lib/auth";
-import { getClassById } from "@/lib/classes";
-import { addModuleResource, deleteModuleResource, getModuleById, getModuleResources } from "@/lib/modules";
-import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { addModuleResource, deleteModuleResource, getModuleResources } from "@/lib/modules";
+import { badRequest, withApi } from "@/lib/api/http";
+import { requireTeacherModule } from "@/lib/guard";
 import { parseJson, v } from "@/lib/api/validation";
 
 export const dynamic = "force-dynamic";
@@ -35,37 +34,15 @@ const deleteResourceBodySchema = v.object<{ resourceId: string }>(
 );
 
 export const GET = withApi(async (_request, context) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
   const moduleId = context.params.id;
-  const moduleRecord = await getModuleById(moduleId);
-  if (!moduleRecord) {
-    notFound("not found");
-  }
-  const klass = await getClassById(moduleRecord.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("not found");
-  }
+  await requireTeacherModule(moduleId);
   const resources = await getModuleResources(moduleId);
   return { data: resources };
 });
 
 export const POST = withApi(async (request, context) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
   const moduleId = context.params.id;
-  const moduleRecord = await getModuleById(moduleId);
-  if (!moduleRecord) {
-    notFound("not found");
-  }
-  const klass = await getClassById(moduleRecord.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("not found");
-  }
+  await requireTeacherModule(moduleId);
 
   const body = await parseJson(request, moduleResourceBodySchema);
   if (body.resourceType === "file" && !body.contentBase64) {
@@ -89,19 +66,8 @@ export const POST = withApi(async (request, context) => {
 });
 
 export const DELETE = withApi(async (request, context) => {
-  const user = await getCurrentUser();
-  if (!user || user.role !== "teacher") {
-    unauthorized();
-  }
   const moduleId = context.params.id;
-  const moduleRecord = await getModuleById(moduleId);
-  if (!moduleRecord) {
-    notFound("not found");
-  }
-  const klass = await getClassById(moduleRecord.classId);
-  if (!klass || klass.teacherId !== user.id) {
-    notFound("not found");
-  }
+  await requireTeacherModule(moduleId);
   const body = await parseJson(request, deleteResourceBodySchema);
   await deleteModuleResource(body.resourceId);
   return { ok: true };
