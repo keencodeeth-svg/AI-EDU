@@ -149,6 +149,13 @@ a {
   gap: 8px;
 }
 
+.role-side-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .role-side-section-title {
   display: inline-flex;
   align-items: center;
@@ -169,6 +176,24 @@ a {
   font-size: 11px;
   background: rgba(27, 108, 168, 0.12);
   color: var(--brand-0);
+}
+
+.role-side-group-toggle {
+  border: 1px solid rgba(27, 108, 168, 0.2);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--brand-0);
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition:
+    border-color var(--motion-fast) var(--ease-standard),
+    background var(--motion-fast) var(--ease-standard);
+}
+
+.role-side-group-toggle:hover {
+  border-color: rgba(27, 108, 168, 0.35);
+  background: rgba(27, 108, 168, 0.08);
 }
 
 .role-side-links {
