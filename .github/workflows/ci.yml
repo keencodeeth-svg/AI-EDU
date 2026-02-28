@@ -64,7 +64,13 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build for API tests
+        run: npm run build
+
       - name: API integration tests
+        env:
+          API_TEST_SERVER_MODE: start
+          API_TEST_FALLBACK_TO_DEV: "0"
         run: |
           set -o pipefail
           timeout 30m npm run test:api 2>&1 | tee api-tests.log
