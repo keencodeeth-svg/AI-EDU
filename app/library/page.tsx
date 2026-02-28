@@ -130,6 +130,12 @@ function contentTypeLabel(type: string) {
   return "教材";
 }
 
+function contentTypeRank(type: LibraryItem["contentType"]) {
+  if (type === "textbook") return 0;
+  if (type === "courseware") return 1;
+  return 2;
+}
+
 function toBase64(file: File) {
   return new Promise<{ base64: string; mimeType: string; fileName: string; size: number }>((resolve, reject) => {
     const reader = new FileReader();
@@ -190,6 +196,8 @@ export default function LibraryPage() {
   const [summary, setSummary] = useState<LibrarySummary>(DEFAULT_SUMMARY);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedSubjects, setExpandedSubjects] = useState<string[]>([]);
+  const [expandedTypeKeys, setExpandedTypeKeys] = useState<string[]>([]);
+  const [libraryViewMode, setLibraryViewMode] = useState<"compact" | "detailed">("compact");
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -297,7 +305,15 @@ export default function LibraryPage() {
       .map(([subject, list]) => ({
         subject,
         label: SUBJECT_LABELS[subject] ?? subject,
-        list: list.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+        list: list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
+        contentGroups: (["textbook", "courseware", "lesson_plan"] as LibraryItem["contentType"][])
+          .map((contentType) => ({
+            contentType,
+            label: contentTypeLabel(contentType),
+            list: list.filter((item) => item.contentType === contentType)
+          }))
+          .filter((group) => group.list.length)
+          .sort((a, b) => contentTypeRank(a.contentType) - contentTypeRank(b.contentType))
       }))
       .sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
   }, [items]);
@@ -305,15 +321,50 @@ export default function LibraryPage() {
   useEffect(() => {
     setExpandedSubjects((prev) => {
       const visibleSubjects = new Set(groupedBySubject.map((item) => item.subject));
-      const kept = prev.filter((item) => visibleSubjects.has(item));
-      if (kept.length) return kept;
-      return groupedBySubject[0]?.subject ? [groupedBySubject[0].subject] : [];
+      return prev.filter((item) => visibleSubjects.has(item));
+    });
+  }, [groupedBySubject]);
+
+  useEffect(() => {
+    setExpandedTypeKeys((prev) => {
+      const visibleKeys = new Set(
+        groupedBySubject.flatMap((group) =>
+          group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`)
+        )
+      );
+      return prev.filter((item) => visibleKeys.has(item));
     });
   }, [groupedBySubject]);
 
   function toggleExpandedSubject(subject: string) {
     setExpandedSubjects((prev) =>
       prev.includes(subject) ? prev.filter((item) => item !== subject) : [...prev, subject]
+    );
+  }
+
+  function toggleExpandedType(typeKey: string) {
+    setExpandedTypeKeys((prev) =>
+      prev.includes(typeKey) ? prev.filter((item) => item !== typeKey) : [...prev, typeKey]
+    );
+  }
+
+  function setAllSubjectsExpanded(expanded: boolean) {
+    if (!expanded) {
+      setExpandedSubjects([]);
+      return;
+    }
+    setExpandedSubjects(groupedBySubject.map((group) => group.subject));
+  }
+
+  function setAllTypesExpanded(expanded: boolean) {
+    if (!expanded) {
+      setExpandedTypeKeys([]);
+      return;
+    }
+    setExpandedTypeKeys(
+      groupedBySubject.flatMap((group) =>
+        group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`)
+      )
     );
   }
 
@@ -938,20 +989,46 @@ export default function LibraryPage() {
       </Card>
 
       <Card title="资料管理列表" tag="管理">
+        <div className="cta-row" style={{ marginTop: 0 }}>
+          <span className="badge">视图模式</span>
+          <button
+            className={libraryViewMode === "compact" ? "button secondary" : "button ghost"}
+            type="button"
+            onClick={() => setLibraryViewMode("compact")}
+          >
+            紧凑模式
+          </button>
+          <button
+            className={libraryViewMode === "detailed" ? "button secondary" : "button ghost"}
+            type="button"
+            onClick={() => setLibraryViewMode("detailed")}
+          >
+            详细模式
+          </button>
+          <button className="button ghost" type="button" onClick={() => setAllSubjectsExpanded(true)}>
+            展开全部学科
+          </button>
+          <button className="button ghost" type="button" onClick={() => setAllSubjectsExpanded(false)}>
+            收起全部学科
+          </button>
+          <button className="button ghost" type="button" onClick={() => setAllTypesExpanded(true)}>
+            展开全部类型
+          </button>
+          <button className="button ghost" type="button" onClick={() => setAllTypesExpanded(false)}>
+            收起全部类型
+          </button>
+        </div>
+
         {loading ? (
-          <div className="empty-state">
+          <div className="empty-state" style={{ marginTop: 10 }}>
             <p className="empty-state-title">加载中</p>
             <p style={{ margin: 0 }}>正在读取教材与课件列表。</p>
           </div>
         ) : null}
         {!loading ? (
-          <div className="grid" style={{ gap: 14 }}>
+          <div className="grid" style={{ gap: 12, marginTop: 10 }}>
             {groupedBySubject.map((group) => (
-              <details
-                key={group.subject}
-                className="card"
-                open={expandedSubjects.includes(group.subject)}
-              >
+              <details key={group.subject} className="card full-span" open={expandedSubjects.includes(group.subject)}>
                 <summary
                   onClick={(event) => {
                     event.preventDefault();
@@ -969,51 +1046,163 @@ export default function LibraryPage() {
                   <span className="section-title" style={{ margin: 0 }}>
                     {group.label}
                   </span>
-                  <span className="badge">{group.list.length} 条</span>
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <span className="badge">{group.list.length} 条</span>
+                    <span className="badge">{group.contentGroups.length} 类</span>
+                  </div>
                 </summary>
+
                 <div className="grid" style={{ gap: 10, marginTop: 10 }}>
-                  {group.list.map((item) => {
-                    const textbookLinkBlocked = item.contentType === "textbook" && item.sourceType === "link";
+                  {group.contentGroups.map((contentGroup) => {
+                    const typeKey = `${group.subject}:${contentGroup.contentType}`;
                     return (
-                      <div className="card" key={item.id}>
-                        <div className="section-title">
-                          {item.title} <span className="badge">{contentTypeLabel(item.contentType)}</span>
-                        </div>
-                        <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 6 }}>
-                          {item.grade} 年级 · 来源：
-                          {item.sourceType === "file"
-                            ? "文件上传"
-                            : item.sourceType === "link"
-                              ? textbookLinkBlocked
-                                ? "外部链接（教材禁用）"
-                                : "外部链接"
-                              : "文本录入"}{" "}
-                          · {item.generatedByAi ? "AI生成" : "人工上传"}
-                        </div>
-                        <div className="cta-row" style={{ marginTop: 10 }}>
-                          <Link className="button ghost" href={`/library/${item.id}`}>
-                            查看
-                          </Link>
-                          <button
-                            className="button secondary"
-                            type="button"
-                            onClick={() => downloadItem(item)}
-                            disabled={textbookLinkBlocked}
-                          >
-                            {textbookLinkBlocked ? "外链禁用" : item.sourceType === "link" ? "打开链接" : "下载"}
-                          </button>
-                          {user?.role === "admin" ? (
-                            <button
-                              className="button danger"
-                              type="button"
-                              onClick={() => removeItem(item)}
-                              disabled={deletingId === item.id}
-                            >
-                              {deletingId === item.id ? "删除中..." : "删除"}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
+                      <details key={typeKey} className="card" open={expandedTypeKeys.includes(typeKey)}>
+                        <summary
+                          onClick={(event) => {
+                            event.preventDefault();
+                            toggleExpandedType(typeKey);
+                          }}
+                          style={{
+                            cursor: "pointer",
+                            listStyle: "none",
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 8
+                          }}
+                        >
+                          <span className="section-title" style={{ margin: 0 }}>
+                            {contentGroup.label}
+                          </span>
+                          <span className="badge">{contentGroup.list.length} 条</span>
+                        </summary>
+
+                        {libraryViewMode === "compact" ? (
+                          <div className="grid" style={{ gap: 8, marginTop: 10 }}>
+                            {contentGroup.list.map((item) => {
+                              const textbookLinkBlocked =
+                                item.contentType === "textbook" && item.sourceType === "link";
+                              return (
+                                <div
+                                  key={item.id}
+                                  style={{
+                                    border: "1px solid var(--stroke)",
+                                    borderRadius: 12,
+                                    background: "rgba(255,255,255,0.72)",
+                                    padding: 10
+                                  }}
+                                >
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      justifyContent: "space-between",
+                                      gap: 10,
+                                      alignItems: "center"
+                                    }}
+                                  >
+                                    <div style={{ minWidth: 0 }}>
+                                      <div
+                                        style={{
+                                          fontSize: 14,
+                                          fontWeight: 700,
+                                          display: "-webkit-box",
+                                          WebkitLineClamp: 1,
+                                          WebkitBoxOrient: "vertical",
+                                          overflow: "hidden"
+                                        }}
+                                      >
+                                        {item.title}
+                                      </div>
+                                      <div style={{ marginTop: 4, fontSize: 12, color: "var(--ink-1)" }}>
+                                        {item.grade} 年级 · {contentTypeLabel(item.contentType)} ·
+                                        {item.sourceType === "file"
+                                          ? " 文件上传"
+                                          : item.sourceType === "link"
+                                            ? textbookLinkBlocked
+                                              ? " 外部链接（教材禁用）"
+                                              : " 外部链接"
+                                            : " 文本录入"}{" "}
+                                        · {item.generatedByAi ? "AI生成" : "人工上传"}
+                                      </div>
+                                    </div>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                      <Link className="button ghost" href={`/library/${item.id}`}>
+                                        查看
+                                      </Link>
+                                      <button
+                                        className="button secondary"
+                                        type="button"
+                                        onClick={() => downloadItem(item)}
+                                        disabled={textbookLinkBlocked}
+                                      >
+                                        {textbookLinkBlocked ? "外链禁用" : item.sourceType === "link" ? "打开链接" : "下载"}
+                                      </button>
+                                      {user?.role === "admin" ? (
+                                        <button
+                                          className="button danger"
+                                          type="button"
+                                          onClick={() => removeItem(item)}
+                                          disabled={deletingId === item.id}
+                                        >
+                                          {deletingId === item.id ? "删除中..." : "删除"}
+                                        </button>
+                                      ) : null}
+                                    </div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <div className="grid" style={{ gap: 10, marginTop: 10 }}>
+                            {contentGroup.list.map((item) => {
+                              const textbookLinkBlocked =
+                                item.contentType === "textbook" && item.sourceType === "link";
+                              return (
+                                <div className="card" key={item.id}>
+                                  <div className="section-title">
+                                    {item.title} <span className="badge">{contentTypeLabel(item.contentType)}</span>
+                                  </div>
+                                  <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 6 }}>
+                                    {item.grade} 年级 · 来源：
+                                    {item.sourceType === "file"
+                                      ? "文件上传"
+                                      : item.sourceType === "link"
+                                        ? textbookLinkBlocked
+                                          ? "外部链接（教材禁用）"
+                                          : "外部链接"
+                                        : "文本录入"}{" "}
+                                    · {item.generatedByAi ? "AI生成" : "人工上传"}
+                                  </div>
+                                  <div className="cta-row" style={{ marginTop: 10 }}>
+                                    <Link className="button ghost" href={`/library/${item.id}`}>
+                                      查看
+                                    </Link>
+                                    <button
+                                      className="button secondary"
+                                      type="button"
+                                      onClick={() => downloadItem(item)}
+                                      disabled={textbookLinkBlocked}
+                                    >
+                                      {textbookLinkBlocked ? "外链禁用" : item.sourceType === "link" ? "打开链接" : "下载"}
+                                    </button>
+                                    {user?.role === "admin" ? (
+                                      <button
+                                        className="button danger"
+                                        type="button"
+                                        onClick={() => removeItem(item)}
+                                        disabled={deletingId === item.id}
+                                      >
+                                        {deletingId === item.id ? "删除中..." : "删除"}
+                                      </button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </details>
                     );
                   })}
                 </div>
