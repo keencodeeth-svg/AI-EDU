@@ -21,6 +21,7 @@ const dispatchBodySchema = v.object<{
   classId: string;
   items: DispatchItem[];
   includeIsolated?: boolean;
+  autoRelaxOnInsufficient?: boolean;
 }>(
   {
     classId: v.string({ minLength: 1 }),
@@ -37,7 +38,8 @@ const dispatchBodySchema = v.object<{
       ),
       { minLength: 1, maxLength: 20 }
     ),
-    includeIsolated: v.optional(v.boolean())
+    includeIsolated: v.optional(v.boolean()),
+    autoRelaxOnInsufficient: v.optional(v.boolean())
   },
   { allowUnknown: false }
 );
@@ -84,6 +86,7 @@ export const POST = withApi(async (request) => {
     badRequest("当前班级题库为空，无法布置复练单");
   }
   const includeIsolated = body.includeIsolated === true;
+  const autoRelaxOnInsufficient = body.autoRelaxOnInsufficient === true;
   const qualityMetrics = await listQuestionQualityMetrics({
     questionIds: classQuestions.map((item) => item.id)
   });
@@ -98,30 +101,83 @@ export const POST = withApi(async (request) => {
     dueDate: string;
     questionCount: number;
     knowledgePointId: string | null;
+    relaxedRule: "broaden_scope" | "allow_isolated" | null;
+    relaxedReason: string | null;
   }> = [];
-  const failed: Array<{ itemId: string; title: string; reason: string }> = [];
+  const failed: Array<{
+    itemId: string;
+    title: string;
+    reason: string;
+    item: Required<Pick<DispatchItem, "id" | "title" | "suggestedCount" | "dueInDays">> & {
+      knowledgePointId?: string;
+    };
+  }> = [];
+  const relaxed: Array<{
+    itemId: string;
+    title: string;
+    rule: "broaden_scope" | "allow_isolated";
+    reason: string;
+  }> = [];
   let isolatedExcludedCount = 0;
   let selectedIsolatedCount = 0;
 
   for (const [index, item] of body.items.entries()) {
     const itemId = item.id?.trim() || `item-${index + 1}`;
     const targetCount = clamp(item.suggestedCount ?? 5, 3, 12);
-    const dueDate = normalizeDueDate(clamp(item.dueInDays ?? 1, 1, 14));
+    const dueInDays = clamp(item.dueInDays ?? 1, 1, 14);
+    const dueDate = normalizeDueDate(dueInDays);
     const knowledgePointId = item.knowledgePointId?.trim() || null;
     const kpTitle = knowledgePointId ? kpTitleMap.get(knowledgePointId) : undefined;
     const titleBase = item.title?.trim() || (kpTitle ? `课后复练：${kpTitle}` : `课后复练任务 ${index + 1}`);
+    const retryItem = {
+      id: itemId,
+      title: titleBase,
+      suggestedCount: targetCount,
+      dueInDays,
+      ...(knowledgePointId ? { knowledgePointId } : {})
+    };
 
-    let pool = classQuestions;
+    let scopedPool = classQuestions;
     if (knowledgePointId) {
       const scoped = classQuestions.filter((question) => question.knowledgePointId === knowledgePointId);
       if (scoped.length) {
-        pool = scoped;
+        scopedPool = scoped;
       }
     }
+
+    let pool = scopedPool;
     const excludedByIsolation = !includeIsolated ? pool.filter((question) => isolatedSet.has(question.id)).length : 0;
     if (!includeIsolated) {
       pool = pool.filter((question) => !isolatedSet.has(question.id));
       isolatedExcludedCount += excludedByIsolation;
+    }
+
+    let relaxedRule: "broaden_scope" | "allow_isolated" | null = null;
+    let relaxedReason: string | null = null;
+    if (pool.length < 3 && autoRelaxOnInsufficient) {
+      if (knowledgePointId) {
+        let broadenPool = classQuestions;
+        if (!includeIsolated) {
+          broadenPool = broadenPool.filter((question) => !isolatedSet.has(question.id));
+        }
+        if (broadenPool.length >= 3) {
+          pool = broadenPool;
+          relaxedRule = "broaden_scope";
+          relaxedReason = "知识点题量不足，已自动放宽到班级同学科题池。";
+        }
+      }
+
+      if (pool.length < 3 && !includeIsolated) {
+        const allowIsolatedPool = relaxedRule === "broaden_scope" ? classQuestions : scopedPool;
+        if (allowIsolatedPool.length >= 3) {
+          pool = allowIsolatedPool;
+          relaxedRule = "allow_isolated";
+          relaxedReason =
+            relaxedRule === "allow_isolated" && knowledgePointId
+              ? "题量不足，已自动启用隔离池高风险题参与抽题。"
+              : "题量不足，已自动启用隔离池高风险题参与抽题。";
+        }
+      }
     }
 
     if (pool.length < 3) {
@@ -131,7 +187,8 @@ export const POST = withApi(async (request) => {
         reason:
           !includeIsolated && excludedByIsolation > 0
             ? `题库可用题目不足（已排除 ${excludedByIsolation} 道隔离池高风险题，至少需要 3 题）`
-            : "题库可用题目不足（至少需要 3 题）"
+            : "题库可用题目不足（至少需要 3 题）",
+        item: retryItem
       });
       continue;
     }
@@ -142,7 +199,8 @@ export const POST = withApi(async (request) => {
       failed.push({
         itemId,
         title: titleBase,
-        reason: "抽题失败（可用题量不足）"
+        reason: "抽题失败（可用题量不足）",
+        item: retryItem
       });
       continue;
     }
@@ -161,8 +219,18 @@ export const POST = withApi(async (request) => {
       title: assignment.title,
       dueDate: assignment.dueDate,
       questionCount: selected.length,
-      knowledgePointId
+      knowledgePointId,
+      relaxedRule,
+      relaxedReason
     });
+    if (relaxedRule && relaxedReason) {
+      relaxed.push({
+        itemId,
+        title: titleBase,
+        rule: relaxedRule,
+        reason: relaxedReason
+      });
+    }
   }
 
   let studentsNotified = 0;
@@ -214,14 +282,17 @@ export const POST = withApi(async (request) => {
         requested: body.items.length,
         created: created.length,
         failed: failed.length,
+        relaxedCount: relaxed.length,
         studentsNotified,
         parentsNotified,
+        autoRelaxOnInsufficient,
         qualityGovernance: {
           includeIsolated,
           isolatedPoolCount,
           isolatedExcludedCount,
           selectedIsolatedCount
-        }
+        },
+        relaxed
       }
     }
   };

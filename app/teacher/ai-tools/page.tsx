@@ -78,6 +78,9 @@ export default function TeacherAiToolsPage() {
     isolatedExcludedCount: number;
     selectedIsolatedCount: number;
   } | null>(null);
+  const [reviewPackFailedItems, setReviewPackFailedItems] = useState<any[]>([]);
+  const [reviewPackRelaxedItems, setReviewPackRelaxedItems] = useState<any[]>([]);
+  const [reviewPackRetryingFailed, setReviewPackRetryingFailed] = useState(false);
   const [checkForm, setCheckForm] = useState({
     questionId: "",
     stem: "",
@@ -175,6 +178,8 @@ export default function TeacherAiToolsPage() {
     setReviewPackAssignMessage(null);
     setReviewPackAssignError(null);
     setReviewPackDispatchQuality(null);
+    setReviewPackFailedItems([]);
+    setReviewPackRelaxedItems([]);
     setLoading(true);
     const res = await fetch("/api/teacher/lesson/review-pack", {
       method: "POST",
@@ -205,14 +210,21 @@ export default function TeacherAiToolsPage() {
     setLoading(false);
   }
 
-  async function dispatchReviewPackItems(items: any[]) {
+  async function dispatchReviewPackItems(
+    items: any[],
+    options?: {
+      autoRelaxOnInsufficient?: boolean;
+      includeIsolated?: boolean;
+    }
+  ) {
     const res = await fetch("/api/teacher/lesson/review-pack/dispatch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         classId: wrongForm.classId,
         items,
-        includeIsolated: reviewPackDispatchIncludeIsolated
+        includeIsolated: options?.includeIsolated ?? reviewPackDispatchIncludeIsolated,
+        autoRelaxOnInsufficient: options?.autoRelaxOnInsufficient ?? false
       })
     });
     const data = await res.json();
@@ -233,6 +245,8 @@ export default function TeacherAiToolsPage() {
     const assignKey = String(item?.id ?? "");
     setReviewPackAssignMessage(null);
     setReviewPackAssignError(null);
+    setReviewPackFailedItems([]);
+    setReviewPackRelaxedItems([]);
     setReviewPackAssigningId(assignKey);
 
     try {
@@ -243,6 +257,8 @@ export default function TeacherAiToolsPage() {
       }
       const summary = result.data?.summary;
       const failed = result.data?.failed ?? [];
+      setReviewPackFailedItems(failed);
+      setReviewPackRelaxedItems(summary?.relaxed ?? []);
       setReviewPackDispatchQuality(summary?.qualityGovernance ?? null);
       if (summary?.created > 0) {
         const quality = summary?.qualityGovernance;
@@ -251,7 +267,7 @@ export default function TeacherAiToolsPage() {
             quality && !quality.includeIsolated
               ? ` 已排除隔离池候选 ${quality.isolatedExcludedCount} 次。`
               : ""
-          }`
+          }${(summary?.relaxedCount ?? 0) > 0 ? ` 已自动放宽 ${summary.relaxedCount} 条。` : ""}`
         );
       } else {
         setReviewPackAssignMessage(null);
@@ -276,6 +292,8 @@ export default function TeacherAiToolsPage() {
     }
     setReviewPackAssignMessage(null);
     setReviewPackAssignError(null);
+    setReviewPackFailedItems([]);
+    setReviewPackRelaxedItems([]);
     setReviewPackAssigningAll(true);
 
     let summary: any = null;
@@ -288,6 +306,8 @@ export default function TeacherAiToolsPage() {
       }
       summary = result.data?.summary ?? null;
       failedItems = result.data?.failed ?? [];
+      setReviewPackFailedItems(failedItems);
+      setReviewPackRelaxedItems(summary?.relaxed ?? []);
       setReviewPackDispatchQuality(summary?.qualityGovernance ?? null);
     } catch {
       setReviewPackAssignError("批量下发失败");
@@ -299,7 +319,7 @@ export default function TeacherAiToolsPage() {
       setReviewPackAssignMessage(
         `已批量下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。${
           quality && !quality.includeIsolated ? ` 已排除隔离池候选 ${quality.isolatedExcludedCount} 次。` : ""
-        }`
+        }${(summary?.relaxedCount ?? 0) > 0 ? ` 已自动放宽 ${summary.relaxedCount} 条。` : ""}`
       );
     } else {
       setReviewPackAssignMessage(null);
@@ -315,6 +335,55 @@ export default function TeacherAiToolsPage() {
       setReviewPackAssignError(null);
     }
     setReviewPackAssigningAll(false);
+  }
+
+  async function handleRetryFailedReviewSheets() {
+    if (!wrongForm.classId || !reviewPackFailedItems.length) return;
+    const retryItems = reviewPackFailedItems.map((item: any) => item?.item).filter(Boolean);
+    if (!retryItems.length) {
+      setReviewPackAssignError("失败项缺少重试参数，请重新生成讲评包后再试。");
+      return;
+    }
+
+    setReviewPackRetryingFailed(true);
+    setReviewPackAssignMessage(null);
+    setReviewPackAssignError(null);
+
+    let summary: any = null;
+    let failedItems: any[] = [];
+    try {
+      const result = await dispatchReviewPackItems(retryItems, {
+        autoRelaxOnInsufficient: true
+      });
+      if (!result.ok) {
+        setReviewPackAssignError(result.error);
+        return;
+      }
+      summary = result.data?.summary ?? null;
+      failedItems = result.data?.failed ?? [];
+      setReviewPackFailedItems(failedItems);
+      setReviewPackRelaxedItems(summary?.relaxed ?? []);
+      setReviewPackDispatchQuality(summary?.qualityGovernance ?? null);
+    } catch {
+      setReviewPackAssignError("重试失败，请稍后再试");
+      return;
+    } finally {
+      setReviewPackRetryingFailed(false);
+    }
+
+    if ((summary?.created ?? 0) > 0) {
+      setReviewPackAssignMessage(
+        `失败项重试完成：新增下发 ${summary.created}/${summary.requested} 条，自动放宽 ${summary.relaxedCount ?? 0} 条。`
+      );
+    }
+
+    if (failedItems.length > 0) {
+      const brief = failedItems
+        .slice(0, 3)
+        .map((failedItem: any) => `${failedItem?.title ?? "未命名复练"}：${failedItem?.reason ?? "重试失败"}`)
+        .join("；");
+      setReviewPackAssignError(`重试后仍失败 ${failedItems.length} 条：${brief}`);
+    }
   }
 
   function renderQualityCard(payload: any) {
@@ -824,10 +893,18 @@ export default function TeacherAiToolsPage() {
                 <button
                   className="button primary"
                   type="button"
-                  disabled={reviewPackAssigningAll || !(reviewPackResult.afterClassReviewSheet ?? []).length}
+                  disabled={reviewPackAssigningAll || reviewPackRetryingFailed || !(reviewPackResult.afterClassReviewSheet ?? []).length}
                   onClick={handleAssignAllReviewSheets}
                 >
                   {reviewPackAssigningAll ? "批量布置中..." : "一键布置全部复练单"}
+                </button>
+                <button
+                  className="button secondary"
+                  type="button"
+                  disabled={reviewPackAssigningAll || reviewPackRetryingFailed || !reviewPackFailedItems.length}
+                  onClick={handleRetryFailedReviewSheets}
+                >
+                  {reviewPackRetryingFailed ? "重试中..." : `重试失败项（${reviewPackFailedItems.length}）`}
                 </button>
               </div>
               <div className="grid" style={{ gap: 8, marginTop: 8 }}>
@@ -841,7 +918,7 @@ export default function TeacherAiToolsPage() {
                       <button
                         className="button ghost"
                         type="button"
-                        disabled={reviewPackAssigningAll || reviewPackAssigningId === item.id}
+                        disabled={reviewPackAssigningAll || reviewPackRetryingFailed || reviewPackAssigningId === item.id}
                         onClick={() => handleAssignReviewSheet(item)}
                       >
                         {reviewPackAssigningId === item.id ? "布置中..." : "一键布置该条复练"}
@@ -855,6 +932,30 @@ export default function TeacherAiToolsPage() {
               ) : null}
               {reviewPackAssignError ? (
                 <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{reviewPackAssignError}</div>
+              ) : null}
+              {reviewPackFailedItems.length ? (
+                <div className="card" style={{ marginTop: 8 }}>
+                  <div className="section-title">下发失败清单</div>
+                  <ul style={{ margin: "8px 0 0 16px" }}>
+                    {reviewPackFailedItems.slice(0, 8).map((item: any, index: number) => (
+                      <li key={`${item?.itemId ?? item?.title ?? "failed"}-${index}`}>
+                        {(item?.title ?? "未命名复练")}：{item?.reason ?? "下发失败"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {reviewPackRelaxedItems.length ? (
+                <div className="card" style={{ marginTop: 8 }}>
+                  <div className="section-title">自动放宽记录</div>
+                  <ul style={{ margin: "8px 0 0 16px" }}>
+                    {reviewPackRelaxedItems.slice(0, 8).map((item: any, index: number) => (
+                      <li key={`${item?.itemId ?? item?.title ?? "relaxed"}-${index}`}>
+                        {(item?.title ?? "未命名复练")}：{item?.reason ?? "已自动放宽条件"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : null}
               {reviewPackDispatchQuality ? (
                 <div className="pill-list" style={{ marginTop: 8 }}>
