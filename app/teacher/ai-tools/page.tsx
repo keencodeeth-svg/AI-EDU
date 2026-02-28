@@ -71,6 +71,13 @@ export default function TeacherAiToolsPage() {
   const [reviewPackAssigningAll, setReviewPackAssigningAll] = useState(false);
   const [reviewPackAssignMessage, setReviewPackAssignMessage] = useState<string | null>(null);
   const [reviewPackAssignError, setReviewPackAssignError] = useState<string | null>(null);
+  const [reviewPackDispatchIncludeIsolated, setReviewPackDispatchIncludeIsolated] = useState(false);
+  const [reviewPackDispatchQuality, setReviewPackDispatchQuality] = useState<{
+    includeIsolated: boolean;
+    isolatedPoolCount: number;
+    isolatedExcludedCount: number;
+    selectedIsolatedCount: number;
+  } | null>(null);
   const [checkForm, setCheckForm] = useState({
     questionId: "",
     stem: "",
@@ -167,6 +174,7 @@ export default function TeacherAiToolsPage() {
     if (!wrongForm.classId) return;
     setReviewPackAssignMessage(null);
     setReviewPackAssignError(null);
+    setReviewPackDispatchQuality(null);
     setLoading(true);
     const res = await fetch("/api/teacher/lesson/review-pack", {
       method: "POST",
@@ -203,7 +211,8 @@ export default function TeacherAiToolsPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         classId: wrongForm.classId,
-        items
+        items,
+        includeIsolated: reviewPackDispatchIncludeIsolated
       })
     });
     const data = await res.json();
@@ -234,9 +243,15 @@ export default function TeacherAiToolsPage() {
       }
       const summary = result.data?.summary;
       const failed = result.data?.failed ?? [];
+      setReviewPackDispatchQuality(summary?.qualityGovernance ?? null);
       if (summary?.created > 0) {
+        const quality = summary?.qualityGovernance;
         setReviewPackAssignMessage(
-          `已下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。`
+          `已下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。${
+            quality && !quality.includeIsolated
+              ? ` 已排除隔离池候选 ${quality.isolatedExcludedCount} 次。`
+              : ""
+          }`
         );
       } else {
         setReviewPackAssignMessage(null);
@@ -273,14 +288,18 @@ export default function TeacherAiToolsPage() {
       }
       summary = result.data?.summary ?? null;
       failedItems = result.data?.failed ?? [];
+      setReviewPackDispatchQuality(summary?.qualityGovernance ?? null);
     } catch {
       setReviewPackAssignError("批量下发失败");
       return;
     }
 
     if ((summary?.created ?? 0) > 0) {
+      const quality = summary?.qualityGovernance;
       setReviewPackAssignMessage(
-        `已批量下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。`
+        `已批量下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。${
+          quality && !quality.includeIsolated ? ` 已排除隔离池候选 ${quality.isolatedExcludedCount} 次。` : ""
+        }`
       );
     } else {
       setReviewPackAssignMessage(null);
@@ -782,6 +801,14 @@ export default function TeacherAiToolsPage() {
             </div>
             <div className="card">
               <div className="section-title">课后复练单</div>
+              <label style={{ display: "inline-flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={reviewPackDispatchIncludeIsolated}
+                  onChange={(event) => setReviewPackDispatchIncludeIsolated(event.target.checked)}
+                />
+                <span>下发时允许使用隔离池高风险题（默认关闭）</span>
+              </label>
               <div className="cta-row" style={{ marginTop: 8 }}>
                 <button
                   className="button primary"
@@ -817,6 +844,18 @@ export default function TeacherAiToolsPage() {
               ) : null}
               {reviewPackAssignError ? (
                 <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{reviewPackAssignError}</div>
+              ) : null}
+              {reviewPackDispatchQuality ? (
+                <div className="pill-list" style={{ marginTop: 8 }}>
+                  <span className="pill">
+                    {reviewPackDispatchQuality.includeIsolated ? "允许隔离池抽题" : "排除隔离池抽题"}
+                  </span>
+                  <span className="pill">班级隔离池题量 {reviewPackDispatchQuality.isolatedPoolCount}</span>
+                  <span className="pill">候选排除 {reviewPackDispatchQuality.isolatedExcludedCount}</span>
+                  {reviewPackDispatchQuality.includeIsolated ? (
+                    <span className="pill">命中隔离池 {reviewPackDispatchQuality.selectedIsolatedCount}</span>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             {renderQualityCard(reviewPackResult)}

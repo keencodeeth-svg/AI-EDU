@@ -3,6 +3,7 @@ import { createAssignment } from "@/lib/assignments";
 import { getClassById, getClassStudentIds } from "@/lib/classes";
 import { getQuestions, getKnowledgePoints } from "@/lib/content";
 import { createNotification } from "@/lib/notifications";
+import { listQuestionQualityMetrics } from "@/lib/question-quality";
 import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 
@@ -19,6 +20,7 @@ type DispatchItem = {
 const dispatchBodySchema = v.object<{
   classId: string;
   items: DispatchItem[];
+  includeIsolated?: boolean;
 }>(
   {
     classId: v.string({ minLength: 1 }),
@@ -34,7 +36,8 @@ const dispatchBodySchema = v.object<{
         { allowUnknown: false }
       ),
       { minLength: 1, maxLength: 20 }
-    )
+    ),
+    includeIsolated: v.optional(v.boolean())
   },
   { allowUnknown: false }
 );
@@ -80,6 +83,12 @@ export const POST = withApi(async (request) => {
   if (!classQuestions.length) {
     badRequest("当前班级题库为空，无法布置复练单");
   }
+  const includeIsolated = body.includeIsolated === true;
+  const qualityMetrics = await listQuestionQualityMetrics({
+    questionIds: classQuestions.map((item) => item.id)
+  });
+  const isolatedSet = new Set(qualityMetrics.filter((item) => item.isolated).map((item) => item.questionId));
+  const isolatedPoolCount = classQuestions.filter((item) => isolatedSet.has(item.id)).length;
 
   const kpTitleMap = new Map(knowledgePoints.map((item) => [item.id, item.title]));
   const created: Array<{
@@ -91,6 +100,8 @@ export const POST = withApi(async (request) => {
     knowledgePointId: string | null;
   }> = [];
   const failed: Array<{ itemId: string; title: string; reason: string }> = [];
+  let isolatedExcludedCount = 0;
+  let selectedIsolatedCount = 0;
 
   for (const [index, item] of body.items.entries()) {
     const itemId = item.id?.trim() || `item-${index + 1}`;
@@ -107,16 +118,26 @@ export const POST = withApi(async (request) => {
         pool = scoped;
       }
     }
+    const excludedByIsolation = !includeIsolated ? pool.filter((question) => isolatedSet.has(question.id)).length : 0;
+    if (!includeIsolated) {
+      pool = pool.filter((question) => !isolatedSet.has(question.id));
+      isolatedExcludedCount += excludedByIsolation;
+    }
+
     if (pool.length < 3) {
       failed.push({
         itemId,
         title: titleBase,
-        reason: "题库可用题目不足（至少需要 3 题）"
+        reason:
+          !includeIsolated && excludedByIsolation > 0
+            ? `题库可用题目不足（已排除 ${excludedByIsolation} 道隔离池高风险题，至少需要 3 题）`
+            : "题库可用题目不足（至少需要 3 题）"
       });
       continue;
     }
 
     const selected = sampleQuestions(pool, Math.min(targetCount, pool.length));
+    selectedIsolatedCount += selected.filter((question) => isolatedSet.has(question.id)).length;
     if (selected.length < 3) {
       failed.push({
         itemId,
@@ -194,9 +215,14 @@ export const POST = withApi(async (request) => {
         created: created.length,
         failed: failed.length,
         studentsNotified,
-        parentsNotified
+        parentsNotified,
+        qualityGovernance: {
+          includeIsolated,
+          isolatedPoolCount,
+          isolatedExcludedCount,
+          selectedIsolatedCount
+        }
       }
     }
   };
 });
-
