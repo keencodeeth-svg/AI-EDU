@@ -330,6 +330,7 @@ export default function StudentPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeCategory, setActiveCategory] = useState<EntryCategory>("priority");
   const [showAllEntries, setShowAllEntries] = useState(false);
+  const [entryViewMode, setEntryViewMode] = useState<"compact" | "detailed">("compact");
 
   const loadTodayTasks = useCallback(async () => {
     setTodayTaskError(null);
@@ -529,6 +530,83 @@ export default function StudentPage() {
     );
   }
 
+  function renderEntryCompact(item: EntryItem) {
+    if (item.kind === "join") {
+      return (
+        <div
+          key={item.id}
+          style={{
+            border: "1px solid var(--stroke)",
+            borderRadius: 12,
+            background: "rgba(255,255,255,0.72)",
+            padding: 10,
+            display: "grid",
+            gap: 8
+          }}
+        >
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 700 }}>{item.title}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>{item.description}</div>
+            </div>
+            <span className="badge">{item.tag}</span>
+          </div>
+          <form className="compact-form" onSubmit={handleJoinClass}>
+            <input
+              className="form-control"
+              value={joinCode}
+              onChange={(event) => setJoinCode(event.target.value)}
+              placeholder="输入老师提供的邀请码"
+            />
+            <button className="button secondary" type="submit">
+              {item.cta}
+            </button>
+          </form>
+          {joinMessage ? <div className={`status-note ${joinMessage.tone}`}>{joinMessage.text}</div> : null}
+        </div>
+      );
+    }
+
+    if (!item.href) return null;
+
+    return (
+      <div
+        key={item.id}
+        style={{
+          border: "1px solid var(--stroke)",
+          borderRadius: 12,
+          background: "rgba(255,255,255,0.72)",
+          padding: 10
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+          <div style={{ minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{item.title}</div>
+            <div
+              style={{
+                marginTop: 4,
+                fontSize: 12,
+                color: "var(--ink-1)",
+                display: "-webkit-box",
+                WebkitLineClamp: 1,
+                WebkitBoxOrient: "vertical",
+                overflow: "hidden"
+              }}
+            >
+              {item.description}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span className="badge">{item.tag}</span>
+            <Link className="button secondary" href={item.href}>
+              {item.cta}
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="grid dashboard-stack">
       <div className="section-head">
@@ -703,9 +781,29 @@ export default function StudentPage() {
         <button className="button ghost" type="button" onClick={() => setShowAllEntries((prev) => !prev)}>
           {showAllEntries ? "收起入口" : `展开全部（${entriesByCategory.length}）`}
         </button>
+        <button
+          className={entryViewMode === "compact" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setEntryViewMode("compact")}
+        >
+          紧凑视图
+        </button>
+        <button
+          className={entryViewMode === "detailed" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setEntryViewMode("detailed")}
+        >
+          详细视图
+        </button>
       </div>
 
-      <div className="grid grid-3">{visibleEntries.map((item) => renderEntryCard(item))}</div>
+      {entryViewMode === "detailed" ? (
+        <div className="grid grid-3">{visibleEntries.map((item) => renderEntryCard(item))}</div>
+      ) : (
+        <div className="grid" style={{ gap: 8 }}>
+          {visibleEntries.map((item) => renderEntryCompact(item))}
+        </div>
+      )}
     </div>
   );
 }
