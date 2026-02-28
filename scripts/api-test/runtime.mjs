@@ -124,9 +124,15 @@ export function createRuntime(port) {
   }
 
   function spawnServer(mode) {
+    const runtimeEnv = {
+      ...process.env,
+      NEXT_TELEMETRY_DISABLED: "1",
+      REQUIRE_DATABASE: process.env.REQUIRE_DATABASE ?? "false",
+      ALLOW_JSON_FALLBACK: process.env.ALLOW_JSON_FALLBACK ?? "true"
+    };
     const server = spawn("npm", ["run", mode, "--", "-p", String(port), "-H", "127.0.0.1"], {
       cwd: process.cwd(),
-      env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
+      env: runtimeEnv,
       stdio: ["ignore", "pipe", "pipe"]
     });
     server.stdout.on("data", (chunk) => {
