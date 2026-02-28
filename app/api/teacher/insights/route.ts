@@ -1,9 +1,10 @@
-import { getCurrentUser } from "@/lib/auth";
+import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
 import { getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgress } from "@/lib/assignments";
 import { getKnowledgePoints } from "@/lib/content";
 import { getAttemptsByUsers } from "@/lib/progress";
 import { getTeacherAlerts } from "@/lib/teacher-alerts";
+import { listParentActionReceipts } from "@/lib/parent-action-receipts";
 import { unauthorized, withApi } from "@/lib/api/http";
 
 export const dynamic = "force-dynamic";
@@ -72,6 +73,89 @@ export const GET = withApi(async () => {
     includeAcknowledged: true
   });
 
+  const parentPairs = (
+    await Promise.all(
+      studentIds.map(async (studentId) => ({
+        studentId,
+        parents: await getParentsByStudentId(studentId)
+      }))
+    )
+  ).flatMap((item) => item.parents.map((parent) => ({ studentId: item.studentId, parentId: parent.id })));
+
+  const receiptLists = await Promise.all(
+    parentPairs.map((pair) =>
+      listParentActionReceipts({
+        parentId: pair.parentId,
+        studentId: pair.studentId
+      })
+    )
+  );
+
+  const start7d = new Date();
+  start7d.setDate(start7d.getDate() - 6);
+  start7d.setHours(0, 0, 0, 0);
+  const start7dTs = start7d.getTime();
+
+  let receiptCount = 0;
+  let doneCount = 0;
+  let skippedCount = 0;
+  let doneMinutes = 0;
+  let effectScoreSum = 0;
+  let last7dDoneCount = 0;
+  let last7dSkippedCount = 0;
+  const sourceStats = {
+    weeklyReport: { total: 0, done: 0 },
+    assignmentPlan: { total: 0, done: 0 }
+  };
+  const activeParentSet = new Set<string>();
+  const coveredStudentSet = new Set<string>();
+
+  receiptLists.forEach((receipts, index) => {
+    const pair = parentPairs[index];
+    if (!pair) return;
+    let hasRecentAction = false;
+
+    receipts.forEach((item) => {
+      receiptCount += 1;
+      const isDone = item.status === "done";
+      const isSkipped = item.status === "skipped";
+      if (isDone) {
+        doneCount += 1;
+        doneMinutes += Math.max(0, Math.round(item.estimatedMinutes || 0));
+      }
+      if (isSkipped) {
+        skippedCount += 1;
+      }
+      effectScoreSum += Number(item.effectScore) || 0;
+
+      if (item.source === "weekly_report") {
+        sourceStats.weeklyReport.total += 1;
+        if (isDone) sourceStats.weeklyReport.done += 1;
+      } else {
+        sourceStats.assignmentPlan.total += 1;
+        if (isDone) sourceStats.assignmentPlan.done += 1;
+      }
+
+      const ts = new Date(item.completedAt).getTime();
+      if (Number.isFinite(ts) && ts >= start7dTs) {
+        hasRecentAction = true;
+        if (isDone) last7dDoneCount += 1;
+        if (isSkipped) last7dSkippedCount += 1;
+      }
+    });
+
+    if (receipts.length > 0) {
+      coveredStudentSet.add(pair.studentId);
+    }
+    if (hasRecentAction) {
+      activeParentSet.add(pair.parentId);
+    }
+  });
+
+  const trackedActionCount = doneCount + skippedCount;
+  const last7dTrackedCount = last7dDoneCount + last7dSkippedCount;
+  const totalParentSet = new Set(parentPairs.map((item) => item.parentId));
+
   return {
     summary: {
       classes: classes.length,
@@ -81,7 +165,25 @@ export const GET = withApi(async () => {
       accuracy,
       classRiskScore: alertsOverview.summary.classRiskScore,
       activeAlerts: alertsOverview.summary.activeAlerts,
-      highRiskAlerts: alertsOverview.summary.highRiskAlerts
+      highRiskAlerts: alertsOverview.summary.highRiskAlerts,
+      parentCollaboration: {
+        totalParentCount: totalParentSet.size,
+        activeParentCount7d: activeParentSet.size,
+        coveredStudentCount: coveredStudentSet.size,
+        receiptCount,
+        doneMinutes,
+        doneRate: trackedActionCount ? Math.round((doneCount / trackedActionCount) * 100) : 0,
+        last7dDoneRate: last7dTrackedCount ? Math.round((last7dDoneCount / last7dTrackedCount) * 100) : 0,
+        avgEffectScore: receiptCount ? Math.round(effectScoreSum / receiptCount) : 0,
+        sourceDoneRate: {
+          weeklyReport: sourceStats.weeklyReport.total
+            ? Math.round((sourceStats.weeklyReport.done / sourceStats.weeklyReport.total) * 100)
+            : 0,
+          assignmentPlan: sourceStats.assignmentPlan.total
+            ? Math.round((sourceStats.assignmentPlan.done / sourceStats.assignmentPlan.total) * 100)
+            : 0
+        }
+      }
     },
     weakPoints,
     riskClasses: alertsOverview.classRisk.slice(0, 5),

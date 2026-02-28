@@ -62,6 +62,21 @@ type AlertSummary = {
   highRiskAlerts: number;
 };
 
+type ParentCollaborationSummary = {
+  totalParentCount: number;
+  activeParentCount7d: number;
+  coveredStudentCount: number;
+  receiptCount: number;
+  doneMinutes: number;
+  doneRate: number;
+  last7dDoneRate: number;
+  avgEffectScore: number;
+  sourceDoneRate: {
+    weeklyReport: number;
+    assignmentPlan: number;
+  };
+};
+
 type AlertImpactWindow = {
   hours: number;
   ready: boolean;
@@ -102,6 +117,7 @@ export default function TeacherAnalysisPage() {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
   const [alertSummary, setAlertSummary] = useState<AlertSummary | null>(null);
+  const [parentCollaboration, setParentCollaboration] = useState<ParentCollaborationSummary | null>(null);
   const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
   const [actingAlertKey, setActingAlertKey] = useState<string | null>(null);
   const [alertActionMessage, setAlertActionMessage] = useState<string | null>(null);
@@ -135,10 +151,17 @@ export default function TeacherAnalysisPage() {
     setAlertSummary(data?.data?.summary ?? null);
   }
 
+  async function loadTeacherSummary() {
+    const res = await fetch("/api/teacher/insights");
+    const data = await res.json();
+    setParentCollaboration(data?.summary?.parentCollaboration ?? null);
+  }
+
   useEffect(() => {
     if (classId) {
       loadHeatmap(classId);
       loadAlerts(classId);
+      loadTeacherSummary();
     }
   }, [classId]);
 
@@ -292,6 +315,25 @@ export default function TeacherAnalysisPage() {
             <div className="kpi-value">{alertSummary?.highRiskAlerts ?? 0}</div>
           </div>
         </div>
+        {parentCollaboration ? (
+          <div className="card" style={{ marginTop: 12 }}>
+            <div className="section-title">家校协同闭环</div>
+            <div className="pill-list" style={{ marginTop: 8 }}>
+              <span className="pill">
+                7天活跃家长 {parentCollaboration.activeParentCount7d}/{parentCollaboration.totalParentCount}
+              </span>
+              <span className="pill">回执覆盖学生 {parentCollaboration.coveredStudentCount}</span>
+              <span className="pill">回执完成率 {parentCollaboration.doneRate}%</span>
+              <span className="pill">近7天完成率 {parentCollaboration.last7dDoneRate}%</span>
+              <span className="pill">净效果分 {parentCollaboration.avgEffectScore}</span>
+              <span className="pill">执行时长 {parentCollaboration.doneMinutes} 分钟</span>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
+              周报动作完成率 {parentCollaboration.sourceDoneRate.weeklyReport}% · 作业动作完成率{" "}
+              {parentCollaboration.sourceDoneRate.assignmentPlan}% · 累计回执 {parentCollaboration.receiptCount} 条
+            </div>
+          </div>
+        ) : null}
         <div className="grid" style={{ gap: 10, marginTop: 12 }}>
           {alerts.length === 0 ? (
             <div className="empty-state">
