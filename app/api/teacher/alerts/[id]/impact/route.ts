@@ -25,35 +25,38 @@ export const GET = withApi(async (_request, context) => {
     badRequest("invalid alert id");
   }
 
+  const impactRecord = await getTeacherAlertImpactByAlert({
+    teacherId: user.id,
+    alertId
+  });
+
   const overview = await getTeacherAlerts({
     teacherId: user.id,
     includeAcknowledged: true
   });
   const target = overview.alerts.find((item) => item.id === alertId);
-  if (!target) {
+  if (!target && !impactRecord) {
     notFound("not found");
   }
 
-  const impactRecord = await getTeacherAlertImpactByAlert({
-    teacherId: user.id,
-    alertId
-  });
   const impact = buildTeacherAlertImpactReport({
     record: impactRecord,
-    current: {
-      riskScore: target.riskScore,
-      status: target.status,
-      metrics: target.metrics ?? {}
-    }
+    current: target
+      ? {
+          riskScore: target.riskScore,
+          status: target.status,
+          metrics: target.metrics ?? {}
+        }
+      : null
   });
 
   return {
     data: {
       alertId,
-      classId: target.classId,
-      type: target.type,
-      riskReason: target.riskReason,
-      recommendedAction: target.recommendedAction,
+      classId: target?.classId ?? impactRecord?.classId ?? null,
+      type: target?.type ?? null,
+      riskReason: target?.riskReason ?? "",
+      recommendedAction: target?.recommendedAction ?? impactRecord?.baseline.recommendedAction ?? "",
       impact
     }
   };

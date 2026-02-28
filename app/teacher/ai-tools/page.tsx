@@ -781,10 +781,21 @@ export default function TeacherAiToolsPage() {
             </div>
             <div className="card">
               <div className="section-title">例题清单</div>
+              {Boolean((reviewPackResult.exemplarQuestions ?? []).some((item: any) => item?.isolated)) ? (
+                <div style={{ marginTop: 8, fontSize: 12, color: "#b54708" }}>
+                  检测到隔离池命中示例题，建议课堂讲评优先改用低风险变式题。
+                </div>
+              ) : null}
               <ul style={{ margin: "8px 0 0 16px" }}>
                 {(reviewPackResult.exemplarQuestions ?? []).map((item: any) => (
                   <li key={`${item.knowledgePointId}-${item.questionId ?? "fallback"}`}>
                     {item.title}：{item.stem}
+                    {item.questionId ? (
+                      <div className="pill-list" style={{ marginTop: 4 }}>
+                        <span className="pill">风险 {aiRiskLabel(item.qualityRiskLevel)}</span>
+                        <span className="pill">{item.isolated ? "隔离池命中" : "可直接使用"}</span>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
