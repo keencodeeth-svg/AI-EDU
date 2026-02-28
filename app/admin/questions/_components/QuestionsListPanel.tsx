@@ -201,7 +201,7 @@ export default function QuestionsListPanel({
   useEffect(() => {
     setOpenResultGroups((prev) => {
       const next: Record<string, boolean> = {};
-      groupedResults.forEach((group, index) => {
+      groupedResults.forEach((group) => {
         if (typeof prev[group.id] === "boolean") {
           next[group.id] = prev[group.id];
           return;
@@ -210,7 +210,7 @@ export default function QuestionsListPanel({
           next[group.id] = true;
           return;
         }
-        next[group.id] = index === 0;
+        next[group.id] = true;
       });
       return next;
     });
