@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/Card";
 import { SUBJECT_LABELS } from "@/lib/constants";
 import type {
@@ -30,6 +31,15 @@ type Props = {
   onDelete: (id: string) => Promise<void>;
 };
 
+type KpResultGroup = {
+  id: string;
+  subject: string;
+  grade: string;
+  unit: string;
+  label: string;
+  items: KnowledgePoint[];
+};
+
 export default function KnowledgePointsListPanel({
   query,
   patchQuery,
@@ -45,6 +55,9 @@ export default function KnowledgePointsListPanel({
   pageEnd,
   onDelete
 }: Props) {
+  const [resultView, setResultView] = useState<"compact" | "detailed">("compact");
+  const [openResultGroups, setOpenResultGroups] = useState<Record<string, boolean>>({});
+
   const controlStyle = {
     width: "100%",
     padding: 9,
@@ -60,10 +73,76 @@ export default function KnowledgePointsListPanel({
     query.search.trim() ? `关键词：${query.search.trim()}` : null
   ].filter(Boolean) as string[];
 
+  const groupedResults = useMemo(() => {
+    const buckets = new Map<string, KpResultGroup>();
+    list.forEach((item) => {
+      const unit = item.unit ?? "未分单元";
+      const id = `${item.subject}|${item.grade}|${unit}`;
+      const current = buckets.get(id) ?? {
+        id,
+        subject: item.subject,
+        grade: item.grade,
+        unit,
+        label: `${SUBJECT_LABELS[item.subject] ?? item.subject} · ${item.grade} 年级 · ${unit}`,
+        items: []
+      };
+      current.items.push(item);
+      buckets.set(id, current);
+    });
+
+    return Array.from(buckets.values())
+      .map((group) => ({
+        ...group,
+        items: group.items.slice().sort((a, b) => {
+          const chapterOrder = (a.chapter ?? "").localeCompare(b.chapter ?? "", "zh-CN");
+          if (chapterOrder !== 0) return chapterOrder;
+          return a.title.localeCompare(b.title, "zh-CN");
+        })
+      }))
+      .sort((a, b) => {
+        const subjectOrder = (SUBJECT_LABELS[a.subject] ?? a.subject).localeCompare(
+          SUBJECT_LABELS[b.subject] ?? b.subject,
+          "zh-CN"
+        );
+        if (subjectOrder !== 0) return subjectOrder;
+        const gradeOrder = a.grade.localeCompare(b.grade, "zh-CN");
+        if (gradeOrder !== 0) return gradeOrder;
+        return a.unit.localeCompare(b.unit, "zh-CN");
+      });
+  }, [list]);
+
+  useEffect(() => {
+    setOpenResultGroups((prev) => {
+      const next: Record<string, boolean> = {};
+      groupedResults.forEach((group) => {
+        if (typeof prev[group.id] === "boolean") {
+          next[group.id] = prev[group.id];
+          return;
+        }
+        next[group.id] = query.subject !== "all" && query.subject === group.subject;
+      });
+      return next;
+    });
+  }, [groupedResults, query.subject]);
+
+  function patchGroupOpen(groupId: string, open: boolean) {
+    setOpenResultGroups((prev) => ({ ...prev, [groupId]: open }));
+  }
+
+  function setAllResultGroups(open: boolean) {
+    const next: Record<string, boolean> = {};
+    groupedResults.forEach((group) => {
+      next[group.id] = open;
+    });
+    setOpenResultGroups(next);
+  }
+
   return (
     <Card title="知识点列表（分类筛选）" tag="列表">
       <div className="card" style={{ padding: 12, marginBottom: 10 }}>
-        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <div
+          style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}
+        >
           <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
             共 {meta.total} 条，当前 {pageStart}-{pageEnd}
           </div>
@@ -207,16 +286,40 @@ export default function KnowledgePointsListPanel({
         </div>
       </div>
 
+      <div className="cta-row" style={{ marginTop: 8 }}>
+        <span className="badge">结果视图</span>
+        <button
+          className={resultView === "compact" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setResultView("compact")}
+        >
+          紧凑模式
+        </button>
+        <button
+          className={resultView === "detailed" ? "button secondary" : "button ghost"}
+          type="button"
+          onClick={() => setResultView("detailed")}
+        >
+          详细模式
+        </button>
+        <button className="button ghost" type="button" onClick={() => setAllResultGroups(false)}>
+          收起全部分组
+        </button>
+        <button className="button ghost" type="button" onClick={() => setAllResultGroups(true)}>
+          展开全部分组
+        </button>
+      </div>
+
       <div className="split-rail-layout" style={{ marginTop: 12 }}>
         <div className="side-rail card" style={{ padding: 12 }}>
           <div className="section-title" style={{ marginTop: 0 }}>
-            分类导航
+            分类导航（默认收起）
           </div>
           <div style={{ display: "grid", gap: 8 }}>
-            {tree.map((subjectNode, index) => (
+            {tree.map((subjectNode) => (
               <details
                 key={subjectNode.subject}
-                open={query.subject === subjectNode.subject || (query.subject === "all" && index === 0)}
+                open={query.subject === subjectNode.subject}
                 style={{
                   border: "1px solid var(--stroke)",
                   borderRadius: 10,
@@ -283,8 +386,13 @@ export default function KnowledgePointsListPanel({
           </div>
         </div>
 
-        <div className="masonry-list">
-          {loading ? <p>加载中...</p> : null}
+        <div className="masonry-list" style={{ gridTemplateColumns: "1fr" }}>
+          {loading ? (
+            <div className="empty-state full-span">
+              <p className="empty-state-title">加载中</p>
+              <p style={{ margin: 0 }}>正在读取知识点列表。</p>
+            </div>
+          ) : null}
           {!loading && list.length === 0 ? (
             <div className="card full-span">
               <div className="section-title" style={{ marginTop: 0 }}>
@@ -293,22 +401,100 @@ export default function KnowledgePointsListPanel({
               <div style={{ color: "var(--ink-1)", fontSize: 13 }}>请调整筛选条件后重试。</div>
             </div>
           ) : null}
-          {list.map((item) => (
-            <div className="card" key={item.id} style={{ display: "grid", gap: 8 }}>
-              <div className="section-title" style={{ marginTop: 0 }}>
-                {item.title}
-              </div>
-              <div style={{ fontSize: 12, color: "var(--ink-1)", lineHeight: 1.5 }}>
-                {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 · {item.unit ?? "未分单元"} ·{" "}
-                {item.chapter}
-              </div>
-              <div>
-                <button className="button secondary" type="button" onClick={() => onDelete(item.id)}>
-                  删除
-                </button>
-              </div>
-            </div>
-          ))}
+
+          {!loading &&
+            groupedResults.map((group) => {
+              const chapterCount = new Set(group.items.map((item) => item.chapter)).size;
+              return (
+                <details
+                  key={group.id}
+                  className="card full-span"
+                  open={openResultGroups[group.id] ?? false}
+                  onToggle={(event) => patchGroupOpen(group.id, event.currentTarget.open)}
+                  style={{ padding: 12 }}
+                >
+                  <summary
+                    style={{
+                      cursor: "pointer",
+                      listStyle: "none",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                      fontWeight: 700
+                    }}
+                  >
+                    <span>{group.label}</span>
+                    <span className="badge">{group.items.length} 个知识点</span>
+                  </summary>
+                  <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                    <span className="pill">章节数 {chapterCount}</span>
+                  </div>
+
+                  {resultView === "compact" ? (
+                    <div className="grid" style={{ gap: 8, marginTop: 10 }}>
+                      {group.items.map((item) => (
+                        <div
+                          key={item.id}
+                          style={{
+                            border: "1px solid var(--stroke)",
+                            borderRadius: 12,
+                            background: "rgba(255,255,255,0.72)",
+                            padding: 10
+                          }}
+                        >
+                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
+                            <div style={{ minWidth: 0 }}>
+                              <div
+                                style={{
+                                  fontSize: 14,
+                                  fontWeight: 700,
+                                  display: "-webkit-box",
+                                  WebkitLineClamp: 1,
+                                  WebkitBoxOrient: "vertical",
+                                  overflow: "hidden"
+                                }}
+                              >
+                                {item.title}
+                              </div>
+                              <div style={{ marginTop: 4, fontSize: 12, color: "var(--ink-1)" }}>
+                                {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 ·{" "}
+                                {item.unit ?? "未分单元"} · {item.chapter}
+                              </div>
+                            </div>
+                            <button className="button secondary" type="button" onClick={() => onDelete(item.id)}>
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div
+                      className="grid"
+                      style={{ gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", marginTop: 10 }}
+                    >
+                      {group.items.map((item) => (
+                        <div className="card" key={item.id} style={{ display: "grid", gap: 8 }}>
+                          <div className="section-title" style={{ marginTop: 0 }}>
+                            {item.title}
+                          </div>
+                          <div style={{ fontSize: 12, color: "var(--ink-1)", lineHeight: 1.5 }}>
+                            {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 ·{" "}
+                            {item.unit ?? "未分单元"} · {item.chapter}
+                          </div>
+                          <div>
+                            <button className="button secondary" type="button" onClick={() => onDelete(item.id)}>
+                              删除
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </details>
+              );
+            })}
 
           <div className="card full-span" style={{ padding: 14 }}>
             <div className="cta-row" style={{ marginTop: 0, justifyContent: "space-between", alignItems: "center" }}>
