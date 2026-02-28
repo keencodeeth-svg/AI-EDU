@@ -48,9 +48,20 @@ export default function TeacherAiToolsPage() {
     questionType: "all",
     durationMinutes: 40,
     questionCount: 0,
-    mode: "ai"
+    mode: "ai",
+    includeIsolated: false
   });
-  const [paperResult, setPaperResult] = useState<{ questions: PaperQuestion[]; count: number } | null>(null);
+  const [paperResult, setPaperResult] = useState<{
+    questions: PaperQuestion[];
+    count: number;
+    qualityGovernance?: {
+      includeIsolated: boolean;
+      isolatedExcludedCount: number;
+      isolatedPoolCount: number;
+      activePoolCount: number;
+      shortfallCount?: number;
+    } | null;
+  } | null>(null);
   const [outlineForm, setOutlineForm] = useState({ classId: "", topic: "", knowledgePointIds: [] as string[] });
   const [outlineResult, setOutlineResult] = useState<any>(null);
   const [wrongForm, setWrongForm] = useState({ classId: "", rangeDays: 7 });
@@ -115,7 +126,11 @@ export default function TeacherAiToolsPage() {
       body: JSON.stringify(paperForm)
     });
     const data = await res.json();
-    setPaperResult({ questions: data?.data?.questions ?? [], count: data?.data?.count ?? 0 });
+    setPaperResult({
+      questions: data?.data?.questions ?? [],
+      count: data?.data?.count ?? 0,
+      qualityGovernance: data?.data?.qualityGovernance ?? null
+    });
     setLoading(false);
   }
 
@@ -182,43 +197,25 @@ export default function TeacherAiToolsPage() {
     setLoading(false);
   }
 
-  function formatDateForInput(days: number) {
-    const due = new Date();
-    due.setDate(due.getDate() + Math.max(1, days));
-    const year = due.getFullYear();
-    const month = String(due.getMonth() + 1).padStart(2, "0");
-    const day = String(due.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  }
-
-  async function createReviewPackAssignment(item: any) {
-    const dueDate = formatDateForInput(Number(item?.dueInDays ?? 1));
-    const questionCount = Math.max(3, Math.min(12, Number(item?.suggestedCount ?? 5)));
-    const res = await fetch("/api/teacher/assignments", {
+  async function dispatchReviewPackItems(items: any[]) {
+    const res = await fetch("/api/teacher/lesson/review-pack/dispatch", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         classId: wrongForm.classId,
-        title: `${item?.title ?? "课后复练"}（AI讲评包）`,
-        description: `来源于班级共性错因讲评包，建议在 ${item?.dueInDays ?? 1} 天内完成。`,
-        dueDate,
-        questionCount,
-        knowledgePointId: item?.knowledgePointId,
-        mode: "bank",
-        submissionType: "quiz"
+        items
       })
     });
     const data = await res.json();
     if (!res.ok) {
       return {
         ok: false,
-        error: data?.error ?? "布置失败"
+        error: data?.error ?? "下发失败"
       };
     }
     return {
       ok: true,
-      title: data?.data?.title ?? item?.title ?? "课后复练",
-      dueDate: data?.data?.dueDate ?? dueDate
+      data: data?.data ?? null
     };
   }
 
@@ -230,14 +227,23 @@ export default function TeacherAiToolsPage() {
     setReviewPackAssigningId(assignKey);
 
     try {
-      const result = await createReviewPackAssignment(item);
+      const result = await dispatchReviewPackItems([item]);
       if (!result.ok) {
         setReviewPackAssignError(result.error);
         return;
       }
-      setReviewPackAssignMessage(
-        `已布置：${result.title}，截止 ${new Date(result.dueDate).toLocaleDateString("zh-CN")}`
-      );
+      const summary = result.data?.summary;
+      const failed = result.data?.failed ?? [];
+      if (summary?.created > 0) {
+        setReviewPackAssignMessage(
+          `已下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。`
+        );
+      } else {
+        setReviewPackAssignMessage(null);
+      }
+      if (failed.length > 0) {
+        setReviewPackAssignError(failed[0]?.reason ?? "下发失败");
+      }
     } catch {
       setReviewPackAssignError("布置失败");
     } finally {
@@ -257,30 +263,35 @@ export default function TeacherAiToolsPage() {
     setReviewPackAssignError(null);
     setReviewPackAssigningAll(true);
 
-    let successCount = 0;
-    const failed: string[] = [];
-    for (const item of items) {
-      try {
-        const result = await createReviewPackAssignment(item);
-        if (result.ok) {
-          successCount += 1;
-        } else {
-          failed.push(`${item?.title ?? "未命名复练"}：${result.error}`);
-        }
-      } catch {
-        failed.push(`${item?.title ?? "未命名复练"}：布置失败`);
+    let summary: any = null;
+    let failedItems: any[] = [];
+    try {
+      const result = await dispatchReviewPackItems(items);
+      if (!result.ok) {
+        setReviewPackAssignError(result.error);
+        return;
       }
+      summary = result.data?.summary ?? null;
+      failedItems = result.data?.failed ?? [];
+    } catch {
+      setReviewPackAssignError("批量下发失败");
+      return;
     }
 
-    if (successCount > 0) {
-      setReviewPackAssignMessage(`已批量布置 ${successCount}/${items.length} 条复练单`);
+    if ((summary?.created ?? 0) > 0) {
+      setReviewPackAssignMessage(
+        `已批量下发 ${summary.created}/${summary.requested} 条，通知学生 ${summary.studentsNotified} 人，家长 ${summary.parentsNotified} 人。`
+      );
     } else {
       setReviewPackAssignMessage(null);
     }
 
-    if (failed.length > 0) {
-      const brief = failed.slice(0, 3).join("；");
-      setReviewPackAssignError(`失败 ${failed.length} 条：${brief}`);
+    if (failedItems.length > 0) {
+      const brief = failedItems
+        .slice(0, 3)
+        .map((item: any) => `${item?.title ?? "未命名复练"}：${item?.reason ?? "下发失败"}`)
+        .join("；");
+      setReviewPackAssignError(`失败 ${failedItems.length} 条：${brief}`);
     } else {
       setReviewPackAssignError(null);
     }
@@ -431,6 +442,14 @@ export default function TeacherAiToolsPage() {
               </select>
             </label>
           </div>
+          <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={paperForm.includeIsolated}
+              onChange={(event) => setPaperForm((prev) => ({ ...prev, includeIsolated: event.target.checked }))}
+            />
+            <span>允许使用隔离池高风险题（默认关闭）</span>
+          </label>
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "生成中..." : "生成试卷"}
           </button>
@@ -439,6 +458,19 @@ export default function TeacherAiToolsPage() {
         {paperResult ? (
           <div style={{ marginTop: 12 }} className="grid" aria-live="polite">
             <div className="badge">生成题目 {paperResult.count} 道</div>
+            {paperResult.qualityGovernance ? (
+              <div className="pill-list">
+                <span className="pill">可用题池 {paperResult.qualityGovernance.activePoolCount}</span>
+                <span className="pill">隔离池总量 {paperResult.qualityGovernance.isolatedPoolCount}</span>
+                <span className="pill">本次排除 {paperResult.qualityGovernance.isolatedExcludedCount}</span>
+                <span className="pill">
+                  {paperResult.qualityGovernance.includeIsolated ? "允许隔离池" : "排除隔离池"}
+                </span>
+                {paperResult.qualityGovernance.shortfallCount ? (
+                  <span className="pill">缺口 {paperResult.qualityGovernance.shortfallCount}</span>
+                ) : null}
+              </div>
+            ) : null}
             <div className="grid" style={{ gap: 10, marginTop: 10 }}>
               {paperResult.questions.map((item, index) => (
                 <div className="card" key={item.id}>
@@ -667,6 +699,24 @@ export default function TeacherAiToolsPage() {
 
         {reviewPackResult ? (
           <div className="grid" style={{ gap: 12, marginTop: 12 }}>
+            {reviewPackResult.qualityGovernance ? (
+              <div className="card">
+                <div className="section-title">题库质量治理联动</div>
+                <div className="pill-list" style={{ marginTop: 8 }}>
+                  <span className="pill">
+                    错题去重覆盖 {reviewPackResult.qualityGovernance.trackedWrongQuestionCount}/
+                    {reviewPackResult.qualityGovernance.totalWrongQuestionCount}
+                  </span>
+                  <span className="pill">高风险错题 {reviewPackResult.qualityGovernance.highRiskWrongCount}</span>
+                  <span className="pill">隔离池命中 {reviewPackResult.qualityGovernance.isolatedWrongCount}</span>
+                </div>
+                {reviewPackResult.qualityGovernance.recommendedAction ? (
+                  <div style={{ marginTop: 8, fontSize: 12, color: "#b54708" }}>
+                    {reviewPackResult.qualityGovernance.recommendedAction}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             <div className="card">
               <div className="section-title">共性错因统计</div>
               {(reviewPackResult.commonCauseStats ?? []).length ? (

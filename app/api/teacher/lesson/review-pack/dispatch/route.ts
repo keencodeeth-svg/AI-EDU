@@ -1,0 +1,202 @@
+import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
+import { createAssignment } from "@/lib/assignments";
+import { getClassById, getClassStudentIds } from "@/lib/classes";
+import { getQuestions, getKnowledgePoints } from "@/lib/content";
+import { createNotification } from "@/lib/notifications";
+import { badRequest, notFound, unauthorized, withApi } from "@/lib/api/http";
+import { parseJson, v } from "@/lib/api/validation";
+
+export const dynamic = "force-dynamic";
+
+type DispatchItem = {
+  id?: string;
+  knowledgePointId?: string;
+  title?: string;
+  suggestedCount?: number;
+  dueInDays?: number;
+};
+
+const dispatchBodySchema = v.object<{
+  classId: string;
+  items: DispatchItem[];
+}>(
+  {
+    classId: v.string({ minLength: 1 }),
+    items: v.array(
+      v.object<DispatchItem>(
+        {
+          id: v.optional(v.string({ allowEmpty: true, trim: false })),
+          knowledgePointId: v.optional(v.string({ allowEmpty: true, trim: false })),
+          title: v.optional(v.string({ allowEmpty: true, trim: false })),
+          suggestedCount: v.optional(v.number({ coerce: true, integer: true, min: 1, max: 30 })),
+          dueInDays: v.optional(v.number({ coerce: true, integer: true, min: 1, max: 30 }))
+        },
+        { allowUnknown: false }
+      ),
+      { minLength: 1, maxLength: 20 }
+    )
+  },
+  { allowUnknown: false }
+);
+
+function sampleQuestions<T>(items: T[], count: number) {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, count);
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, Math.round(value)));
+}
+
+function normalizeDueDate(days: number) {
+  const due = new Date();
+  due.setDate(due.getDate() + Math.max(1, days));
+  due.setHours(23, 59, 0, 0);
+  return due.toISOString();
+}
+
+export const POST = withApi(async (request) => {
+  const user = await getCurrentUser();
+  if (!user || user.role !== "teacher") {
+    unauthorized();
+  }
+
+  const body = await parseJson(request, dispatchBodySchema);
+  const klass = await getClassById(body.classId);
+  if (!klass || klass.teacherId !== user.id) {
+    notFound("class not found");
+  }
+
+  const [questions, knowledgePoints, studentIds] = await Promise.all([
+    getQuestions(),
+    getKnowledgePoints(),
+    getClassStudentIds(klass.id)
+  ]);
+  const classQuestions = questions.filter((item) => item.subject === klass.subject && item.grade === klass.grade);
+  if (!classQuestions.length) {
+    badRequest("当前班级题库为空，无法布置复练单");
+  }
+
+  const kpTitleMap = new Map(knowledgePoints.map((item) => [item.id, item.title]));
+  const created: Array<{
+    itemId: string;
+    assignmentId: string;
+    title: string;
+    dueDate: string;
+    questionCount: number;
+    knowledgePointId: string | null;
+  }> = [];
+  const failed: Array<{ itemId: string; title: string; reason: string }> = [];
+
+  for (const [index, item] of body.items.entries()) {
+    const itemId = item.id?.trim() || `item-${index + 1}`;
+    const targetCount = clamp(item.suggestedCount ?? 5, 3, 12);
+    const dueDate = normalizeDueDate(clamp(item.dueInDays ?? 1, 1, 14));
+    const knowledgePointId = item.knowledgePointId?.trim() || null;
+    const kpTitle = knowledgePointId ? kpTitleMap.get(knowledgePointId) : undefined;
+    const titleBase = item.title?.trim() || (kpTitle ? `课后复练：${kpTitle}` : `课后复练任务 ${index + 1}`);
+
+    let pool = classQuestions;
+    if (knowledgePointId) {
+      const scoped = classQuestions.filter((question) => question.knowledgePointId === knowledgePointId);
+      if (scoped.length) {
+        pool = scoped;
+      }
+    }
+    if (pool.length < 3) {
+      failed.push({
+        itemId,
+        title: titleBase,
+        reason: "题库可用题目不足（至少需要 3 题）"
+      });
+      continue;
+    }
+
+    const selected = sampleQuestions(pool, Math.min(targetCount, pool.length));
+    if (selected.length < 3) {
+      failed.push({
+        itemId,
+        title: titleBase,
+        reason: "抽题失败（可用题量不足）"
+      });
+      continue;
+    }
+
+    const assignment = await createAssignment({
+      classId: klass.id,
+      title: `${titleBase}（AI讲评包）`,
+      description: `来源于班级共性错因讲评包，建议在 ${item.dueInDays ?? 1} 天内完成。`,
+      dueDate,
+      questionIds: selected.map((question) => question.id),
+      submissionType: "quiz"
+    });
+    created.push({
+      itemId,
+      assignmentId: assignment.id,
+      title: assignment.title,
+      dueDate: assignment.dueDate,
+      questionCount: selected.length,
+      knowledgePointId
+    });
+  }
+
+  let studentsNotified = 0;
+  let parentsNotified = 0;
+  if (created.length && studentIds.length) {
+    const nearestDueDate = created
+      .map((item) => new Date(item.dueDate).getTime())
+      .filter((ts) => Number.isFinite(ts))
+      .sort((a, b) => a - b)[0];
+    const dueHint = Number.isFinite(nearestDueDate)
+      ? new Date(nearestDueDate).toLocaleDateString("zh-CN")
+      : "近期";
+
+    const parentPairs = await Promise.all(
+      studentIds.map(async (studentId) => ({
+        studentId,
+        parents: await getParentsByStudentId(studentId)
+      }))
+    );
+
+    for (const pair of parentPairs) {
+      await createNotification({
+        userId: pair.studentId,
+        title: "讲评包复练任务已下发",
+        content: `老师已下发 ${created.length} 条复练任务，请于 ${dueHint} 前完成。`,
+        type: "teacher_alert_action"
+      });
+      studentsNotified += 1;
+
+      for (const parent of pair.parents) {
+        await createNotification({
+          userId: parent.id,
+          title: "孩子讲评包复练任务",
+          content: `孩子所在班级「${klass.name}」已下发 ${created.length} 条复练任务，请协助督促完成。`,
+          type: "teacher_alert_action"
+        });
+        parentsNotified += 1;
+      }
+    }
+  }
+
+  return {
+    data: {
+      classId: klass.id,
+      className: klass.name,
+      created,
+      failed,
+      summary: {
+        requested: body.items.length,
+        created: created.length,
+        failed: failed.length,
+        studentsNotified,
+        parentsNotified
+      }
+    }
+  };
+});
+
