@@ -80,6 +80,8 @@ type MetricsRow = {
   successRate: number;
   timeoutRate: number;
   avgFallback: number;
+  qualityRejectRate: number;
+  budgetRejectRate: number;
   avgLatencyMs: number;
   p95LatencyMs: number;
 };
@@ -90,6 +92,8 @@ type AiMetrics = {
   successRate: number;
   fallbackRate: number;
   timeoutRate: number;
+  qualityRejectRate: number;
+  budgetRejectRate: number;
   avgLatencyMs: number;
   p95LatencyMs: number;
   rows: MetricsRow[];
@@ -671,6 +675,8 @@ export default function AdminAiModelsPage() {
               <span className="pill">成功率 {metrics.successRate}%</span>
               <span className="pill">回退率 {metrics.fallbackRate}%</span>
               <span className="pill">超时率 {metrics.timeoutRate}%</span>
+              <span className="pill">质量拦截率 {metrics.qualityRejectRate}%</span>
+              <span className="pill">预算拦截率 {metrics.budgetRejectRate}%</span>
               <span className="pill">P95 {metrics.p95LatencyMs}ms</span>
             </div>
             <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
@@ -684,7 +690,8 @@ export default function AdminAiModelsPage() {
                   </div>
                   <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                     调用 {row.calls} · 成功率 {row.successRate}% · 超时率 {row.timeoutRate}% · 平均回退{" "}
-                    {row.avgFallback} · 平均延迟 {row.avgLatencyMs}ms · P95 {row.p95LatencyMs}ms
+                    {row.avgFallback} · 质量拦截 {row.qualityRejectRate}% · 预算拦截 {row.budgetRejectRate}% · 平均延迟{" "}
+                    {row.avgLatencyMs}ms · P95 {row.p95LatencyMs}ms
                   </div>
                 </div>
               ))}

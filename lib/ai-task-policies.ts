@@ -621,6 +621,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
   const successCalls = logs.filter((item) => item.ok).length;
   const fallbackCalls = logs.filter((item) => item.fallbackCount > 0).length;
   const timeoutCalls = logs.filter((item) => item.timeout).length;
+  const qualityRejectedCalls = logs.filter((item) => item.policyHit === "quality_threshold").length;
+  const budgetRejectedCalls = logs.filter((item) => item.policyHit === "budget_limit").length;
 
   const rowMap = new Map<
     string,
@@ -632,6 +634,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
       success: number;
       timeouts: number;
       fallbackSum: number;
+      qualityRejected: number;
+      budgetRejected: number;
       latencies: number[];
       requestChars: number;
       responseChars: number;
@@ -651,6 +655,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
         success: 0,
         timeouts: 0,
         fallbackSum: 0,
+        qualityRejected: 0,
+        budgetRejected: 0,
         latencies: [],
         requestChars: 0,
         responseChars: 0,
@@ -663,6 +669,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
       success: current.success + (item.ok ? 1 : 0),
       timeouts: current.timeouts + (item.timeout ? 1 : 0),
       fallbackSum: current.fallbackSum + item.fallbackCount,
+      qualityRejected: current.qualityRejected + (item.policyHit === "quality_threshold" ? 1 : 0),
+      budgetRejected: current.budgetRejected + (item.policyHit === "budget_limit" ? 1 : 0),
       latencies: [...current.latencies, item.latencyMs].slice(-400),
       requestChars: current.requestChars + item.requestChars,
       responseChars: current.responseChars + item.responseChars,
@@ -686,6 +694,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
     successRate: logs.length ? round((successCalls / logs.length) * 100) : 0,
     fallbackRate: logs.length ? round((fallbackCalls / logs.length) * 100) : 0,
     timeoutRate: logs.length ? round((timeoutCalls / logs.length) * 100) : 0,
+    qualityRejectRate: logs.length ? round((qualityRejectedCalls / logs.length) * 100) : 0,
+    budgetRejectRate: logs.length ? round((budgetRejectedCalls / logs.length) * 100) : 0,
     avgLatencyMs: logs.length ? round(latencies.reduce((sum, value) => sum + value, 0) / logs.length) : 0,
     p95LatencyMs: computeP95(latencies),
     rows: rows.slice(0, safeLimit).map((item) => ({
@@ -696,6 +706,8 @@ export async function getAiCallMetricsSummary(limit = 20) {
       successRate: item.calls ? round((item.success / item.calls) * 100) : 0,
       timeoutRate: item.calls ? round((item.timeouts / item.calls) * 100) : 0,
       avgFallback: item.calls ? round(item.fallbackSum / item.calls) : 0,
+      qualityRejectRate: item.calls ? round((item.qualityRejected / item.calls) * 100) : 0,
+      budgetRejectRate: item.calls ? round((item.budgetRejected / item.calls) * 100) : 0,
       avgLatencyMs: item.calls ? round(item.latencies.reduce((sum, value) => sum + value, 0) / item.calls) : 0,
       p95LatencyMs: computeP95(item.latencies),
       avgRequestChars: item.calls ? round(item.requestChars / item.calls) : 0,
