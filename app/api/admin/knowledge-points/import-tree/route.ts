@@ -9,8 +9,18 @@ import {
 import { parseJson } from "@/lib/api/validation";
 export const dynamic = "force-dynamic";
 
-function normalizeKey(unit: string, chapter: string, title: string) {
-  return `${unit}`.toLowerCase().replace(/\s+/g, "") + "|" + `${chapter}`.toLowerCase().replace(/\s+/g, "") + "|" + `${title}`.toLowerCase().replace(/\s+/g, "");
+function normalizeKey(subject: string, grade: string, unit: string, chapter: string, title: string) {
+  return (
+    `${subject}`.toLowerCase().replace(/\s+/g, "") +
+    "|" +
+    `${grade}`.toLowerCase().replace(/\s+/g, "") +
+    "|" +
+    `${unit}`.toLowerCase().replace(/\s+/g, "") +
+    "|" +
+    `${chapter}`.toLowerCase().replace(/\s+/g, "") +
+    "|" +
+    `${title}`.toLowerCase().replace(/\s+/g, "")
+  );
 }
 
 export const POST = withApi(async (request) => {
@@ -30,7 +40,7 @@ export const POST = withApi(async (request) => {
 
   const existing = await getKnowledgePoints();
   const existingKeys = new Set(
-    existing.map((kp) => normalizeKey(kp.unit ?? "未分单元", kp.chapter, kp.title))
+    existing.map((kp) => normalizeKey(kp.subject, kp.grade, kp.unit ?? "未分单元", kp.chapter, kp.title))
   );
 
   let index = 0;
@@ -62,7 +72,7 @@ export const POST = withApi(async (request) => {
             continue;
           }
 
-          const key = normalizeKey(unitTitle, chapterTitle, pointTitle);
+          const key = normalizeKey(subject, grade, unitTitle, chapterTitle, pointTitle);
           if (existingKeys.has(key)) {
             skipped.push({ index, reason: "已存在" });
             index += 1;
@@ -82,11 +92,8 @@ export const POST = withApi(async (request) => {
             existingKeys.add(key);
           }
           index += 1;
-          if (created.length + skipped.length >= 500) break;
         }
-        if (created.length + skipped.length >= 500) break;
       }
-      if (created.length + skipped.length >= 500) break;
     }
   }
 

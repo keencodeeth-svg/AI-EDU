@@ -13,27 +13,42 @@ export const POST = withApi(async (request) => {
 
   const body = await parseJson(request, previewTreeBatchBodySchema);
 
-  const subjects = Array.isArray(body.subjects)
-    ? body.subjects.map((item) => item.trim()).filter(Boolean)
+  const explicitCombos = Array.isArray(body.combos)
+    ? body.combos
+        .map((item) => ({
+          subject: item.subject?.trim() ?? "",
+          grade: item.grade?.trim() ?? ""
+        }))
+        .filter((item) => item.subject && item.grade)
     : [];
-  const grades = Array.isArray(body.grades) ? body.grades.map((item) => item.trim()).filter(Boolean) : [];
+  let combos: Array<{ subject: string; grade: string }> = [];
+  if (explicitCombos.length) {
+    combos = explicitCombos;
+  } else {
+    const subjects = Array.isArray(body.subjects)
+      ? body.subjects.map((item) => item.trim()).filter(Boolean)
+      : [];
+    const grades = Array.isArray(body.grades) ? body.grades.map((item) => item.trim()).filter(Boolean) : [];
 
-  if (!subjects.length || !grades.length) {
-    badRequest("subjects and grades required");
+    if (!subjects.length || !grades.length) {
+      badRequest("subjects and grades required");
+    }
+
+    subjects.forEach((subject) => {
+      grades.forEach((grade) => combos.push({ subject, grade }));
+    });
   }
 
-  const normalizedSubjects = subjects.filter((item) => isAllowedSubject(item));
-  if (!normalizedSubjects.length) {
-    badRequest("invalid subjects");
-  }
-
-  const combos: Array<{ subject: string; grade: string }> = [];
-  normalizedSubjects.forEach((subject) => {
-    grades.forEach((grade) => combos.push({ subject, grade }));
+  const deduped = new Map<string, { subject: string; grade: string }>();
+  combos.forEach((combo) => {
+    if (!isAllowedSubject(combo.subject)) return;
+    const key = `${combo.subject}|${combo.grade}`;
+    deduped.set(key, combo);
   });
+  combos = Array.from(deduped.values());
 
-  if (combos.length > 18) {
-    badRequest("too many combinations (max 18)");
+  if (!combos.length) {
+    badRequest("invalid subjects");
   }
 
   const items: any[] = [];
@@ -58,5 +73,5 @@ export const POST = withApi(async (request) => {
     items.push({ subject: combo.subject, grade: combo.grade, units: draft.units });
   }
 
-  return { items, failed };
+  return { items, failed, summary: { requested: combos.length, generated: items.length, failed: failed.length } };
 });

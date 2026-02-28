@@ -15,6 +15,8 @@ type Props = {
   setBatchForm: Dispatch<SetStateAction<BatchForm>>;
   batchLoading: boolean;
   batchError: string | null;
+  batchMessage: string | null;
+  batchProgress: string | null;
   batchPreview: any[];
   batchShowDetail: boolean;
   setBatchShowDetail: Dispatch<SetStateAction<boolean>>;
@@ -45,6 +47,8 @@ export default function KnowledgePointsToolsPanel({
   setBatchForm,
   batchLoading,
   batchError,
+  batchMessage,
+  batchProgress,
   batchPreview,
   batchShowDetail,
   setBatchShowDetail,
@@ -178,6 +182,8 @@ export default function KnowledgePointsToolsPanel({
           </button>
         </form>
         {batchError ? <div style={{ marginTop: 8, color: "#b42318" }}>{batchError}</div> : null}
+        {batchProgress ? <div style={{ marginTop: 8, color: "var(--ink-1)" }}>{batchProgress}</div> : null}
+        {batchMessage ? <div style={{ marginTop: 8 }}>{batchMessage}</div> : null}
         {batchPreview.length ? (
           <div style={{ marginTop: 16 }}>
             <div className="section-title">预览结果</div>

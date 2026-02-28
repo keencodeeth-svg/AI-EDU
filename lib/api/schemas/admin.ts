@@ -100,6 +100,7 @@ export const generateKnowledgeTreeBodySchema = v.object<{
 export const previewTreeBatchBodySchema = v.object<{
   subjects?: string[];
   grades?: string[];
+  combos?: Array<{ subject?: string; grade?: string }>;
   edition?: string;
   volume?: string;
   unitCount?: number;
@@ -109,6 +110,17 @@ export const previewTreeBatchBodySchema = v.object<{
   {
     subjects: optionalRawStringArray,
     grades: optionalRawStringArray,
+    combos: v.optional(
+      v.array(
+        v.object<{ subject?: string; grade?: string }>(
+          {
+            subject: optionalRawString,
+            grade: optionalRawString
+          },
+          { allowUnknown: false }
+        )
+      )
+    ),
     edition: optionalRawString,
     volume: optionalRawString,
     unitCount: v.optional(v.number({ integer: true, min: 1, max: 20, coerce: true })),

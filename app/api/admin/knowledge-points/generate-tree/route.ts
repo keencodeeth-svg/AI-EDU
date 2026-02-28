@@ -77,11 +77,8 @@ export const POST = withApi(async (request) => {
           existingKeys.add(key);
         }
         index += 1;
-        if (created.length + skipped.length >= 200) break;
       }
-      if (created.length + skipped.length >= 200) break;
     }
-    if (created.length + skipped.length >= 200) break;
   }
 
   await addAdminLog({

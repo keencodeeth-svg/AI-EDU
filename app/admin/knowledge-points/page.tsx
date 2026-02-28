@@ -16,6 +16,30 @@ import type {
   TreeForm
 } from "./types";
 
+const PREVIEW_COMBO_CHUNK_SIZE = 4;
+const IMPORT_ITEMS_CHUNK_SIZE = 4;
+
+function chunkArray<T>(items: T[], size: number) {
+  const safeSize = Math.max(1, Math.floor(size));
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += safeSize) {
+    chunks.push(items.slice(i, i + safeSize));
+  }
+  return chunks;
+}
+
+function buildBatchCombos(subjects: string[], grades: string[]) {
+  const normalizedSubjects = subjects.map((item) => item.trim()).filter(Boolean);
+  const normalizedGrades = grades.map((item) => item.trim()).filter(Boolean);
+  const combos: Array<{ subject: string; grade: string }> = [];
+  normalizedSubjects.forEach((subject) => {
+    normalizedGrades.forEach((grade) => {
+      combos.push({ subject, grade });
+    });
+  });
+  return combos;
+}
+
 export default function KnowledgePointsAdminPage() {
   const [list, setList] = useState<KnowledgePoint[]>([]);
   const [allKnowledgePoints, setAllKnowledgePoints] = useState<KnowledgePoint[]>([]);
@@ -70,6 +94,8 @@ export default function KnowledgePointsAdminPage() {
   });
   const [batchLoading, setBatchLoading] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
+  const [batchMessage, setBatchMessage] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState<string | null>(null);
   const [batchPreview, setBatchPreview] = useState<any[]>([]);
   const [batchConfirming, setBatchConfirming] = useState(false);
   const [batchShowDetail, setBatchShowDetail] = useState(false);
@@ -219,61 +245,108 @@ export default function KnowledgePointsAdminPage() {
 
   async function handleBatchPreview(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setBatchLoading(true);
-    setBatchError(null);
-    setBatchPreview([]);
 
-    const res = await fetch("/api/admin/knowledge-points/preview-tree-batch", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        subjects: batchForm.subjects,
-        grades: batchForm.grades,
-        edition: batchForm.edition,
-        volume: batchForm.volume,
-        unitCount: batchForm.unitCount,
-        chaptersPerUnit: batchForm.chaptersPerUnit,
-        pointsPerChapter: batchForm.pointsPerChapter
-      })
-    });
-
-    const data = await res.json();
-    if (!res.ok) {
-      setBatchError(data?.error ?? "生成预览失败");
-      setBatchLoading(false);
+    const combos = buildBatchCombos(batchForm.subjects, batchForm.grades);
+    if (!combos.length) {
+      setBatchError("请至少选择 1 个学科和 1 个年级");
+      setBatchMessage(null);
       return;
     }
 
-    if (data.failed?.length) {
+    setBatchLoading(true);
+    setBatchError(null);
+    setBatchMessage(null);
+    setBatchProgress(null);
+    setBatchPreview([]);
+
+    const comboChunks = chunkArray(combos, PREVIEW_COMBO_CHUNK_SIZE);
+    const allItems: any[] = [];
+    const allFailed: any[] = [];
+
+    for (const [index, comboChunk] of comboChunks.entries()) {
+      setBatchProgress(`正在生成预览：第 ${index + 1}/${comboChunks.length} 批（${comboChunk.length} 个组合）`);
+      const res = await fetch("/api/admin/knowledge-points/preview-tree-batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          combos: comboChunk,
+          edition: batchForm.edition,
+          volume: batchForm.volume,
+          unitCount: batchForm.unitCount,
+          chaptersPerUnit: batchForm.chaptersPerUnit,
+          pointsPerChapter: batchForm.pointsPerChapter
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setBatchError(data?.error ?? "生成预览失败");
+        setBatchLoading(false);
+        setBatchProgress(null);
+        return;
+      }
+      allItems.push(...(data.items ?? []));
+      allFailed.push(...(data.failed ?? []));
+    }
+
+    const itemMap = new Map<string, any>();
+    allItems.forEach((item) => {
+      const key = `${item.subject}|${item.grade}`;
+      itemMap.set(key, item);
+    });
+
+    if (allFailed.length) {
       setBatchError(
-        data.failed
+        allFailed
+          .slice(0, 16)
           .map((item: any) => `${SUBJECT_LABELS[item.subject] ?? item.subject}${item.grade}年级：${item.reason}`)
           .join("；")
       );
     }
-    setBatchPreview(data.items ?? []);
+    setBatchMessage(`预览完成：成功 ${itemMap.size}/${combos.length} 个组合，失败 ${allFailed.length} 个组合。`);
+    setBatchPreview(Array.from(itemMap.values()));
     setBatchLoading(false);
+    setBatchProgress(null);
   }
 
   async function handleBatchConfirm() {
     if (!batchPreview.length) {
       setBatchError("请先生成预览");
+      setBatchMessage(null);
       return;
     }
     setBatchConfirming(true);
-    const res = await fetch("/api/admin/knowledge-points/import-tree", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ items: batchPreview })
-    });
-    const data = await res.json();
-    if (!res.ok) {
-      setBatchError(data?.error ?? "入库失败");
-      setBatchConfirming(false);
-      return;
+    setBatchError(null);
+    setBatchMessage(null);
+
+    const chunks = chunkArray(batchPreview, IMPORT_ITEMS_CHUNK_SIZE);
+    let createdTotal = 0;
+    let skippedTotal = 0;
+    let failedBatches = 0;
+
+    for (const [index, chunk] of chunks.entries()) {
+      setBatchProgress(`正在入库：第 ${index + 1}/${chunks.length} 批（${chunk.length} 个组合）`);
+      const res = await fetch("/api/admin/knowledge-points/import-tree", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ items: chunk })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        failedBatches += 1;
+        continue;
+      }
+      createdTotal += data.created?.length ?? 0;
+      skippedTotal += data.skipped?.length ?? 0;
     }
-    setBatchError(`已入库 ${data.created?.length ?? 0} 条，跳过 ${data.skipped?.length ?? 0} 条。`);
+
+    if (failedBatches > 0) {
+      setBatchError(`入库完成，但有 ${failedBatches} 个批次失败，请重试。`);
+    } else {
+      setBatchError(null);
+    }
+    setBatchMessage(`已入库 ${createdTotal} 条，跳过 ${skippedTotal} 条。`);
     setBatchConfirming(false);
+    setBatchProgress(null);
     await Promise.all([loadAllKnowledgePoints(), loadKnowledgePointList()]);
   }
 
@@ -318,13 +391,20 @@ export default function KnowledgePointsAdminPage() {
           setBatchForm={setBatchForm}
           batchLoading={batchLoading}
           batchError={batchError}
+          batchMessage={batchMessage}
+          batchProgress={batchProgress}
           batchPreview={batchPreview}
           batchShowDetail={batchShowDetail}
           setBatchShowDetail={setBatchShowDetail}
           batchConfirming={batchConfirming}
           onBatchPreview={handleBatchPreview}
           onBatchConfirm={handleBatchConfirm}
-          onClearBatchPreview={() => setBatchPreview([])}
+          onClearBatchPreview={() => {
+            setBatchPreview([]);
+            setBatchProgress(null);
+            setBatchError(null);
+            setBatchMessage(null);
+          }}
           treeForm={treeForm}
           setTreeForm={setTreeForm}
           treeLoading={treeLoading}
