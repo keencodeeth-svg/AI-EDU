@@ -49,10 +49,25 @@ CREATE TABLE IF NOT EXISTS knowledge_points (
   grade TEXT NOT NULL,
   title TEXT NOT NULL,
   chapter TEXT NOT NULL,
-  unit TEXT DEFAULT '未分单元'
+  unit TEXT DEFAULT '未分单元',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE knowledge_points ADD COLUMN IF NOT EXISTS unit TEXT;
+ALTER TABLE knowledge_points ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+ALTER TABLE knowledge_points ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+UPDATE knowledge_points
+SET
+  created_at = COALESCE(created_at, now()),
+  updated_at = COALESCE(updated_at, created_at, now())
+WHERE created_at IS NULL OR updated_at IS NULL;
+ALTER TABLE knowledge_points ALTER COLUMN created_at SET NOT NULL;
+ALTER TABLE knowledge_points ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE knowledge_points ALTER COLUMN updated_at SET NOT NULL;
+ALTER TABLE knowledge_points ALTER COLUMN updated_at SET DEFAULT now();
+CREATE INDEX IF NOT EXISTS knowledge_points_subject_grade_idx ON knowledge_points (subject, grade);
+CREATE INDEX IF NOT EXISTS knowledge_points_subject_grade_chapter_unit_idx ON knowledge_points (subject, grade, chapter, unit);
 
 CREATE TABLE IF NOT EXISTS questions (
   id TEXT PRIMARY KEY,
@@ -66,13 +81,30 @@ CREATE TABLE IF NOT EXISTS questions (
   difficulty TEXT DEFAULT 'medium',
   question_type TEXT DEFAULT 'choice',
   tags TEXT[] NOT NULL DEFAULT '{}',
-  abilities TEXT[] NOT NULL DEFAULT '{}'
+  abilities TEXT[] NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS difficulty TEXT;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS question_type TEXT;
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS tags TEXT[];
 ALTER TABLE questions ADD COLUMN IF NOT EXISTS abilities TEXT[];
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ;
+ALTER TABLE questions ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ;
+UPDATE questions
+SET
+  created_at = COALESCE(created_at, now()),
+  updated_at = COALESCE(updated_at, created_at, now())
+WHERE created_at IS NULL OR updated_at IS NULL;
+ALTER TABLE questions ALTER COLUMN created_at SET NOT NULL;
+ALTER TABLE questions ALTER COLUMN created_at SET DEFAULT now();
+ALTER TABLE questions ALTER COLUMN updated_at SET NOT NULL;
+ALTER TABLE questions ALTER COLUMN updated_at SET DEFAULT now();
+CREATE INDEX IF NOT EXISTS questions_subject_grade_idx ON questions (subject, grade);
+CREATE INDEX IF NOT EXISTS questions_knowledge_point_idx ON questions (knowledge_point_id);
+CREATE INDEX IF NOT EXISTS questions_subject_grade_difficulty_type_idx ON questions (subject, grade, difficulty, question_type);
+CREATE INDEX IF NOT EXISTS questions_updated_at_idx ON questions (updated_at DESC);
 
 CREATE TABLE IF NOT EXISTS question_quality_metrics (
   id TEXT PRIMARY KEY,
@@ -105,6 +137,9 @@ ALTER TABLE question_quality_metrics ADD COLUMN IF NOT EXISTS checked_at TIMESTA
 CREATE INDEX IF NOT EXISTS question_quality_metrics_question_idx ON question_quality_metrics (question_id);
 CREATE INDEX IF NOT EXISTS question_quality_metrics_score_idx ON question_quality_metrics (quality_score);
 CREATE INDEX IF NOT EXISTS question_quality_metrics_isolated_idx ON question_quality_metrics (isolated);
+CREATE INDEX IF NOT EXISTS question_quality_metrics_risk_level_idx ON question_quality_metrics (risk_level);
+CREATE INDEX IF NOT EXISTS question_quality_metrics_answer_conflict_idx ON question_quality_metrics (answer_conflict);
+CREATE INDEX IF NOT EXISTS question_quality_metrics_duplicate_cluster_idx ON question_quality_metrics (duplicate_cluster_id);
 
 CREATE TABLE IF NOT EXISTS question_attempts (
   id TEXT PRIMARY KEY,

@@ -13,6 +13,8 @@ type DbKnowledgePoint = {
   title: string;
   chapter: string;
   unit: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 type DbQuestion = {
@@ -28,6 +30,8 @@ type DbQuestion = {
   question_type: string | null;
   tags: string[] | null;
   abilities: string[] | null;
+  created_at?: string | null;
+  updated_at?: string | null;
 };
 
 function mapKnowledgePoint(row: DbKnowledgePoint): KnowledgePoint {
@@ -124,7 +128,8 @@ export async function updateKnowledgePoint(id: string, input: Partial<KnowledgeP
          grade = COALESCE($3, grade),
          title = COALESCE($4, title),
          chapter = COALESCE($5, chapter),
-         unit = COALESCE($6, unit)
+         unit = COALESCE($6, unit),
+         updated_at = now()
      WHERE id = $1
      RETURNING *`,
     [id, input.subject ?? null, input.grade ?? null, input.title ?? null, input.chapter ?? null, input.unit ?? null]
@@ -203,7 +208,8 @@ export async function updateQuestion(id: string, input: Partial<Question>) {
          difficulty = COALESCE($9, difficulty),
          question_type = COALESCE($10, question_type),
          tags = COALESCE($11, tags),
-         abilities = COALESCE($12, abilities)
+         abilities = COALESCE($12, abilities),
+         updated_at = now()
      WHERE id = $1
      RETURNING *`,
     [
