@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import MathText from "@/components/MathText";
 import { GRADE_OPTIONS, SUBJECT_LABELS, SUBJECT_OPTIONS } from "@/lib/constants";
 import { toPng } from "html-to-image";
 
@@ -141,7 +142,7 @@ export default function DiagnosticPage() {
             <span className="pill">学科 {SUBJECT_LABELS[subject] ?? subject}</span>
             <span className="pill">年级 {grade}</span>
           </div>
-          <p>{current.stem}</p>
+          <MathText as="p" text={current.stem} />
           <div className="grid" style={{ gap: 8, marginTop: 12 }}>
             {current.options.map((option) => (
               <label className="card" key={option} style={{ cursor: "pointer" }}>
@@ -153,7 +154,7 @@ export default function DiagnosticPage() {
                   onChange={() => setAnswers((prev) => ({ ...prev, [current.id]: option }))}
                   style={{ marginRight: 8 }}
                 />
-                {option}
+                <MathText text={option} />
               </label>
             ))}
           </div>

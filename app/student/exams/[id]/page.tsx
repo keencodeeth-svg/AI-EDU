@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import MathText from "@/components/MathText";
 import { SUBJECT_LABELS } from "@/lib/constants";
 
 type ExamDetail = {
@@ -697,7 +698,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
           {data.questions.map((question, index) => (
             <div className="card" key={question.id}>
               <div className="section-title">
-                {index + 1}. {question.stem}
+                {index + 1}. <MathText text={question.stem} />
               </div>
               <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
                 {question.options.map((option) => (
@@ -716,7 +717,7 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                         setDirty(true);
                       }}
                     />
-                    <span>{option}</span>
+                    <MathText text={option} />
                   </label>
                 ))}
               </div>
@@ -764,7 +765,8 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
                   {index + 1}. {item.correct ? "正确" : "错误"}
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  你的答案：{item.answer || "未作答"}；正确答案：{item.correctAnswer}；分值：{item.score}
+                  你的答案：<MathText text={item.answer || "未作答"} />；正确答案：
+                  <MathText text={item.correctAnswer} />；分值：{item.score}
                 </div>
               </div>
             ))}

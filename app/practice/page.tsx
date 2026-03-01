@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Card from "@/components/Card";
+import MathText from "@/components/MathText";
 import { GRADE_OPTIONS, SUBJECT_OPTIONS } from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 
@@ -520,7 +521,7 @@ export default function PracticePage() {
 
       {question ? (
         <Card title="题目" tag="作答">
-          <p>{question.stem}</p>
+          <MathText as="p" text={question.stem} />
           {question.recommendation?.reason ? (
             <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
               推荐原因：{question.recommendation.reason}
@@ -550,7 +551,7 @@ export default function PracticePage() {
                   onChange={() => setAnswer(option)}
                   style={{ marginRight: 8 }}
                 />
-                {option}
+                <MathText text={option} />
               </label>
             ))}
           </div>
@@ -568,7 +569,9 @@ export default function PracticePage() {
       {result ? (
         <Card title="解析" tag="讲解">
           <div className="badge">{result.correct ? "回答正确" : "回答错误"}</div>
-          <p style={{ marginTop: 8 }}>正确答案：{result.answer}</p>
+          <p style={{ marginTop: 8 }}>
+            正确答案：<MathText text={result.answer} />
+          </p>
           <div className="pill-list" style={{ marginTop: 8 }}>
             <span className="pill">掌握度 {result.masteryScore ?? 0}</span>
             <span className="pill">
@@ -596,13 +599,15 @@ export default function PracticePage() {
               类比版
             </button>
           </div>
-          <div style={{ marginTop: 10, whiteSpace: "pre-wrap" }}>
-            {explainLoading
-              ? "解析生成中..."
-              : explainPack
-              ? explainPack[explainMode]
-              : result.explanation}
-          </div>
+          {explainLoading ? (
+            <div style={{ marginTop: 10 }}>解析生成中...</div>
+          ) : (
+            <MathText
+              as="div"
+              className="explain-content"
+              text={explainPack ? explainPack[explainMode] : result.explanation}
+            />
+          )}
           {typeof result.masteryScore === "number" ? (
             <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
               当前知识点掌握分：{result.masteryScore}
@@ -663,12 +668,12 @@ export default function PracticePage() {
 
       {variantPack ? (
         <Card title="错题讲解" tag="纠错">
-          <p>{variantPack.analysis}</p>
+          <MathText as="p" text={variantPack.analysis} />
           {variantPack.hints?.length ? (
             <div className="grid" style={{ gap: 6, marginTop: 10 }}>
               <div className="badge">提示</div>
               {variantPack.hints.map((hint) => (
-                <div key={hint}>{hint}</div>
+                <MathText as="div" key={hint} text={hint} />
               ))}
             </div>
           ) : null}
@@ -684,7 +689,7 @@ export default function PracticePage() {
               return (
                 <div className="card" key={`${variant.stem}-${index}`}>
                   <div className="section-title">变式题 {index + 1}</div>
-                  <p>{variant.stem}</p>
+                  <MathText as="p" text={variant.stem} />
                   <div className="grid" style={{ gap: 8, marginTop: 10 }}>
                     {variant.options.map((option) => (
                       <label className="card" key={option} style={{ cursor: "pointer" }}>
@@ -700,7 +705,7 @@ export default function PracticePage() {
                           }
                           style={{ marginRight: 8 }}
                         />
-                        {option}
+                        <MathText text={option} />
                       </label>
                     ))}
                   </div>
@@ -721,8 +726,10 @@ export default function PracticePage() {
                   {checked !== undefined && checked !== null ? (
                     <div style={{ marginTop: 8, fontSize: 13 }}>
                       {checked ? "回答正确" : "回答错误"}
-                      <div>正确答案：{variant.answer}</div>
-                      <div>{variant.explanation}</div>
+                      <div>
+                        正确答案：<MathText text={variant.answer} />
+                      </div>
+                      <MathText as="div" text={variant.explanation} />
                     </div>
                   ) : null}
                 </div>

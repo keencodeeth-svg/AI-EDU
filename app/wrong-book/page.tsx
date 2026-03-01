@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/Card";
+import MathText from "@/components/MathText";
 
 type Question = {
   id: string;
@@ -233,7 +234,9 @@ export default function WrongBookPage() {
           {!reviewQueue?.today?.length ? <p>今日暂无到期复练，继续保持。</p> : null}
           {(reviewQueue?.today ?? []).map((item) => (
             <div className="card" key={item.id}>
-              <div className="section-title">{item.question?.stem ?? "题目已删除"}</div>
+              <div className="section-title">
+                <MathText text={item.question?.stem ?? "题目已删除"} />
+              </div>
               <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
                 节奏：{item.intervalLabel} · 应复练时间：{formatDateTime(item.nextReviewAt)}
               </div>
@@ -253,7 +256,7 @@ export default function WrongBookPage() {
                         }
                         style={{ marginRight: 8 }}
                       />
-                      {option}
+                      <MathText text={option} />
                     </label>
                   ))}
                 </div>
@@ -281,7 +284,8 @@ export default function WrongBookPage() {
             <div className="section-title">后续复练排期</div>
             {reviewQueue.upcoming.slice(0, 5).map((item) => (
               <div key={`upcoming-${item.id}`} style={{ fontSize: 13, color: "var(--ink-1)" }}>
-                {item.question?.stem ?? item.questionId} · {item.intervalLabel} · {formatDateTime(item.nextReviewAt)}
+                <MathText text={item.question?.stem ?? item.questionId} /> · {item.intervalLabel} ·{" "}
+                {formatDateTime(item.nextReviewAt)}
               </div>
             ))}
           </div>
@@ -313,7 +317,9 @@ export default function WrongBookPage() {
             const overdue = task.status === "pending" && new Date(task.dueDate).getTime() < Date.now();
             return (
               <div className="card" key={task.id} style={{ borderColor: overdue ? "#d92d20" : "var(--stroke)" }}>
-                <div className="section-title">{task.question?.stem ?? "题目已删除"}</div>
+                <div className="section-title">
+                  <MathText text={task.question?.stem ?? "题目已删除"} />
+                </div>
                 <p style={{ color: "var(--ink-1)" }}>截止：{formatDate(task.dueDate)}</p>
                 <div style={{ marginTop: 8, display: "flex", gap: 8, flexWrap: "wrap" }}>
                   <div className="badge">状态：{task.status === "completed" ? "已完成" : overdue ? "逾期" : "待订正"}</div>
@@ -354,8 +360,10 @@ export default function WrongBookPage() {
                     style={{ marginTop: 6 }}
                   />
                   <div>
-                    <div className="section-title">{item.stem}</div>
-                    <p>{item.explanation}</p>
+                    <div className="section-title">
+                      <MathText text={item.stem} />
+                    </div>
+                    <MathText as="p" text={item.explanation} />
                     <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                       {item.nextReviewAt ? `下次复练：${formatDateTime(item.nextReviewAt)} · ` : ""}
                       {item.intervalLabel ? `阶段：${item.intervalLabel} · ` : ""}
@@ -385,8 +393,10 @@ export default function WrongBookPage() {
           {list.length === 0 ? <p>暂无错题，继续保持！</p> : null}
           {list.map((item) => (
             <div className="card" key={item.id}>
-              <div className="section-title">{item.stem}</div>
-              <p>{item.explanation}</p>
+              <div className="section-title">
+                <MathText text={item.stem} />
+              </div>
+              <MathText as="p" text={item.explanation} />
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                 最近答题：{formatDateTime(item.lastAttemptAt)} · 上次复练结果：{item.lastReviewResult ?? "-"} · 下次复练：
                 {formatDateTime(item.nextReviewAt)}
@@ -398,4 +408,3 @@ export default function WrongBookPage() {
     </div>
   );
 }
-
