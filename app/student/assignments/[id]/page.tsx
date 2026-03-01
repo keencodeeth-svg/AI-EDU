@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import MathText from "@/components/MathText";
 import { ASSIGNMENT_TYPE_LABELS, SUBJECT_LABELS } from "@/lib/constants";
 
 type AssignmentDetail = {
@@ -308,7 +309,7 @@ export default function StudentAssignmentDetailPage({ params }: { params: { id: 
               data.questions.map((question, index) => (
                 <div className="card" key={question.id}>
                   <div className="section-title">
-                    {index + 1}. {question.stem}
+                    {index + 1}. <MathText text={question.stem} />
                   </div>
                   <div style={{ display: "grid", gap: 6 }}>
                     {question.options.map((option) => (
@@ -322,7 +323,7 @@ export default function StudentAssignmentDetailPage({ params }: { params: { id: 
                             setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }))
                           }
                         />
-                        <span>{option}</span>
+                        <MathText text={option} />
                       </label>
                     ))}
                   </div>
@@ -356,13 +357,21 @@ export default function StudentAssignmentDetailPage({ params }: { params: { id: 
               const question = data.questions.find((item) => item.id === detail.questionId);
               return (
                 <div className="card" key={detail.questionId}>
-                  <div className="section-title">{question?.stem ?? "题目"}</div>
+                  <div className="section-title">
+                    <MathText text={question?.stem ?? "题目"} />
+                  </div>
                   <div className="pill-list" style={{ marginTop: 8 }}>
-                    <span className="pill">你的答案：{detail.answer || "未作答"}</span>
-                    <span className="pill">正确答案：{detail.correctAnswer}</span>
+                    <span className="pill">
+                      你的答案：<MathText text={detail.answer || "未作答"} />
+                    </span>
+                    <span className="pill">
+                      正确答案：<MathText text={detail.correctAnswer} />
+                    </span>
                     <span className="pill">{detail.correct ? "回答正确" : "回答错误"}</span>
                   </div>
-                  <p style={{ marginTop: 8 }}>解析：{detail.explanation}</p>
+                  <p style={{ marginTop: 8 }}>
+                    解析：<MathText text={detail.explanation} />
+                  </p>
                 </div>
               );
             })}
@@ -384,7 +393,9 @@ export default function StudentAssignmentDetailPage({ params }: { params: { id: 
               const question = review.questions?.find((q: any) => q.id === item.questionId);
               return (
                 <div className="card" key={item.questionId}>
-                  <div className="section-title">{question?.stem ?? "题目"}</div>
+                  <div className="section-title">
+                    <MathText text={question?.stem ?? "题目"} />
+                  </div>
                   <div className="pill-list" style={{ marginTop: 8 }}>
                     <span className="pill">错因标签：{item.wrongTag || "未标注"}</span>
                   </div>
@@ -503,12 +514,20 @@ export default function StudentAssignmentDetailPage({ params }: { params: { id: 
               .filter((item: any) => !item.correct)
               .map((item: any) => (
                 <div className="card" key={item.id}>
-                  <div className="section-title">{item.stem}</div>
-                  <div className="pill-list" style={{ marginTop: 8 }}>
-                    <span className="pill">你的答案：{item.answer || "未作答"}</span>
-                    <span className="pill">正确答案：{item.correctAnswer}</span>
+                  <div className="section-title">
+                    <MathText text={item.stem} />
                   </div>
-                  <p style={{ marginTop: 8 }}>解析：{item.explanation}</p>
+                  <div className="pill-list" style={{ marginTop: 8 }}>
+                    <span className="pill">
+                      你的答案：<MathText text={item.answer || "未作答"} />
+                    </span>
+                    <span className="pill">
+                      正确答案：<MathText text={item.correctAnswer} />
+                    </span>
+                  </div>
+                  <p style={{ marginTop: 8 }}>
+                    解析：<MathText text={item.explanation} />
+                  </p>
                 </div>
               ))}
           </div>

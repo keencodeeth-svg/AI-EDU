@@ -1101,7 +1101,11 @@ export default function TeacherAiToolsPage() {
             ) : (
               <p>未发现明显问题。</p>
             )}
-            {checkResult.suggestedAnswer ? <div>建议答案：{checkResult.suggestedAnswer}</div> : null}
+            {checkResult.suggestedAnswer ? (
+              <div>
+                建议答案：<MathText text={checkResult.suggestedAnswer} />
+              </div>
+            ) : null}
             {checkResult.notes ? <div style={{ fontSize: 12 }}>{checkResult.notes}</div> : null}
           </div>
         ) : null}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import MathText from "@/components/MathText";
 import { SUBJECT_LABELS } from "@/lib/constants";
 
 type FavoriteItem = {
@@ -111,7 +112,7 @@ export default function StudentFavoritesPage() {
             }}
             title={item.question?.stem ?? "题目"}
           >
-            {item.question?.stem ?? "题目"}
+            <MathText text={item.question?.stem ?? "题目"} />
           </div>
           <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <span>{SUBJECT_LABELS[item.question?.subject ?? ""] ?? item.question?.subject ?? "未分类"}</span>
@@ -232,7 +233,9 @@ export default function StudentFavoritesPage() {
                     <div className="feature-card">
                       <EduIcon name="book" />
                       <div>
-                        <div className="section-title">{item.question?.stem ?? "题目"}</div>
+                        <div className="section-title">
+                          <MathText text={item.question?.stem ?? "题目"} />
+                        </div>
                         <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
                           {item.question?.knowledgePointTitle ?? "知识点"} · {item.question?.grade ?? "-"} 年级 ·{" "}
                           {SUBJECT_LABELS[item.question?.subject ?? ""] ?? item.question?.subject ?? "未分类"}
