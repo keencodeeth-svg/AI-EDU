@@ -118,6 +118,8 @@
 - [x] AI 多模型路由（zhipu/deepseek/kimi/minimax/seedance/compatible/custom）
 - [x] AI 任务策略（providerChain、timeout、retries、budget、minQualityScore）
 - [x] AI 配置与日志 DB 优先存储（多实例一致）
+- [x] AI 离线评测集扩展（讲解/作业评语/知识点生成/写作反馈/教案提纲/题目质检）
+- [x] AI 评测到校准闭环（评测建议 `calibrationSuggestion` -> 一键写入质量校准）
 - [x] RAG 引用可信度治理（citation confidence/trust/risk + 人工复核提示）
 - [x] AI 陪练长期记忆 V1（历史会话上下文）
 - [x] 运营埋点漏斗 + A/B 灰度发布
@@ -316,6 +318,8 @@ ZHIPU_MODEL=glm-4.7
   - `GET /api/admin/ai/config`
   - `POST /api/admin/ai/test`
   - `GET /api/admin/ai/metrics`
+  - `GET /api/admin/ai/evals`
+  - `GET/POST /api/admin/ai/quality-calibration`
 - 已支持 provider 健康状态与缺失环境变量诊断
 
 ## 10. 关键页面与接口
@@ -339,7 +343,7 @@ ZHIPU_MODEL=glm-4.7
 - 教师预警：`/api/teacher/insights`、`/api/teacher/alerts*`
 - 家长协同：`/api/report/weekly`、`/api/parent/assignments`、`/api/parent/action-items/receipt`
 - 题库治理：`/api/admin/questions*`、`/api/admin/questions/quality*`
-- AI 治理：`/api/admin/ai/config`、`/api/admin/ai/policies`、`/api/admin/ai/metrics`、`/api/admin/ai/test`
+- AI 治理：`/api/admin/ai/config`、`/api/admin/ai/policies`、`/api/admin/ai/metrics`、`/api/admin/ai/test`、`/api/admin/ai/evals`、`/api/admin/ai/quality-calibration`
 - 实验灰度：`/api/admin/experiments/*`
 - 资料库：`/api/library*`、`/api/admin/library*`
 
