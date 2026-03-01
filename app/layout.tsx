@@ -19,7 +19,7 @@ type RoleNavConfig = {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   const user = await getCurrentUser();
-  const roleNavConfig: Record<"student" | "teacher" | "parent" | "admin", RoleNavConfig> = {
+  const roleNavConfig: Record<"student" | "teacher" | "parent" | "admin" | "school_admin", RoleNavConfig> = {
     student: {
       primary: [
         { href: "/dashboard", label: "学习看板" },
@@ -159,6 +159,31 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           ]
         }
       ]
+    },
+    school_admin: {
+      primary: [
+        { href: "/school", label: "学校控制台" },
+        { href: "/school/classes", label: "学校班级" },
+        { href: "/school/teachers", label: "教师管理" },
+        { href: "/school/students", label: "学生管理" }
+      ],
+      groups: [
+        {
+          title: "组织治理",
+          links: [
+            { href: "/school/classes", label: "班级总览" },
+            { href: "/school/teachers", label: "教师名单" },
+            { href: "/school/students", label: "学生名单" }
+          ]
+        },
+        {
+          title: "教学协同",
+          links: [
+            { href: "/dashboard", label: "数据看板" },
+            { href: "/library", label: "教材课件" }
+          ]
+        }
+      ]
     }
   };
 
@@ -172,20 +197,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       title: "注册入口",
       links: [
         { href: "/teacher/register", label: "教师注册" },
-        { href: "/admin/register", label: "管理员注册" }
+        { href: "/admin/register", label: "管理员注册" },
+        { href: "/school/register", label: "学校管理员注册" }
       ]
     }
   ];
 
-  const role = user?.role as "student" | "teacher" | "parent" | "admin" | undefined;
+  const role = user?.role as "student" | "teacher" | "parent" | "admin" | "school_admin" | undefined;
   const navConfig = role ? roleNavConfig[role] : null;
   const primaryLinks = navConfig?.primary ?? guestPrimaryLinks;
   const navGroups = navConfig?.groups ?? guestGroups;
-  const roleLabelMap: Record<"student" | "teacher" | "parent" | "admin", string> = {
+  const roleLabelMap: Record<"student" | "teacher" | "parent" | "admin" | "school_admin", string> = {
     student: "学生空间",
     teacher: "教师空间",
     parent: "家长空间",
-    admin: "管理空间"
+    admin: "管理空间",
+    school_admin: "学校空间"
   };
 
   return (

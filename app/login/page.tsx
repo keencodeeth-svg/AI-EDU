@@ -6,7 +6,7 @@ import Card from "@/components/Card";
 import { trackEvent } from "@/lib/analytics-client";
 
 export default function LoginPage() {
-  const [role, setRole] = useState<"student" | "teacher" | "parent" | "admin">("student");
+  const [role, setRole] = useState<"student" | "teacher" | "parent" | "admin" | "school_admin">("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -16,14 +16,16 @@ export default function LoginPage() {
     { value: "student" as const, label: "学生", desc: "学习/练习/作业" },
     { value: "teacher" as const, label: "教师", desc: "作业发布/批改/分析" },
     { value: "parent" as const, label: "家长", desc: "周报/监督/提醒" },
-    { value: "admin" as const, label: "管理员", desc: "题库/知识点/日志" }
+    { value: "admin" as const, label: "管理员", desc: "题库/知识点/日志" },
+    { value: "school_admin" as const, label: "学校管理员", desc: "学校组织/教师/班级" }
   ];
 
   const placeholderMap: Record<typeof role, string> = {
     student: "student@demo.com",
     teacher: "teacher@demo.com",
     parent: "parent@demo.com",
-    admin: "admin@demo.com"
+    admin: "admin@demo.com",
+    school_admin: "school-admin@demo.com"
   };
 
   useEffect(() => {
@@ -66,7 +68,9 @@ export default function LoginPage() {
             ? "/teacher"
             : data.role === "parent"
               ? "/parent"
-              : "/student";
+              : data.role === "school_admin"
+                ? "/school"
+                : "/student";
       window.location.assign(target);
     } catch (err) {
       setError((err as Error).message);
@@ -134,6 +138,7 @@ export default function LoginPage() {
           <span className="pill">家长注册</span>
           <span className="pill">教师注册</span>
           <span className="pill">管理员注册</span>
+          <span className="pill">学校管理员注册</span>
         </div>
         <div className="auth-links">
           <div>
@@ -144,6 +149,9 @@ export default function LoginPage() {
           </div>
           <div>
             管理员注册：<Link href="/admin/register">去注册</Link>
+          </div>
+          <div>
+            学校管理员注册：<Link href="/school/register">去注册</Link>
           </div>
         </div>
       </Card>

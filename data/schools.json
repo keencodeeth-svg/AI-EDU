@@ -1,0 +1,10 @@
+[
+  {
+    "id": "school-default",
+    "name": "默认学校",
+    "code": "DEFAULT",
+    "status": "active",
+    "createdAt": "2026-01-01T00:00:00.000Z",
+    "updatedAt": "2026-01-01T00:00:00.000Z"
+  }
+]

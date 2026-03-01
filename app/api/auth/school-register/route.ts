@@ -2,30 +2,32 @@ import crypto from "crypto";
 import {
   createSession,
   createUser,
-  getTeacherCount,
+  getSchoolAdminCount,
   getUserByEmail,
   hashPassword,
   setSessionCookie
 } from "@/lib/auth";
+import { createSchool, getSchoolByCode, resolveSchoolIdByCodeOrDefault } from "@/lib/schools";
 import { validatePasswordPolicy } from "@/lib/password";
-import { resolveSchoolIdByCodeOrDefault } from "@/lib/schools";
 import { apiSuccess, badRequest, conflict, forbidden } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 import { createAuthRoute } from "@/lib/api/domains";
 
-const teacherRegisterSchema = v.object<{
+const schoolRegisterSchema = v.object<{
   email: string;
   password: string;
   name: string;
-  inviteCode?: string;
+  schoolName?: string;
   schoolCode?: string;
+  inviteCode?: string;
 }>(
   {
     email: v.string({ minLength: 1 }),
     password: v.string({ minLength: 1 }),
     name: v.string({ minLength: 1 }),
-    inviteCode: v.optional(v.string({ minLength: 1 })),
-    schoolCode: v.optional(v.string({ minLength: 1 }))
+    schoolName: v.optional(v.string({ minLength: 1 })),
+    schoolCode: v.optional(v.string({ minLength: 1 })),
+    inviteCode: v.optional(v.string({ minLength: 1 }))
   },
   { allowUnknown: false }
 );
@@ -33,7 +35,7 @@ const teacherRegisterSchema = v.object<{
 export const POST = createAuthRoute({
   cache: "private-realtime",
   handler: async ({ request, meta }) => {
-    const body = await parseJson(request, teacherRegisterSchema);
+    const body = await parseJson(request, schoolRegisterSchema);
     const passwordValidation = validatePasswordPolicy(body.password);
     if (!passwordValidation.ok) {
       badRequest(passwordValidation.errors[0], {
@@ -42,10 +44,10 @@ export const POST = createAuthRoute({
       });
     }
 
-    const expectedInvite = process.env.TEACHER_INVITE_CODE?.trim();
-    const inviteList = process.env.TEACHER_INVITE_CODES?.trim();
-    const teacherCount = await getTeacherCount();
-    const allowWithoutInvite = !expectedInvite && teacherCount === 0;
+    const expectedInvite = process.env.SCHOOL_ADMIN_INVITE_CODE?.trim();
+    const inviteList = process.env.SCHOOL_ADMIN_INVITE_CODES?.trim();
+    const schoolAdminCount = await getSchoolAdminCount();
+    const allowWithoutInvite = !expectedInvite && !inviteList && schoolAdminCount === 0;
 
     const normalize = (code?: string) => (code ?? "").replace(/[^a-z0-9]/gi, "").toUpperCase();
     const normalizedInput = normalize(body.inviteCode);
@@ -71,31 +73,41 @@ export const POST = createAuthRoute({
     if (existing) {
       conflict("email exists");
     }
-    const schoolId = await resolveSchoolIdByCodeOrDefault({
+
+    let schoolId = await resolveSchoolIdByCodeOrDefault({
       schoolCode: body.schoolCode,
-      fallbackToDefault: true
+      fallbackToDefault: !body.schoolName
     });
-    if (body.schoolCode && !schoolId) {
-      forbidden("invalid school code");
+    if (!schoolId && body.schoolCode && !body.schoolName) {
+      badRequest("invalid school code");
     }
 
-    const id = `u-teacher-${crypto.randomBytes(6).toString("hex")}`;
+    if (!schoolId && body.schoolName) {
+      const existingSchool = body.schoolCode ? await getSchoolByCode(body.schoolCode) : null;
+      const school = existingSchool ?? (await createSchool({ name: body.schoolName, code: body.schoolCode }));
+      schoolId = school.id;
+    }
+
+    if (!schoolId) {
+      badRequest("school required");
+    }
+
+    const id = `u-school-admin-${crypto.randomBytes(6).toString("hex")}`;
     const user = {
       id,
       email: body.email,
       name: body.name,
-      role: "teacher" as const,
-      schoolId: schoolId ?? undefined,
+      role: "school_admin" as const,
+      schoolId,
       password: hashPassword(body.password)
     };
 
     await createUser(user);
     const session = await createSession(user);
-
     const response = apiSuccess(
       {
         ok: true,
-        role: "teacher",
+        role: "school_admin",
         name: body.name
       },
       {

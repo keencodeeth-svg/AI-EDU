@@ -33,7 +33,7 @@ export const POST = createLearningRoute({
       badRequest("missing code");
     }
 
-    const klass = await getClassByJoinCode(code);
+    const klass = await getClassByJoinCode(code, user.schoolId ? { schoolId: user.schoolId } : undefined);
     if (!klass) {
       notFound("邀请码无效");
     }
@@ -44,7 +44,10 @@ export const POST = createLearningRoute({
     }
 
     if (klass.joinMode === "auto") {
-      await addStudentToClass(klass.id, user.id);
+      const joined = await addStudentToClass(klass.id, user.id, { enforceSchoolMatch: true });
+      if (!joined) {
+        badRequest("班级与学生学校不匹配");
+      }
       const assignments = await getAssignmentsByClass(klass.id);
       for (const assignment of assignments) {
         await createAssignmentProgress(assignment.id, user.id);

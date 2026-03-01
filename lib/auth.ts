@@ -4,7 +4,7 @@ import { readJson, writeJson } from "./storage";
 import { isDbEnabled, query, queryOne } from "./db";
 export { hashPassword, verifyPassword } from "./password";
 
-export type UserRole = "student" | "parent" | "admin" | "teacher";
+export type UserRole = "student" | "parent" | "admin" | "teacher" | "school_admin";
 
 export type User = {
   id: string;
@@ -13,6 +13,7 @@ export type User = {
   role: UserRole;
   password: string; // use plain:xxx for MVP or salt:hash for scrypt
   grade?: string;
+  schoolId?: string;
   studentId?: string; // for parent binding
 };
 
@@ -35,6 +36,7 @@ type DbUser = {
   role: UserRole;
   password: string;
   grade: string | null;
+  school_id: string | null;
   student_id: string | null;
 };
 
@@ -53,6 +55,7 @@ function mapUser(row: DbUser): User {
     role: row.role,
     password: row.password,
     grade: row.grade ?? undefined,
+    schoolId: row.school_id ?? undefined,
     studentId: row.student_id ?? undefined
   };
 }
@@ -99,8 +102,8 @@ export async function createUser(user: User) {
   }
 
   await query(
-    `INSERT INTO users (id, email, name, role, password, grade, student_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    `INSERT INTO users (id, email, name, role, password, grade, school_id, student_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       user.id,
       user.email,
@@ -108,6 +111,7 @@ export async function createUser(user: User) {
       user.role,
       user.password,
       user.grade ?? null,
+      user.schoolId ?? null,
       user.studentId ?? null
     ]
   );
@@ -236,6 +240,24 @@ export async function getTeacherCount() {
     return users.filter((user) => user.role === "teacher").length;
   }
   const row = await queryOne<{ count: string }>("SELECT COUNT(*) as count FROM users WHERE role = 'teacher'");
+  return Number(row?.count ?? 0);
+}
+
+export async function getSchoolAdminCount(schoolId?: string) {
+  if (!isDbEnabled()) {
+    const users = await getUsers();
+    return users.filter(
+      (user) => user.role === "school_admin" && (!schoolId || (user.schoolId ?? null) === schoolId)
+    ).length;
+  }
+  if (schoolId) {
+    const row = await queryOne<{ count: string }>(
+      "SELECT COUNT(*) as count FROM users WHERE role = 'school_admin' AND school_id = $1",
+      [schoolId]
+    );
+    return Number(row?.count ?? 0);
+  }
+  const row = await queryOne<{ count: string }>("SELECT COUNT(*) as count FROM users WHERE role = 'school_admin'");
   return Number(row?.count ?? 0);
 }
 

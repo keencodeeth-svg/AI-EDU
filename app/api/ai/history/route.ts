@@ -12,7 +12,7 @@ const createHistoryBodySchema = v.object<{ question?: string; answer?: string }>
 );
 
 export const GET = createAiRoute({
-  role: ["student", "teacher", "parent", "admin"],
+  role: ["student", "teacher", "parent", "admin", "school_admin"],
   cache: "private-realtime",
   handler: async ({ user }) => {
     if (!user) {
@@ -24,7 +24,7 @@ export const GET = createAiRoute({
 });
 
 export const POST = createAiRoute({
-  role: ["student", "teacher", "parent", "admin"],
+  role: ["student", "teacher", "parent", "admin", "school_admin"],
   body: createHistoryBodySchema,
   cache: "private-realtime",
   handler: async ({ body, user }) => {

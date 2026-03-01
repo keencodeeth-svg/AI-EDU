@@ -14,6 +14,9 @@ const ASSIGNMENT_COUNT = Number(process.env.SEED_ASSIGNMENTS ?? 8);
 const QUESTIONS_PER_KP = Number(process.env.SEED_QUESTIONS_PER_KP ?? 4);
 const SUBJECTS = (process.env.SEED_SUBJECTS ?? "math,chinese,english").split(",").map((s) => s.trim()).filter(Boolean);
 const GRADES = (process.env.SEED_GRADES ?? "4,7,10").split(",").map((s) => s.trim()).filter(Boolean);
+const DEFAULT_SCHOOL_ID = process.env.SEED_SCHOOL_ID ?? "school-default";
+const DEFAULT_SCHOOL_CODE = process.env.SEED_SCHOOL_CODE ?? "DEFAULT";
+const DEFAULT_SCHOOL_NAME = process.env.SEED_SCHOOL_NAME ?? "默认学校";
 
 const now = new Date();
 const iso = (date) => new Date(date).toISOString();
@@ -94,6 +97,7 @@ function buildUsers() {
     email: `teacher${idx + 1}@demo.com`,
     name: `老师${idx + 1}`,
     role: "teacher",
+    schoolId: DEFAULT_SCHOOL_ID,
     password: "plain:Teacher123"
   }));
 
@@ -103,6 +107,7 @@ function buildUsers() {
     name: `学生${idx + 1}`,
     role: "student",
     grade: gradeCycle(idx),
+    schoolId: DEFAULT_SCHOOL_ID,
     password: "plain:Student123"
   }));
 
@@ -111,6 +116,7 @@ function buildUsers() {
     email: `parent${idx + 1}@demo.com`,
     name: `家长${idx + 1}`,
     role: "parent",
+    schoolId: DEFAULT_SCHOOL_ID,
     studentId: students[idx].id,
     password: "plain:Parent123"
   }));
@@ -140,6 +146,7 @@ function buildClasses(teachers) {
       name: `测试班级 ${i + 1}`,
       subject: subjectCycle(i),
       grade: gradeCycle(i),
+      schoolId: teacher.schoolId ?? DEFAULT_SCHOOL_ID,
       teacherId: teacher.id,
       createdAt: iso(now),
       joinCode: `JOIN${String(i + 1).padStart(2, "0")}`,
@@ -562,16 +569,26 @@ async function seedJson() {
 
 async function ensureUser(client, user) {
   const result = await client.query(
-    `INSERT INTO users (id, email, name, role, password, grade, student_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `INSERT INTO users (id, email, name, role, password, grade, school_id, student_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (email) DO UPDATE SET
        name = EXCLUDED.name,
        role = EXCLUDED.role,
        password = EXCLUDED.password,
        grade = EXCLUDED.grade,
+       school_id = EXCLUDED.school_id,
        student_id = EXCLUDED.student_id
      RETURNING id`,
-    [user.id, user.email, user.name, user.role, user.password, user.grade ?? null, user.studentId ?? null]
+    [
+      user.id,
+      user.email,
+      user.name,
+      user.role,
+      user.password,
+      user.grade ?? null,
+      user.schoolId ?? null,
+      user.studentId ?? null
+    ]
   );
   return result.rows[0].id;
 }
@@ -590,6 +607,16 @@ async function seedDb() {
 
   try {
     await client.query("BEGIN");
+    await client.query(
+      `INSERT INTO schools (id, name, code, status, created_at, updated_at)
+       VALUES ($1, $2, $3, 'active', now(), now())
+       ON CONFLICT (id) DO UPDATE SET
+         name = EXCLUDED.name,
+         code = EXCLUDED.code,
+         status = EXCLUDED.status,
+         updated_at = now()`,
+      [DEFAULT_SCHOOL_ID, DEFAULT_SCHOOL_NAME, DEFAULT_SCHOOL_CODE]
+    );
 
     for (const teacher of teachers) {
       const id = await ensureUser(client, teacher);
@@ -712,12 +739,13 @@ async function seedDb() {
 
     for (const klass of classes) {
       await client.query(
-        `INSERT INTO classes (id, name, subject, grade, teacher_id, created_at, join_code, join_mode)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO classes (id, name, subject, grade, school_id, teacher_id, created_at, join_code, join_mode)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (id) DO UPDATE SET
            name = EXCLUDED.name,
            subject = EXCLUDED.subject,
            grade = EXCLUDED.grade,
+           school_id = EXCLUDED.school_id,
            teacher_id = EXCLUDED.teacher_id,
            join_code = EXCLUDED.join_code,
            join_mode = EXCLUDED.join_mode`,
@@ -726,6 +754,7 @@ async function seedDb() {
           klass.name,
           klass.subject,
           klass.grade,
+          klass.schoolId ?? DEFAULT_SCHOOL_ID,
           klass.teacherId,
           klass.createdAt,
           klass.joinCode,

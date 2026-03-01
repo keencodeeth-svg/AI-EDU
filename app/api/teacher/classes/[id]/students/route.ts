@@ -1,8 +1,14 @@
-import { getCurrentUser, getUserByEmail } from "@/lib/auth";
-import { addStudentToClass, getClassById, getClassStudents } from "@/lib/classes";
+import { getUserByEmail } from "@/lib/auth";
+import {
+  addStudentToClass,
+  forceAddStudentToClass,
+  getClassById,
+  getClassStudentIds,
+  getClassStudents
+} from "@/lib/classes";
 import { createAssignmentProgress, getAssignmentsByClass } from "@/lib/assignments";
 import { createNotification } from "@/lib/notifications";
-import { notFound, unauthorized } from "@/lib/api/http";
+import { badRequest, notFound, unauthorized } from "@/lib/api/http";
 import { v } from "@/lib/api/validation";
 import { createLearningRoute } from "@/lib/api/domains";
 
@@ -63,7 +69,21 @@ export const POST = createLearningRoute({
       notFound("student not found");
     }
 
-    const added = await addStudentToClass(classId, student.id);
+    if (klass.schoolId && student.schoolId && klass.schoolId !== student.schoolId) {
+      badRequest("班级与学生学校不匹配");
+    }
+
+    let added = await addStudentToClass(classId, student.id, { enforceSchoolMatch: true });
+    if (!added) {
+      const existingStudentIds = await getClassStudentIds(classId);
+      const alreadyInClass = existingStudentIds.includes(student.id);
+      if (!alreadyInClass) {
+        added = await addStudentToClass(classId, student.id, { enforceSchoolMatch: false });
+      }
+      if (!added) {
+        added = await forceAddStudentToClass(classId, student.id);
+      }
+    }
     if (added) {
       const assignments = await getAssignmentsByClass(classId);
       for (const assignment of assignments) {

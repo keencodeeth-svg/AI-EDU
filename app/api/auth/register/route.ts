@@ -3,6 +3,7 @@ import { createUser, getUserByEmail, getUserById, hashPassword } from "@/lib/aut
 import { SUBJECT_OPTIONS } from "@/lib/constants";
 import { getStudentProfileByObserverCode, upsertStudentProfile } from "@/lib/profiles";
 import { validatePasswordPolicy } from "@/lib/password";
+import { getSchoolById, resolveSchoolIdByCodeOrDefault } from "@/lib/schools";
 import { apiSuccess, badRequest, conflict, notFound } from "@/lib/api/http";
 import { parseJson, v } from "@/lib/api/validation";
 import { createAuthRoute } from "@/lib/api/domains";
@@ -15,6 +16,7 @@ const registerBodySchema = v.object<{
   grade?: string;
   studentEmail?: string;
   observerCode?: string;
+  schoolCode?: string;
 }>(
   {
     role: v.enum(["student", "parent"] as const),
@@ -23,7 +25,8 @@ const registerBodySchema = v.object<{
     name: v.string({ minLength: 1 }),
     grade: v.optional(v.string({ minLength: 1 })),
     studentEmail: v.optional(v.string({ minLength: 1 })),
-    observerCode: v.optional(v.string({ minLength: 1 }))
+    observerCode: v.optional(v.string({ minLength: 1 })),
+    schoolCode: v.optional(v.string({ minLength: 1 }))
   },
   { allowUnknown: false }
 );
@@ -49,6 +52,14 @@ export const POST = createAuthRoute({
       if (!body.grade) {
         badRequest("grade required");
       }
+      const schoolId = await resolveSchoolIdByCodeOrDefault({
+        schoolCode: body.schoolCode,
+        fallbackToDefault: true
+      });
+      if (body.schoolCode && !schoolId) {
+        notFound("school code invalid");
+      }
+      const school = schoolId ? await getSchoolById(schoolId) : null;
 
       const id = `u-${crypto.randomBytes(6).toString("hex")}`;
       await createUser({
@@ -57,6 +68,7 @@ export const POST = createAuthRoute({
         name: body.name,
         role: "student",
         grade: body.grade,
+        schoolId: schoolId ?? undefined,
         password: hashPassword(body.password)
       });
 
@@ -65,7 +77,7 @@ export const POST = createAuthRoute({
         grade: body.grade,
         subjects: SUBJECT_OPTIONS.map((item) => item.value),
         target: "",
-        school: ""
+        school: school?.name ?? ""
       });
 
       return apiSuccess(
@@ -103,6 +115,7 @@ export const POST = createAuthRoute({
       email: body.email,
       name: body.name,
       role: "parent",
+      schoolId: student.schoolId,
       studentId: student.id,
       password: hashPassword(body.password)
     });

@@ -20,7 +20,7 @@ const updateHistoryBodySchema = v.object<{ favorite?: boolean; tags?: string[] }
 );
 
 export const PATCH = createAiRoute({
-  role: ["student", "teacher", "parent", "admin"],
+  role: ["student", "teacher", "parent", "admin", "school_admin"],
   cache: "private-realtime",
   handler: async ({ request, params }) => {
     const user = await getCurrentUser();
@@ -45,7 +45,7 @@ export const PATCH = createAiRoute({
 });
 
 export const DELETE = createAiRoute({
-  role: ["student", "teacher", "parent", "admin"],
+  role: ["student", "teacher", "parent", "admin", "school_admin"],
   cache: "private-realtime",
   handler: async ({ params }) => {
     const user = await getCurrentUser();

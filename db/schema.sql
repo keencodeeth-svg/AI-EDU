@@ -1,3 +1,12 @@
+CREATE TABLE IF NOT EXISTS schools (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  code TEXT UNIQUE NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id TEXT PRIMARY KEY,
   email TEXT UNIQUE NOT NULL,
@@ -5,9 +14,12 @@ CREATE TABLE IF NOT EXISTS users (
   role TEXT NOT NULL,
   password TEXT NOT NULL,
   grade TEXT,
+  school_id TEXT REFERENCES schools(id) ON DELETE SET NULL,
   student_id TEXT,
   created_at TIMESTAMPTZ DEFAULT now()
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS school_id TEXT REFERENCES schools(id) ON DELETE SET NULL;
 
 CREATE TABLE IF NOT EXISTS sessions (
   id TEXT PRIMARY KEY,
@@ -407,14 +419,33 @@ CREATE TABLE IF NOT EXISTS classes (
   name TEXT NOT NULL,
   subject TEXT NOT NULL,
   grade TEXT NOT NULL,
+  school_id TEXT REFERENCES schools(id) ON DELETE SET NULL,
   teacher_id TEXT REFERENCES users(id) ON DELETE SET NULL,
   created_at TIMESTAMPTZ NOT NULL,
   join_code TEXT,
   join_mode TEXT DEFAULT 'approval'
 );
 
+ALTER TABLE classes ADD COLUMN IF NOT EXISTS school_id TEXT REFERENCES schools(id) ON DELETE SET NULL;
 ALTER TABLE classes ADD COLUMN IF NOT EXISTS join_code TEXT;
 ALTER TABLE classes ADD COLUMN IF NOT EXISTS join_mode TEXT;
+
+INSERT INTO schools (id, name, code, status, created_at, updated_at)
+VALUES ('school-default', '默认学校', 'DEFAULT', 'active', now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+UPDATE users
+SET school_id = 'school-default'
+WHERE role IN ('student', 'parent', 'teacher', 'school_admin') AND school_id IS NULL;
+
+UPDATE classes c
+SET school_id = COALESCE(c.school_id, u.school_id, 'school-default')
+FROM users u
+WHERE c.teacher_id = u.id AND c.school_id IS NULL;
+
+UPDATE classes
+SET school_id = 'school-default'
+WHERE school_id IS NULL;
 
 CREATE TABLE IF NOT EXISTS class_students (
   id TEXT PRIMARY KEY,
@@ -940,6 +971,9 @@ CREATE INDEX IF NOT EXISTS ai_call_logs_provider_idx ON ai_call_logs (provider, 
 CREATE INDEX IF NOT EXISTS ai_call_logs_task_idx ON ai_call_logs (task_type);
 CREATE INDEX IF NOT EXISTS ai_call_logs_user_idx ON ai_call_logs (user_id);
 
+CREATE INDEX IF NOT EXISTS schools_code_idx ON schools (code);
+CREATE INDEX IF NOT EXISTS users_school_idx ON users (school_id);
+CREATE INDEX IF NOT EXISTS classes_school_idx ON classes (school_id);
 CREATE INDEX IF NOT EXISTS classes_teacher_idx ON classes (teacher_id);
 CREATE INDEX IF NOT EXISTS class_students_class_idx ON class_students (class_id);
 CREATE INDEX IF NOT EXISTS class_students_student_idx ON class_students (student_id);

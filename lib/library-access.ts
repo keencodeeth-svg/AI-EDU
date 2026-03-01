@@ -3,7 +3,8 @@ import type { LearningLibraryItem } from "./learning-library";
 
 type UserLike = {
   id: string;
-  role: "student" | "teacher" | "parent" | "admin";
+  role: "student" | "teacher" | "parent" | "admin" | "school_admin";
+  schoolId?: string;
   studentId?: string;
 };
 
@@ -22,6 +23,12 @@ export async function listAccessibleClassIds(user: UserLike) {
 
 export async function canAccessLearningLibraryItem(user: UserLike, item: LearningLibraryItem) {
   if (user.role === "admin") return true;
+  if (user.role === "school_admin") {
+    if (!user.schoolId) return false;
+    const klass = item.classId ? await getClassById(item.classId) : null;
+    if (item.accessScope === "global" && !item.classId) return true;
+    return Boolean(klass && klass.schoolId === user.schoolId);
+  }
   if (item.accessScope === "global") return true;
   if (!item.classId) return false;
 

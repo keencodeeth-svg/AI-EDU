@@ -1,5 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
-import { getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
+import { getClasses, getClassesByStudent, getClassesByTeacher } from "@/lib/classes";
 import { getStudentContext } from "@/lib/user-context";
 import { unauthorized } from "@/lib/api/http";
 import { createLearningRoute } from "@/lib/api/domains";
@@ -26,6 +26,17 @@ export const GET = createLearningRoute({
       const student = await getStudentContext();
       if (!student) return { data: [] };
       const classes = await getClassesByStudent(student.id);
+      return { data: classes };
+    }
+
+    if (user.role === "school_admin") {
+      if (!user.schoolId) return { data: [] };
+      const classes = await getClasses({ schoolId: user.schoolId });
+      return { data: classes };
+    }
+
+    if (user.role === "admin") {
+      const classes = await getClasses();
       return { data: classes };
     }
 

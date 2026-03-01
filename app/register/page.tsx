@@ -11,6 +11,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [grade, setGrade] = useState("4");
+  const [schoolCode, setSchoolCode] = useState("");
   const [studentEmail, setStudentEmail] = useState("");
   const [observerCode, setObserverCode] = useState("");
   const [message, setMessage] = useState<string | null>(null);
@@ -24,7 +25,10 @@ export default function RegisterPage() {
     setMessage(null);
 
     const payload: any = { role, name, email, password };
-    if (role === "student") payload.grade = grade;
+    if (role === "student") {
+      payload.grade = grade;
+      payload.schoolCode = schoolCode || undefined;
+    }
     if (role === "parent") {
       payload.observerCode = observerCode;
       payload.studentEmail = studentEmail;
@@ -43,6 +47,7 @@ export default function RegisterPage() {
       setName("");
       setEmail("");
       setPassword("");
+      setSchoolCode("");
       setStudentEmail("");
       setObserverCode("");
     }
@@ -100,20 +105,31 @@ export default function RegisterPage() {
             </div>
           </label>
           {role === "student" ? (
-            <label className="form-field">
-              <div className="section-title">年级</div>
-              <select
-                className="form-control"
-                value={grade}
-                onChange={(event) => setGrade(event.target.value)}
-              >
-                {GRADE_OPTIONS.map((item) => (
-                  <option key={item.value} value={item.value}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            </label>
+            <>
+              <label className="form-field">
+                <div className="section-title">年级</div>
+                <select
+                  className="form-control"
+                  value={grade}
+                  onChange={(event) => setGrade(event.target.value)}
+                >
+                  {GRADE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="form-field">
+                <div className="section-title">学校编码（可选）</div>
+                <input
+                  className="form-control"
+                  value={schoolCode}
+                  onChange={(event) => setSchoolCode(event.target.value)}
+                  placeholder="例如 HKHS01，不填则归入默认学校"
+                />
+              </label>
+            </>
           ) : (
             <>
               <label className="form-field">

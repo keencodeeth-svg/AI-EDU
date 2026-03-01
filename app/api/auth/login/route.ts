@@ -21,12 +21,12 @@ import { createAuthRoute } from "@/lib/api/domains";
 const loginBodySchema = v.object<{
   email: string;
   password: string;
-  role?: "student" | "teacher" | "parent" | "admin";
+  role?: "student" | "teacher" | "parent" | "admin" | "school_admin";
 }>(
   {
     email: v.string({ minLength: 1 }),
     password: v.string({ minLength: 1 }),
-    role: v.optional(v.enum(["student", "teacher", "parent", "admin"] as const))
+    role: v.optional(v.enum(["student", "teacher", "parent", "admin", "school_admin"] as const))
   },
   { allowUnknown: false }
 );

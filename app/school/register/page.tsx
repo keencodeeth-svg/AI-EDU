@@ -3,10 +3,11 @@
 import { useState } from "react";
 import Card from "@/components/Card";
 
-export default function TeacherRegisterPage() {
+export default function SchoolRegisterPage() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [schoolName, setSchoolName] = useState("");
   const [schoolCode, setSchoolCode] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -17,16 +18,23 @@ export default function TeacherRegisterPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/auth/teacher-register", {
+      const res = await fetch("/api/auth/school-register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, name, password, schoolCode, inviteCode })
+        body: JSON.stringify({
+          email,
+          name,
+          password,
+          schoolName: schoolName || undefined,
+          schoolCode: schoolCode || undefined,
+          inviteCode: inviteCode || undefined
+        })
       });
       const data = await res.json();
       if (!res.ok) {
         throw new Error(data?.error ?? "注册失败");
       }
-      window.location.assign("/teacher");
+      window.location.assign("/school");
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -38,12 +46,12 @@ export default function TeacherRegisterPage() {
     <div className="grid auth-page" style={{ gap: 18 }}>
       <div className="section-head">
         <div>
-          <h2>教师注册</h2>
-          <div className="section-sub">开启AI教研与班级管理功能。</div>
+          <h2>学校管理员注册</h2>
+          <div className="section-sub">创建或绑定学校组织，进入学校管理控制台。</div>
         </div>
-        <span className="chip">教师端</span>
+        <span className="chip">学校端</span>
       </div>
-      <Card title="教师注册" tag="入驻">
+      <Card title="学校管理员注册" tag="组织">
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="form-field">
             <div className="section-title">姓名</div>
@@ -51,7 +59,7 @@ export default function TeacherRegisterPage() {
               className="form-control"
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="教师"
+              placeholder="学校管理员"
             />
           </label>
           <label className="form-field">
@@ -60,7 +68,7 @@ export default function TeacherRegisterPage() {
               className="form-control"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
-              placeholder="teacher@demo.com"
+              placeholder="school-admin@demo.com"
             />
           </label>
           <label className="form-field">
@@ -72,9 +80,6 @@ export default function TeacherRegisterPage() {
               onChange={(event) => setPassword(event.target.value)}
               placeholder="默认建议至少 8 位，含大小写和数字"
             />
-            <div className="form-note">
-              实际规则由后端密码策略配置控制。
-            </div>
           </label>
           <label className="form-field">
             <div className="section-title">学校编码（可选）</div>
@@ -82,7 +87,16 @@ export default function TeacherRegisterPage() {
               className="form-control"
               value={schoolCode}
               onChange={(event) => setSchoolCode(event.target.value)}
-              placeholder="例如 HKHS01，不填则归入默认学校"
+              placeholder="例如 HKHS01，已存在学校可直接绑定"
+            />
+          </label>
+          <label className="form-field">
+            <div className="section-title">学校名称（可选）</div>
+            <input
+              className="form-control"
+              value={schoolName}
+              onChange={(event) => setSchoolName(event.target.value)}
+              placeholder="如果学校编码不存在，可填写名称自动创建"
             />
           </label>
           <label className="form-field">
@@ -91,25 +105,14 @@ export default function TeacherRegisterPage() {
               className="form-control"
               value={inviteCode}
               onChange={(event) => setInviteCode(event.target.value)}
-              placeholder="例如 HK-TEACH-2026（不区分大小写）"
+              placeholder="如果配置了 SCHOOL_ADMIN_INVITE_CODE(S) 则必填"
             />
-            <div className="form-note">
-              若后台配置了 TEACHER_INVITE_CODE(S)，则必须填写；支持多个邀请码。
-            </div>
           </label>
           {error ? <div className="status-note error">{error}</div> : null}
           <button className="button primary" type="submit" disabled={loading}>
             {loading ? "提交中..." : "注册并登录"}
           </button>
         </form>
-        <div className="auth-footnote">
-          默认仅允许首位教师无需邀请码注册。配置了 TEACHER_INVITE_CODE(S) 后，必须提供邀请码。
-        </div>
-        <div className="pill-list" style={{ marginTop: 10 }}>
-          <span className="pill">AI 组卷</span>
-          <span className="pill">班级学情</span>
-          <span className="pill">作业批改</span>
-        </div>
       </Card>
     </div>
   );

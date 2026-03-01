@@ -17,6 +17,7 @@ const readJson = (file) => {
 };
 
 const users = readJson("users.json");
+const schools = readJson("schools.json");
 const profiles = readJson("student-profiles.json");
 const knowledgePoints = readJson("knowledge-points.json");
 const questions = readJson("questions.json");
@@ -31,18 +32,48 @@ const client = await pool.connect();
 try {
   await client.query("BEGIN");
 
+  for (const school of schools) {
+    await client.query(
+      `INSERT INTO schools (id, name, code, status, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (id) DO UPDATE SET
+        name = EXCLUDED.name,
+        code = EXCLUDED.code,
+        status = EXCLUDED.status,
+        updated_at = EXCLUDED.updated_at`,
+      [
+        school.id,
+        school.name,
+        school.code,
+        school.status ?? "active",
+        school.createdAt ?? new Date().toISOString(),
+        school.updatedAt ?? new Date().toISOString()
+      ]
+    );
+  }
+
   for (const user of users) {
     await client.query(
-      `INSERT INTO users (id, email, name, role, password, grade, student_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO users (id, email, name, role, password, grade, school_id, student_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        ON CONFLICT (id) DO UPDATE SET
         email = EXCLUDED.email,
         name = EXCLUDED.name,
         role = EXCLUDED.role,
         password = EXCLUDED.password,
         grade = EXCLUDED.grade,
+        school_id = EXCLUDED.school_id,
         student_id = EXCLUDED.student_id`,
-      [user.id, user.email, user.name, user.role, user.password, user.grade ?? null, user.studentId ?? null]
+      [
+        user.id,
+        user.email,
+        user.name,
+        user.role,
+        user.password,
+        user.grade ?? null,
+        user.schoolId ?? null,
+        user.studentId ?? null
+      ]
     );
   }
 

@@ -1,13 +1,15 @@
-import { getCurrentUser, getParentsByStudentId } from "@/lib/auth";
+import { getParentsByStudentId, getUserById } from "@/lib/auth";
 import {
   addStudentToClass,
   decideJoinRequest,
+  forceAddStudentToClass,
   getClassById,
+  getClassStudentIds,
   getJoinRequestsByTeacher
 } from "@/lib/classes";
 import { createAssignmentProgress, getAssignmentsByClass } from "@/lib/assignments";
 import { createNotification } from "@/lib/notifications";
-import { notFound, unauthorized } from "@/lib/api/http";
+import { badRequest, notFound, unauthorized } from "@/lib/api/http";
 import { v } from "@/lib/api/validation";
 import { createLearningRoute } from "@/lib/api/domains";
 
@@ -40,9 +42,29 @@ export const POST = createLearningRoute({
     if (!klass || klass.teacherId !== user.id) {
       notFound("not found");
     }
+    const student = await getUserById(record.studentId);
+    const studentSchoolId = student?.schoolId;
+    if (klass.schoolId && studentSchoolId && klass.schoolId !== studentSchoolId) {
+      badRequest("班级与学生学校不匹配");
+    }
 
     await decideJoinRequest(record.id, "approved");
-    await addStudentToClass(record.classId, record.studentId);
+    let joined = await addStudentToClass(record.classId, record.studentId, { enforceSchoolMatch: true });
+    if (!joined) {
+      const existingStudentIds = await getClassStudentIds(record.classId);
+      const alreadyInClass = existingStudentIds.includes(record.studentId);
+      if (!alreadyInClass) {
+        joined = await addStudentToClass(record.classId, record.studentId, { enforceSchoolMatch: false });
+      } else {
+        joined = true;
+      }
+      if (!joined) {
+        joined = await forceAddStudentToClass(record.classId, record.studentId);
+      }
+    }
+    if (!joined) {
+      badRequest("班级与学生学校不匹配");
+    }
 
     const assignments = await getAssignmentsByClass(record.classId);
     for (const assignment of assignments) {

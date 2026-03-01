@@ -2,7 +2,7 @@ import { getCurrentUser } from "./auth";
 import type { UserRole } from "./auth";
 import { getAssignmentById } from "./assignments";
 import { getClassById, getClassStudentIds, getClassesByStudent } from "./classes";
-import { notFound, unauthorized } from "./api/http";
+import { forbidden, notFound, unauthorized } from "./api/http";
 import { getModuleById } from "./modules";
 
 export async function requireRole(role: UserRole) {
@@ -19,6 +19,24 @@ export async function requireRoleOrThrow(role: UserRole) {
     unauthorized();
   }
   return user;
+}
+
+export async function requireSchoolAdminOrPlatformAdmin() {
+  const user = await getCurrentUser();
+  if (!user || (user.role !== "admin" && user.role !== "school_admin")) {
+    unauthorized();
+  }
+  return user;
+}
+
+export function assertSameSchool(
+  user: { role: UserRole; schoolId?: string },
+  resourceSchoolId: string | null | undefined
+) {
+  if (user.role === "admin") return;
+  if (!resourceSchoolId || !user.schoolId || user.schoolId !== resourceSchoolId) {
+    forbidden("跨学校访问已禁止");
+  }
 }
 
 export async function requireTeacherClass(classId: string) {

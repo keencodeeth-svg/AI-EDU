@@ -1,4 +1,3 @@
-import { getCurrentUser } from "@/lib/auth";
 import { createClass, getClassesByTeacher, getClassStudentIds } from "@/lib/classes";
 import type { Subject } from "@/lib/types";
 import { getAssignmentsByClass } from "@/lib/assignments";
@@ -65,6 +64,7 @@ export const POST = createLearningRoute({
       name: body.name,
       subject: body.subject as Subject,
       grade: body.grade,
+      schoolId: user.schoolId ?? null,
       teacherId: user.id
     });
 

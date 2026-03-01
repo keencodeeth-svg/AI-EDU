@@ -81,7 +81,7 @@ function buildCoachMemorySnapshot(params: {
 }
 
 export const POST = createAiRoute({
-  role: ["student", "teacher", "parent", "admin"],
+  role: ["student", "teacher", "parent", "admin", "school_admin"],
   cache: "private-realtime",
   handler: async ({ request }) => {
     const user = await getCurrentUser();

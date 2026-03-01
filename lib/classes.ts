@@ -9,6 +9,7 @@ export type ClassItem = {
   name: string;
   subject: Subject;
   grade: string;
+  schoolId?: string;
   teacherId: string | null;
   createdAt: string;
   joinCode?: string;
@@ -47,6 +48,7 @@ type DbClass = {
   name: string;
   subject: string;
   grade: string;
+  school_id: string | null;
   teacher_id: string | null;
   created_at: string;
   join_code: string | null;
@@ -82,11 +84,21 @@ function mapClass(row: DbClass): ClassItem {
     name: row.name,
     subject: row.subject as Subject,
     grade: row.grade,
+    schoolId: row.school_id ?? undefined,
     teacherId: row.teacher_id,
     createdAt: row.created_at,
     joinCode: row.join_code ?? undefined,
     joinMode: (row.join_mode as ClassItem["joinMode"]) ?? "approval"
   };
+}
+
+type ClassScope = {
+  schoolId?: string | null;
+};
+
+function matchesClassScope(item: ClassItem, scope?: ClassScope) {
+  if (!scope?.schoolId) return true;
+  return (item.schoolId ?? null) === scope.schoolId;
 }
 
 function mapClassStudent(row: DbClassStudent): ClassStudent {
@@ -98,46 +110,60 @@ function mapClassStudent(row: DbClassStudent): ClassStudent {
   };
 }
 
-export async function getClasses(): Promise<ClassItem[]> {
+export async function getClasses(scope?: ClassScope): Promise<ClassItem[]> {
   if (!isDbEnabled()) {
-    return readJson<ClassItem[]>(CLASS_FILE, []);
+    const classes = readJson<ClassItem[]>(CLASS_FILE, []);
+    return classes.filter((item) => matchesClassScope(item, scope));
   }
-  const rows = await query<DbClass>("SELECT * FROM classes");
+  const rows = scope?.schoolId
+    ? await query<DbClass>("SELECT * FROM classes WHERE school_id = $1", [scope.schoolId])
+    : await query<DbClass>("SELECT * FROM classes");
   return rows.map(mapClass);
 }
 
-export async function getClassById(id: string): Promise<ClassItem | null> {
+export async function getClassById(id: string, scope?: ClassScope): Promise<ClassItem | null> {
   if (!isDbEnabled()) {
-    const list = await getClasses();
+    const list = await getClasses(scope);
     return list.find((item) => item.id === id) ?? null;
   }
-  const row = await queryOne<DbClass>("SELECT * FROM classes WHERE id = $1", [id]);
+  const row = scope?.schoolId
+    ? await queryOne<DbClass>("SELECT * FROM classes WHERE id = $1 AND school_id = $2", [id, scope.schoolId])
+    : await queryOne<DbClass>("SELECT * FROM classes WHERE id = $1", [id]);
   return row ? mapClass(row) : null;
 }
 
-export async function getClassesByTeacher(teacherId: string): Promise<ClassItem[]> {
+export async function getClassesByTeacher(teacherId: string, scope?: ClassScope): Promise<ClassItem[]> {
   if (!isDbEnabled()) {
-    const list = await getClasses();
+    const list = await getClasses(scope);
     return list.filter((item) => item.teacherId === teacherId);
   }
-  const rows = await query<DbClass>("SELECT * FROM classes WHERE teacher_id = $1", [teacherId]);
+  const rows = scope?.schoolId
+    ? await query<DbClass>("SELECT * FROM classes WHERE teacher_id = $1 AND school_id = $2", [teacherId, scope.schoolId])
+    : await query<DbClass>("SELECT * FROM classes WHERE teacher_id = $1", [teacherId]);
   return rows.map(mapClass);
 }
 
-export async function getClassesByStudent(studentId: string): Promise<ClassItem[]> {
+export async function getClassesByStudent(studentId: string, scope?: ClassScope): Promise<ClassItem[]> {
   if (!isDbEnabled()) {
     const classStudents = readJson<ClassStudent[]>(CLASS_STUDENT_FILE, []);
     const classIds = new Set(
       classStudents.filter((item) => item.studentId === studentId).map((item) => item.classId)
     );
-    return (await getClasses()).filter((item) => classIds.has(item.id));
+    return (await getClasses(scope)).filter((item) => classIds.has(item.id));
   }
-  const rows = await query<DbClass>(
-    `SELECT c.* FROM classes c
-     JOIN class_students cs ON c.id = cs.class_id
-     WHERE cs.student_id = $1`,
-    [studentId]
-  );
+  const rows = scope?.schoolId
+    ? await query<DbClass>(
+        `SELECT c.* FROM classes c
+         JOIN class_students cs ON c.id = cs.class_id
+         WHERE cs.student_id = $1 AND c.school_id = $2`,
+        [studentId, scope.schoolId]
+      )
+    : await query<DbClass>(
+        `SELECT c.* FROM classes c
+         JOIN class_students cs ON c.id = cs.class_id
+         WHERE cs.student_id = $1`,
+        [studentId]
+      );
   return rows.map(mapClass);
 }
 
@@ -145,6 +171,7 @@ export async function createClass(input: {
   name: string;
   subject: Subject;
   grade: string;
+  schoolId?: string | null;
   teacherId: string | null;
 }): Promise<ClassItem> {
   const createdAt = new Date().toISOString();
@@ -157,6 +184,7 @@ export async function createClass(input: {
       name: input.name,
       subject: input.subject,
       grade: input.grade,
+      schoolId: input.schoolId ?? undefined,
       teacherId: input.teacherId,
       createdAt,
       joinCode,
@@ -168,12 +196,24 @@ export async function createClass(input: {
   }
   const id = `class-${crypto.randomBytes(6).toString("hex")}`;
   const row = await queryOne<DbClass>(
-    `INSERT INTO classes (id, name, subject, grade, teacher_id, created_at, join_code, join_mode)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+    `INSERT INTO classes (id, name, subject, grade, school_id, teacher_id, created_at, join_code, join_mode)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
      RETURNING *`,
-    [id, input.name, input.subject, input.grade, input.teacherId, createdAt, joinCode, joinMode]
+    [
+      id,
+      input.name,
+      input.subject,
+      input.grade,
+      input.schoolId ?? null,
+      input.teacherId,
+      createdAt,
+      joinCode,
+      joinMode
+    ]
   );
-  return row ? mapClass(row) : { id, ...input, createdAt, joinCode, joinMode };
+  return row
+    ? mapClass(row)
+    : { id, ...input, schoolId: input.schoolId ?? undefined, createdAt, joinCode, joinMode };
 }
 
 export async function updateClassSettings(
@@ -204,12 +244,14 @@ export async function updateClassSettings(
   return row ? mapClass(row) : null;
 }
 
-export async function getClassByJoinCode(code: string): Promise<ClassItem | null> {
+export async function getClassByJoinCode(code: string, scope?: ClassScope): Promise<ClassItem | null> {
   if (!isDbEnabled()) {
-    const list = await getClasses();
+    const list = await getClasses(scope);
     return list.find((item) => item.joinCode === code) ?? null;
   }
-  const row = await queryOne<DbClass>("SELECT * FROM classes WHERE join_code = $1", [code]);
+  const row = scope?.schoolId
+    ? await queryOne<DbClass>("SELECT * FROM classes WHERE join_code = $1 AND school_id = $2", [code, scope.schoolId])
+    : await queryOne<DbClass>("SELECT * FROM classes WHERE join_code = $1", [code]);
   return row ? mapClass(row) : null;
 }
 
@@ -249,11 +291,70 @@ export async function getClassStudentIds(classId: string): Promise<string[]> {
   return rows.map((row) => row.student_id);
 }
 
-export async function addStudentToClass(classId: string, studentId: string): Promise<boolean> {
+export async function addStudentToClass(
+  classId: string,
+  studentId: string,
+  options?: { enforceSchoolMatch?: boolean }
+): Promise<boolean> {
+  const enforceSchoolMatch = options?.enforceSchoolMatch ?? true;
   if (!isDbEnabled()) {
+    if (enforceSchoolMatch) {
+      const [klass, student] = await Promise.all([
+        getClassById(classId),
+        getUsers().then((users) => users.find((item) => item.id === studentId) ?? null)
+      ]);
+      if (!klass || !student) return false;
+      if (klass.schoolId && student.schoolId && klass.schoolId !== student.schoolId) {
+        return false;
+      }
+    }
     const classStudents = readJson<ClassStudent[]>(CLASS_STUDENT_FILE, []);
     const exists = classStudents.some((item) => item.classId === classId && item.studentId === studentId);
     if (exists) return false;
+    classStudents.push({
+      id: `class-student-${crypto.randomBytes(6).toString("hex")}`,
+      classId,
+      studentId,
+      joinedAt: new Date().toISOString()
+    });
+    writeJson(CLASS_STUDENT_FILE, classStudents);
+    return true;
+  }
+  if (enforceSchoolMatch) {
+    const tenancy = await queryOne<{ class_school_id: string | null; student_school_id: string | null }>(
+      `SELECT c.school_id as class_school_id, u.school_id as student_school_id
+       FROM classes c
+       JOIN users u ON u.id = $2
+       WHERE c.id = $1`,
+      [classId, studentId]
+    );
+    if (!tenancy) return false;
+    const classSchoolId = tenancy.class_school_id;
+    const studentSchoolId = tenancy.student_school_id;
+    if (classSchoolId && studentSchoolId && classSchoolId !== studentSchoolId) {
+      return false;
+    }
+  }
+  const row = await queryOne<DbClassStudent>(
+    `INSERT INTO class_students (id, class_id, student_id, joined_at)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (class_id, student_id) DO NOTHING
+     RETURNING *`,
+    [
+      `class-student-${crypto.randomBytes(6).toString("hex")}`,
+      classId,
+      studentId,
+      new Date().toISOString()
+    ]
+  );
+  return Boolean(row);
+}
+
+export async function forceAddStudentToClass(classId: string, studentId: string): Promise<boolean> {
+  if (!isDbEnabled()) {
+    const classStudents = readJson<ClassStudent[]>(CLASS_STUDENT_FILE, []);
+    const exists = classStudents.some((item) => item.classId === classId && item.studentId === studentId);
+    if (exists) return true;
     classStudents.push({
       id: `class-student-${crypto.randomBytes(6).toString("hex")}`,
       classId,
@@ -275,7 +376,7 @@ export async function addStudentToClass(classId: string, studentId: string): Pro
       new Date().toISOString()
     ]
   );
-  return Boolean(row);
+  return Boolean(row) || (await getClassStudentIds(classId)).includes(studentId);
 }
 
 export async function getJoinRequests(): Promise<ClassJoinRequest[]> {

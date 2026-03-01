@@ -1,8 +1,8 @@
 # 航科（K12 AI 教育平台）
 
-面向 K12 的 AI 教育产品原型，覆盖学生、教师、家长、管理员四端，围绕“诊断 -> 计划 -> 练习 -> 复练 -> 干预 -> 反馈 -> 验证”的提分闭环构建。
+面向 K12 的 AI 教育产品原型，覆盖学生、教师、家长、学校管理员、平台管理员五端，围绕“诊断 -> 计划 -> 练习 -> 复练 -> 干预 -> 反馈 -> 验证”的提分闭环构建。
 
-更新时间：2026-02-28
+更新时间：2026-03-01
 
 ## 1. 项目定位
 
@@ -11,6 +11,7 @@
 - 学生端：练习、错题复练、考试测评、成长画像、AI 陪练
 - 教师端：班级作业、考试组卷、预警干预、讲评包、AI 教案/课件
 - 家长端：周报行动卡、执行回执、效果跟踪
+- 学校端：学校总览、组织管理、班级管理（学校租户范围）
 - 管理端：题库治理、知识点治理、AI 模型路由、A/B 灰度、操作审计
 
 核心目标：
@@ -19,12 +20,14 @@
 - 把 AI 从“生成内容”升级到“可治理、可观测、可回滚”
 - 支持从演示环境平滑迁移到数据库部署
 
-近期新增（2026-02-28）：
+近期新增（2026-03-01）：
 
 - 全学科全年级知识点批量生成升级：支持分批预览、分批入库、批次进度提示，移除旧的组合/条数硬上限
 - 知识点导入去重修复：去重键升级为 `subject+grade+unit+chapter+title`，避免跨学科/跨年级误判
 - 管理端导航升级：左侧导航支持功能搜索、最近访问、分组全展开/全收起
 - 全站 UI 重设计：统一 Claymorphism 视觉风格，提升层级感与可读性
+- 学校管理员与多租户 V1：新增 `school_admin` 角色、学校控制台与组织级权限隔离
+- 租户字段落地：`schools`、`users.school_id`、`classes.school_id`，班级链路执行同校校验
 
 ## 2. 功能全景
 
@@ -65,7 +68,14 @@
 - 实验治理闭环：A/B 开关 -> 分流比例 -> 结果报告 -> 灰度放量/一键回滚
 - 审计闭环：关键操作落日志，支持问题追踪与责任回放
 
-### 2.5 体验与可用性（产品使用闭环）
+### 2.5 学校端（组织闭环）
+
+- 组织总览闭环：学校管理员查看本校教师/学生/班级/作业规模总览
+- 成员管理闭环：按学校租户范围查看教师与学生列表
+- 班级治理闭环：学校维度查看班级规模、作业负载与教师归属
+- 权限边界：平台管理员可跨学校，学校管理员仅可访问本校数据
+
+### 2.6 体验与可用性（产品使用闭环）
 
 - 左侧导航闭环：功能搜索 -> 快速进入 -> 最近访问沉淀 -> 二次访问提效
 - 信息架构闭环：按角色与业务阶段分组，支持全展开/全收起，降低“找功能”成本
@@ -84,7 +94,7 @@
 
 ## 4. 已实现能力清单
 
-- [x] 账号体系（学生/家长/教师/管理员）
+- [x] 账号体系（学生/家长/教师/学校管理员/平台管理员）
 - [x] 认证安全（登录限流、密码策略、旧密码迁移）
 - [x] 学习计划与掌握度增量更新
 - [x] 错题闭环与间隔复习队列
@@ -103,6 +113,7 @@
 - [x] 资料库文件对象存储适配（文件内容可脱离 DB 存储，DB 仅保留元数据）
 - [x] 显式数据库迁移命令（`db:migrate`），运行时不再自动建表
 - [x] 统一授权中间层 V1（角色 + 班级归属校验抽离复用）
+- [x] 学校组织模型与多租户隔离 V1（`schools` + `users/classes.school_id` + 学校端 API）
 - [x] traceId 贯穿 API 响应头与 AI 调用日志（便于跨链路排障）
 - [x] AI 多模型路由（zhipu/deepseek/kimi/minimax/seedance/compatible/custom）
 - [x] AI 任务策略（providerChain、timeout、retries、budget、minQualityScore）
@@ -135,14 +146,14 @@
 
 1. 学生 AI 教练长期记忆
 2. 自适应考试与能力诊断增强
-3. 机构版多租户能力（多校区/多管理员/数据隔离）
+3. 学校组织能力 V2（多校区、多学校管理员协同、跨校运营面板）
 
 ## 6. 技术架构（文字版）
 
 ```text
 ┌───────────────────────────────┐
 │           Client 层            │
-│ 浏览器（学生/家长/教师/管理员） │
+│ 浏览器（学生/家长/教师/学校/平台）│
 └───────────────┬───────────────┘
                 │ HTTP + Cookie Session
 ┌───────────────▼───────────────┐
@@ -153,7 +164,7 @@
                 │
 ┌───────────────▼───────────────┐
 │         业务服务层 lib/*        │
-│ auth / practice / mastery      │
+│ auth / schools / practice      │
 │ exams / alerts / report        │
 │ ai-routing / quality-control   │
 └───────────────┬───────────────┘
@@ -198,6 +209,10 @@ LIBRARY_INLINE_FILE_CONTENT=false
 FILE_OBJECT_STORAGE_ENABLED=true
 FILE_INLINE_CONTENT=false
 # OBJECT_STORAGE_ROOT=.runtime-data/objects
+
+# 学校管理员注册邀请码（可选）
+# SCHOOL_ADMIN_INVITE_CODE=...
+# SCHOOL_ADMIN_INVITE_CODES=CODE1,CODE2
 ```
 
 2. 初始化数据库并写入种子：
@@ -245,6 +260,7 @@ npm run storage:migrate
 - 家长：`parent@demo.com / Parent123`
 - 教师：`teacher@demo.com / Teacher123`
 - 管理员：`admin@demo.com / Admin123`
+- 学校管理员：通过 `/school/register` 自助创建（可配置邀请码）
 
 批量数据（可选）：
 
@@ -309,12 +325,14 @@ ZHIPU_MODEL=glm-4.7
 - 学生：`/practice`、`/wrong-book`、`/student/exams`、`/student/growth`
 - 家长：`/parent`
 - 教师：`/teacher`、`/teacher/exams`、`/teacher/analysis`
+- 学校：`/school`、`/school/classes`、`/school/teachers`、`/school/students`
 - 管理：`/admin`、`/admin/questions`、`/admin/knowledge-points`、`/admin/ai-models`
 - 资料库：`/library`、`/library/[id]`
 
 ### 10.2 核心 API（分组）
 
-- 认证与用户：`/api/auth/*`
+- 认证与用户：`/api/auth/*`（含 `/api/auth/school-register`）
+- 学校组织：`/api/school/overview`、`/api/school/classes`、`/api/school/users`
 - 练习与掌握度：`/api/practice/*`、`/api/plan*`、`/api/student/radar`
 - 错题复练：`/api/wrong-book*`
 - 考试：`/api/teacher/exams*`、`/api/student/exams*`
