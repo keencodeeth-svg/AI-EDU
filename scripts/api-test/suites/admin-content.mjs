@@ -51,6 +51,18 @@ export async function runAdminContentSuite(context) {
   const assistPolicy = (aiPolicies.body?.data?.policies ?? []).find((item) => item.taskType === "assist");
   assert.ok(assistPolicy, "Assist task policy should exist");
 
+  const aiEvals = await apiFetch(
+    "/api/admin/ai/evals?datasets=explanation,writing_feedback,lesson_outline,question_check"
+  );
+  assert.equal(aiEvals.status, 200, `GET /api/admin/ai/evals failed: ${aiEvals.raw}`);
+  assert.ok(Array.isArray(aiEvals.body?.data?.datasets), "AI evals should include datasets array");
+  assert.equal(typeof aiEvals.body?.data?.summary?.passRate, "number", "AI evals should include summary.passRate");
+  assert.equal(
+    typeof aiEvals.body?.data?.summary?.calibrationSuggestion?.recommendedGlobalBias,
+    "number",
+    "AI evals should include calibrationSuggestion.recommendedGlobalBias"
+  );
+
   const tightenAssistBudget = await apiFetch("/api/admin/ai/policies", {
     method: "POST",
     json: {

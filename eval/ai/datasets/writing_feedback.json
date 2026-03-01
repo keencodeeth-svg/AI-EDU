@@ -1,0 +1,49 @@
+[
+  {
+    "id": "writing-good-1",
+    "input": {
+      "kind": "writing",
+      "provider": "deepseek",
+      "taskType": "writing_feedback",
+      "textBlocks": [
+        "文章结构完整，开头点题清晰，中间段落有细节支撑，结尾有总结。语法总体正确，建议增强词汇多样性，并补充一处转折句让表达更自然。"
+      ],
+      "listCountHint": 3
+    },
+    "expected": {
+      "minScore": 76,
+      "riskLevel": "low"
+    }
+  },
+  {
+    "id": "writing-medium-1",
+    "input": {
+      "kind": "writing",
+      "provider": "zhipu",
+      "taskType": "writing_feedback",
+      "textBlocks": [
+        "作文基本完成，继续努力。"
+      ],
+      "listCountHint": 1
+    },
+    "expected": {
+      "maxScore": 70
+    }
+  },
+  {
+    "id": "writing-bad-1",
+    "input": {
+      "kind": "writing",
+      "provider": "mock",
+      "taskType": "writing_feedback",
+      "textBlocks": [
+        "可能有问题，不确定。"
+      ],
+      "listCountHint": 0
+    },
+    "expected": {
+      "maxScore": 45,
+      "riskLevel": "high"
+    }
+  }
+]

@@ -1,0 +1,49 @@
+[
+  {
+    "id": "lesson-outline-good-1",
+    "input": {
+      "kind": "assist",
+      "provider": "kimi",
+      "taskType": "lesson_outline",
+      "textBlocks": [
+        "教学目标包含知识、能力、情感三个层面；课件分为导入、新授、练习、总结四段；每段都给出活动与板书要点，并附课堂提问设计。"
+      ],
+      "listCountHint": 4
+    },
+    "expected": {
+      "minScore": 74,
+      "riskLevel": "low"
+    }
+  },
+  {
+    "id": "lesson-outline-medium-1",
+    "input": {
+      "kind": "assist",
+      "provider": "zhipu",
+      "taskType": "lesson_outline",
+      "textBlocks": [
+        "给出大致教学流程，但目标与活动设计不够具体。"
+      ],
+      "listCountHint": 1
+    },
+    "expected": {
+      "maxScore": 76
+    }
+  },
+  {
+    "id": "lesson-outline-bad-1",
+    "input": {
+      "kind": "assist",
+      "provider": "mock",
+      "taskType": "lesson_outline",
+      "textBlocks": [
+        ""
+      ],
+      "listCountHint": 0
+    },
+    "expected": {
+      "maxScore": 35,
+      "riskLevel": "high"
+    }
+  }
+]

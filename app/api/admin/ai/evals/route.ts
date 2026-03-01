@@ -10,7 +10,14 @@ const querySchema = v.object<{ datasets?: string }>(
   { allowUnknown: true }
 );
 
-const ALLOWED_DATASETS: AiEvalDatasetName[] = ["explanation", "homework_review", "knowledge_points_generate"];
+const ALLOWED_DATASETS: AiEvalDatasetName[] = [
+  "explanation",
+  "homework_review",
+  "knowledge_points_generate",
+  "writing_feedback",
+  "lesson_outline",
+  "question_check"
+];
 
 export const GET = createAdminRoute({
   role: "admin",
@@ -34,4 +41,3 @@ export const GET = createAdminRoute({
     return { data: report };
   }
 });
-

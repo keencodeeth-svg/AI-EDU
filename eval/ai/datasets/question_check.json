@@ -1,0 +1,49 @@
+[
+  {
+    "id": "question-check-good-1",
+    "input": {
+      "kind": "assist",
+      "provider": "deepseek",
+      "taskType": "question_check",
+      "textBlocks": [
+        "已识别出选项 B 与 C 语义重复，建议合并；指出题干条件缺失“单位说明”；给出建议答案与修订备注。"
+      ],
+      "listCountHint": 3
+    },
+    "expected": {
+      "minScore": 75,
+      "riskLevel": "low"
+    }
+  },
+  {
+    "id": "question-check-medium-1",
+    "input": {
+      "kind": "assist",
+      "provider": "kimi",
+      "taskType": "question_check",
+      "textBlocks": [
+        "题目可能存在歧义，建议老师复核。"
+      ],
+      "listCountHint": 1
+    },
+    "expected": {
+      "maxScore": 72
+    }
+  },
+  {
+    "id": "question-check-bad-1",
+    "input": {
+      "kind": "assist",
+      "provider": "mock",
+      "taskType": "question_check",
+      "textBlocks": [
+        "不确定。"
+      ],
+      "listCountHint": 0
+    },
+    "expected": {
+      "maxScore": 40,
+      "riskLevel": "high"
+    }
+  }
+]
