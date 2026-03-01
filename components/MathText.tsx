@@ -1,6 +1,7 @@
 "use client";
 
-import { Fragment } from "react";
+import { Fragment, useState } from "react";
+import { pushAppToast } from "@/components/AppToastHub";
 
 type MathTextProps = {
   text?: string | null;
@@ -276,18 +277,36 @@ export default function MathText({
   autoDetect = true,
   showCopyActions = false
 }: MathTextProps) {
+  const [copyMenuOpen, setCopyMenuOpen] = useState(false);
   const content = String(text ?? "");
   const segments = splitMathDelimitedSegments(content);
   const classes = ["math-text", className].filter(Boolean).join(" ");
   const plainText = formatTextToPlain(content, autoDetect);
   const hasContent = Boolean(content.trim());
+  async function handleCopy(value: string, label: string) {
+    try {
+      await copyToClipboard(value);
+      pushAppToast(`已复制${label}`);
+      setCopyMenuOpen(false);
+    } catch {
+      pushAppToast("复制失败，请手动复制", "error");
+    }
+  }
   const copyActions = showCopyActions && hasContent ? (
-    <span className="math-copy-actions">
+    <span className={`math-copy-actions ${copyMenuOpen ? "open" : ""}`}>
+      <button
+        type="button"
+        className="math-copy-btn math-copy-trigger"
+        onClick={() => setCopyMenuOpen((prev) => !prev)}
+      >
+        复制
+      </button>
+      <span className="math-copy-menu">
       <button
         type="button"
         className="math-copy-btn"
         onClick={() => {
-          void copyToClipboard(content);
+            void handleCopy(content, "LaTeX");
         }}
       >
         复制 LaTeX
@@ -296,11 +315,12 @@ export default function MathText({
         type="button"
         className="math-copy-btn"
         onClick={() => {
-          void copyToClipboard(plainText || content);
+            void handleCopy(plainText || content, "纯文本");
         }}
       >
         复制纯文本
       </button>
+      </span>
     </span>
   ) : null;
   if (as === "div") {

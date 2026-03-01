@@ -3,6 +3,7 @@ import { getCurrentUser } from "@/lib/auth";
 import UserMenu from "@/components/UserMenu";
 import DensityToggle from "@/components/DensityToggle";
 import RoleSidebarNav from "@/components/RoleSidebarNav";
+import AppToastHub from "@/components/AppToastHub";
 
 export const metadata = {
   title: "航科AI教育",
@@ -213,6 +214,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <footer className="site-footer">© 2026 航科AI教育 K12 学习辅导 MVP</footer>
           </div>
         </div>
+        <AppToastHub />
       </body>
     </html>
   );
