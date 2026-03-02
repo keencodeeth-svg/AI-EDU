@@ -3,6 +3,7 @@ import {
   resolveLearningLibraryFileContentBase64,
   type LearningLibraryItem
 } from "./learning-library";
+import { extractReadableTextFromBase64 } from "./file-text-extract";
 import { readJson, writeJson } from "./storage";
 
 export type LibraryChunk = {
@@ -238,31 +239,17 @@ function buildEvidenceSnippet(input: {
   return `${start > 0 ? "..." : ""}${snippet}${end < source.length ? "..." : ""}`;
 }
 
-function decodeBase64Text(contentBase64?: string, mimeType?: string) {
-  if (!contentBase64) return "";
-  const mime = (mimeType ?? "").toLowerCase();
-  if (
-    mime &&
-    !mime.includes("text") &&
-    !mime.includes("json") &&
-    !mime.includes("xml") &&
-    !mime.includes("markdown") &&
-    !mime.includes("csv")
-  ) {
-    return "";
-  }
-  try {
-    return Buffer.from(contentBase64, "base64").toString("utf-8");
-  } catch {
-    return "";
-  }
-}
-
 async function extractItemText(item: LearningLibraryItem) {
   const parts = [item.title, item.description ?? "", item.textContent ?? ""];
   if (item.sourceType === "file") {
     const contentBase64 = await resolveLearningLibraryFileContentBase64(item);
-    parts.push(decodeBase64Text(contentBase64, item.mimeType));
+    parts.push(
+      extractReadableTextFromBase64(contentBase64, {
+        mimeType: item.mimeType,
+        fileName: item.fileName,
+        maxChars: 22000
+      })
+    );
   }
   return parts
     .filter(Boolean)

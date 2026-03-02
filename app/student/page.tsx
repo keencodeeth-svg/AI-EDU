@@ -6,6 +6,8 @@ import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
 import { trackEvent } from "@/lib/analytics-client";
 
+const STUDENT_DASHBOARD_GUIDE_KEY = "guide:student-dashboard:v1";
+
 type PlanItem = {
   knowledgePointId: string;
   targetCount: number;
@@ -331,6 +333,7 @@ export default function StudentPage() {
   const [activeCategory, setActiveCategory] = useState<EntryCategory>("priority");
   const [showAllEntries, setShowAllEntries] = useState(false);
   const [entryViewMode, setEntryViewMode] = useState<"compact" | "detailed">("compact");
+  const [showDashboardGuide, setShowDashboardGuide] = useState(true);
 
   const loadTodayTasks = useCallback(async () => {
     setTodayTaskError(null);
@@ -358,6 +361,15 @@ export default function StudentPage() {
       .then((data) => setJoinRequests(data.data ?? []));
     loadTodayTasks();
   }, [loadTodayTasks]);
+
+  useEffect(() => {
+    try {
+      const hidden = window.localStorage.getItem(STUDENT_DASHBOARD_GUIDE_KEY) === "hidden";
+      setShowDashboardGuide(!hidden);
+    } catch {
+      setShowDashboardGuide(true);
+    }
+  }, []);
 
   useEffect(() => {
     setShowAllEntries(false);
@@ -484,6 +496,24 @@ export default function StudentPage() {
     }
     await loadTodayTasks();
     setRefreshing(false);
+  }
+
+  function hideDashboardGuide() {
+    setShowDashboardGuide(false);
+    try {
+      window.localStorage.setItem(STUDENT_DASHBOARD_GUIDE_KEY, "hidden");
+    } catch {
+      // ignore localStorage errors
+    }
+  }
+
+  function showDashboardGuideAgain() {
+    setShowDashboardGuide(true);
+    try {
+      window.localStorage.removeItem(STUDENT_DASHBOARD_GUIDE_KEY);
+    } catch {
+      // ignore localStorage errors
+    }
   }
 
   function renderEntryCard(item: EntryItem) {
@@ -616,6 +646,35 @@ export default function StudentPage() {
         </div>
         <span className="chip">学期进行中</span>
       </div>
+
+      {showDashboardGuide ? (
+        <Card title="功能引导（学生控制台）" tag="上手">
+          <div className="grid" style={{ gap: 8 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-1)" }}>
+              建议先完成“今日高优先任务”，再进入“学习工具”，最后看“成长与反馈”。
+            </div>
+            <div className="pill-list">
+              <span className="pill">先做 TOP 任务，提分效率最高</span>
+              <span className="pill">练习页支持失败后一键修复与重试</span>
+              <span className="pill">每天至少完成 1 次练习可稳步提升掌握度</span>
+            </div>
+            <div className="cta-row">
+              <Link className="button secondary" href="/practice">
+                进入智能练习
+              </Link>
+              <button className="button ghost" type="button" onClick={hideDashboardGuide}>
+                我已了解，隐藏引导
+              </button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <div className="cta-row">
+          <button className="button ghost" type="button" onClick={showDashboardGuideAgain}>
+            显示功能引导
+          </button>
+        </div>
+      )}
 
       <div className="student-overview-grid">
         <Card title="今日高优先任务" tag="队列">

@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { extractKnowledgePointCandidates } from "./ai";
 import { getKnowledgePoints } from "./content";
 import { isDbEnabled, query, queryOne } from "./db";
+import { extractReadableTextFromBase64 } from "./file-text-extract";
 import { deleteObject, getBase64Object, putBase64Object } from "./object-storage";
 import { readJson, writeJson } from "./storage";
 
@@ -171,25 +172,6 @@ function mapDbAnnotation(row: DbLibraryAnnotation): LearningLibraryAnnotation {
   };
 }
 
-function decodeTextFromBase64(contentBase64?: string, mimeType?: string) {
-  if (!contentBase64) return "";
-  const mime = (mimeType ?? "").toLowerCase();
-  if (
-    mime &&
-    !mime.includes("text") &&
-    !mime.includes("json") &&
-    !mime.includes("xml") &&
-    !mime.includes("markdown")
-  ) {
-    return "";
-  }
-  try {
-    return Buffer.from(contentBase64, "base64").toString("utf-8").slice(0, 4000);
-  } catch {
-    return "";
-  }
-}
-
 function shouldStoreLibraryFileInObjectStorage() {
   if (process.env.LIBRARY_OBJECT_STORAGE_ENABLED === "false") return false;
   if (process.env.LIBRARY_OBJECT_STORAGE_ENABLED === "true") return true;
@@ -247,7 +229,10 @@ export async function extractLibraryKnowledgePointIds(input: {
     input.title,
     input.description ?? "",
     input.textContent ?? "",
-    decodeTextFromBase64(input.contentBase64, input.mimeType)
+    extractReadableTextFromBase64(input.contentBase64, {
+      mimeType: input.mimeType,
+      maxChars: 5000
+    })
   ]
     .join("\n")
     .slice(0, 5000);

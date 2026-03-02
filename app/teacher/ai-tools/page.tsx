@@ -5,6 +5,8 @@ import Card from "@/components/Card";
 import MathText from "@/components/MathText";
 import { SUBJECT_LABELS } from "@/lib/constants";
 
+const TEACHER_AI_TOOLS_GUIDE_KEY = "guide:teacher-ai-tools:v1";
+
 type ClassItem = {
   id: string;
   name: string;
@@ -33,6 +35,17 @@ type PaperQuestion = {
   source: "bank" | "ai";
 };
 
+type PaperFormState = {
+  classId: string;
+  knowledgePointIds: string[];
+  difficulty: "all" | "easy" | "medium" | "hard";
+  questionType: "all" | "choice" | "application" | "calculation";
+  durationMinutes: number;
+  questionCount: number;
+  mode: "bank" | "ai";
+  includeIsolated: boolean;
+};
+
 function aiRiskLabel(level?: string) {
   if (level === "high") return "高";
   if (level === "medium") return "中";
@@ -42,7 +55,7 @@ function aiRiskLabel(level?: string) {
 export default function TeacherAiToolsPage() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
-  const [paperForm, setPaperForm] = useState({
+  const [paperForm, setPaperForm] = useState<PaperFormState>({
     classId: "",
     knowledgePointIds: [] as string[],
     difficulty: "all",
@@ -109,6 +122,9 @@ export default function TeacherAiToolsPage() {
   const [reviewPackFailedItems, setReviewPackFailedItems] = useState<any[]>([]);
   const [reviewPackRelaxedItems, setReviewPackRelaxedItems] = useState<any[]>([]);
   const [reviewPackRetryingFailed, setReviewPackRetryingFailed] = useState(false);
+  const [showGuideCard, setShowGuideCard] = useState(true);
+  const [paperAutoFixing, setPaperAutoFixing] = useState(false);
+  const [paperAutoFixHint, setPaperAutoFixHint] = useState<string | null>(null);
   const [checkForm, setCheckForm] = useState({
     questionId: "",
     stem: "",
@@ -127,6 +143,15 @@ export default function TeacherAiToolsPage() {
     fetch("/api/knowledge-points")
       .then((res) => res.json())
       .then((data) => setKnowledgePoints(data.data ?? []));
+  }, []);
+
+  useEffect(() => {
+    try {
+      const hidden = window.localStorage.getItem(TEACHER_AI_TOOLS_GUIDE_KEY) === "hidden";
+      setShowGuideCard(!hidden);
+    } catch {
+      setShowGuideCard(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -155,16 +180,14 @@ export default function TeacherAiToolsPage() {
     return knowledgePoints.filter((kp) => kp.subject === outlineClass.subject && kp.grade === outlineClass.grade);
   }, [knowledgePoints, outlineClass]);
 
-  async function handleGeneratePaper(event: React.FormEvent) {
-    event.preventDefault();
-    if (!paperForm.classId) return;
+  async function requestGeneratePaper(nextForm: PaperFormState) {
     setLoading(true);
     setPaperError(null);
     setPaperErrorSuggestions([]);
     const res = await fetch("/api/teacher/paper/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(paperForm)
+      body: JSON.stringify(nextForm)
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
@@ -172,7 +195,7 @@ export default function TeacherAiToolsPage() {
       setPaperError(data?.error ?? data?.message ?? "组卷失败，请稍后重试");
       setPaperErrorSuggestions(Array.isArray(data?.details?.suggestions) ? data.details.suggestions : []);
       setLoading(false);
-      return;
+      return false;
     }
     setPaperResult({
       questions: data?.data?.questions ?? [],
@@ -182,6 +205,65 @@ export default function TeacherAiToolsPage() {
       qualityGovernance: data?.data?.qualityGovernance ?? null
     });
     setLoading(false);
+    return true;
+  }
+
+  async function handleGeneratePaper(event: React.FormEvent) {
+    event.preventDefault();
+    if (!paperForm.classId) return;
+    setPaperAutoFixHint(null);
+    await requestGeneratePaper(paperForm);
+  }
+
+  function hideGuideCard() {
+    setShowGuideCard(false);
+    try {
+      window.localStorage.setItem(TEACHER_AI_TOOLS_GUIDE_KEY, "hidden");
+    } catch {
+      // ignore localStorage errors
+    }
+  }
+
+  function showGuideAgain() {
+    setShowGuideCard(true);
+    try {
+      window.localStorage.removeItem(TEACHER_AI_TOOLS_GUIDE_KEY);
+    } catch {
+      // ignore localStorage errors
+    }
+  }
+
+  async function applyPaperQuickFix(action: "clear_filters" | "switch_ai" | "reduce_count" | "allow_isolated") {
+    if (!paperForm.classId || paperAutoFixing || loading) return;
+    const nextForm: PaperFormState = { ...paperForm };
+    let hint = "";
+    if (action === "clear_filters") {
+      nextForm.knowledgePointIds = [];
+      nextForm.difficulty = "all";
+      nextForm.questionType = "all";
+      hint = "已清空知识点/难度/题型筛选，正在重试。";
+    } else if (action === "switch_ai") {
+      nextForm.mode = "ai";
+      hint = "已切换为 AI 补题模式，正在重试。";
+    } else if (action === "reduce_count") {
+      if (nextForm.questionCount <= 0) {
+        nextForm.questionCount = Math.max(6, Math.floor(nextForm.durationMinutes / 3));
+      } else {
+        nextForm.questionCount = Math.max(5, nextForm.questionCount - 3);
+      }
+      hint = `已降低题量到 ${nextForm.questionCount} 题，正在重试。`;
+    } else if (action === "allow_isolated") {
+      nextForm.includeIsolated = true;
+      hint = "已允许使用隔离池高风险题，正在重试（请人工复核）。";
+    }
+    setPaperForm(nextForm);
+    setPaperAutoFixHint(hint);
+    setPaperAutoFixing(true);
+    try {
+      await requestGeneratePaper(nextForm);
+    } finally {
+      setPaperAutoFixing(false);
+    }
   }
 
   async function handleGenerateOutline(event: React.FormEvent) {
@@ -497,19 +579,32 @@ export default function TeacherAiToolsPage() {
         <span className="chip">教学助手</span>
       </div>
 
-      <Card title="功能引导（教师版）" tag="上手">
-        <div className="grid" style={{ gap: 8 }}>
-          <div style={{ fontSize: 13, color: "var(--ink-1)" }}>
-            推荐使用顺序：AI组卷 → 课堂讲稿 → 讲评包下发 → 题目纠错。
+      {showGuideCard ? (
+        <Card title="功能引导（教师版）" tag="上手">
+          <div className="grid" style={{ gap: 8 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-1)" }}>
+              推荐使用顺序：AI组卷 → 课堂讲稿 → 讲评包下发 → 题目纠错。
+            </div>
+            <div className="pill-list">
+              <span className="pill">先选班级，再选知识点（可不选）</span>
+              <span className="pill">筛选越多，题量越可能不足</span>
+              <span className="pill">组卷失败优先清空筛选后重试</span>
+              <span className="pill">讲评包可直接一键下发给学生和家长</span>
+            </div>
+            <div className="cta-row">
+              <button className="button ghost" type="button" onClick={hideGuideCard}>
+                我已了解，隐藏引导
+              </button>
+            </div>
           </div>
-          <div className="pill-list">
-            <span className="pill">先选班级，再选知识点（可不选）</span>
-            <span className="pill">筛选越多，题量越可能不足</span>
-            <span className="pill">组卷失败优先清空筛选后重试</span>
-            <span className="pill">讲评包可直接一键下发给学生和家长</span>
-          </div>
+        </Card>
+      ) : (
+        <div className="cta-row">
+          <button className="button ghost" type="button" onClick={showGuideAgain}>
+            显示功能引导
+          </button>
         </div>
-      </Card>
+      )}
 
       <Card title="AI 组卷" tag="组卷">
         <form onSubmit={handleGeneratePaper} style={{ display: "grid", gap: 12 }}>
@@ -555,7 +650,12 @@ export default function TeacherAiToolsPage() {
               <div className="section-title">难度</div>
               <select
                 value={paperForm.difficulty}
-                onChange={(event) => setPaperForm((prev) => ({ ...prev, difficulty: event.target.value }))}
+                onChange={(event) =>
+                  setPaperForm((prev) => ({
+                    ...prev,
+                    difficulty: event.target.value as PaperFormState["difficulty"]
+                  }))
+                }
                 style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
               >
                 <option value="all">不限</option>
@@ -568,7 +668,12 @@ export default function TeacherAiToolsPage() {
               <div className="section-title">题型</div>
               <select
                 value={paperForm.questionType}
-                onChange={(event) => setPaperForm((prev) => ({ ...prev, questionType: event.target.value }))}
+                onChange={(event) =>
+                  setPaperForm((prev) => ({
+                    ...prev,
+                    questionType: event.target.value as PaperFormState["questionType"]
+                  }))
+                }
                 style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
               >
                 <option value="all">不限</option>
@@ -609,7 +714,12 @@ export default function TeacherAiToolsPage() {
               <div className="section-title">出题方式</div>
               <select
                 value={paperForm.mode}
-                onChange={(event) => setPaperForm((prev) => ({ ...prev, mode: event.target.value }))}
+                onChange={(event) =>
+                  setPaperForm((prev) => ({
+                    ...prev,
+                    mode: event.target.value as PaperFormState["mode"]
+                  }))
+                }
                 style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
               >
                 <option value="bank">题库抽题</option>
@@ -629,6 +739,7 @@ export default function TeacherAiToolsPage() {
             {loading ? "生成中..." : "生成试卷"}
           </button>
         </form>
+        {paperAutoFixHint ? <div className="status-note info">{paperAutoFixHint}</div> : null}
 
         {paperResult ? (
           <div style={{ marginTop: 12 }} className="grid" aria-live="polite">
@@ -686,6 +797,32 @@ export default function TeacherAiToolsPage() {
                     <li key={item}>{item}</li>
                   ))}
                 </ul>
+                <div className="cta-row" style={{ marginTop: 8 }}>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={paperAutoFixing || loading}
+                    onClick={() => applyPaperQuickFix("clear_filters")}
+                  >
+                    清空筛选并重试
+                  </button>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={paperAutoFixing || loading}
+                    onClick={() => applyPaperQuickFix("switch_ai")}
+                  >
+                    切换 AI 补题重试
+                  </button>
+                  <button
+                    className="button secondary"
+                    type="button"
+                    disabled={paperAutoFixing || loading}
+                    onClick={() => applyPaperQuickFix("reduce_count")}
+                  >
+                    降低题量重试
+                  </button>
+                </div>
               </div>
             ) : null}
             <div className="grid" style={{ gap: 10, marginTop: 10 }}>
@@ -722,6 +859,32 @@ export default function TeacherAiToolsPage() {
                 <li key={item}>{item}</li>
               ))}
             </ul>
+            <div className="cta-row" style={{ marginTop: 8 }}>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={paperAutoFixing || loading}
+                onClick={() => applyPaperQuickFix("clear_filters")}
+              >
+                一键清空筛选并重试
+              </button>
+              <button
+                className="button secondary"
+                type="button"
+                disabled={paperAutoFixing || loading}
+                onClick={() => applyPaperQuickFix("reduce_count")}
+              >
+                一键降低题量并重试
+              </button>
+              <button
+                className="button ghost"
+                type="button"
+                disabled={paperAutoFixing || loading}
+                onClick={() => applyPaperQuickFix("allow_isolated")}
+              >
+                开启隔离池重试
+              </button>
+            </div>
           </div>
         ) : null}
       </Card>

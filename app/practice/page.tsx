@@ -9,6 +9,10 @@ import { GRADE_OPTIONS, SUBJECT_OPTIONS } from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 import { useMathViewSettings } from "@/lib/math-view-settings";
 
+const STUDENT_PRACTICE_GUIDE_KEY = "guide:student-practice:v1";
+
+type PracticeMode = "normal" | "challenge" | "timed" | "wrong" | "adaptive" | "review";
+
 type Question = {
   id: string;
   stem: string;
@@ -73,7 +77,7 @@ export default function PracticePage() {
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
   const [knowledgePointId, setKnowledgePointId] = useState<string | undefined>(undefined);
   const [knowledgeSearch, setKnowledgeSearch] = useState("");
-  const [mode, setMode] = useState<"normal" | "challenge" | "timed" | "wrong" | "adaptive" | "review">("normal");
+  const [mode, setMode] = useState<PracticeMode>("normal");
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
   const [result, setResult] = useState<{
@@ -92,6 +96,9 @@ export default function PracticePage() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showPracticeGuide, setShowPracticeGuide] = useState(true);
+  const [autoFixing, setAutoFixing] = useState(false);
+  const [autoFixHint, setAutoFixHint] = useState<string | null>(null);
   const [variantPack, setVariantPack] = useState<{ analysis: string; hints: string[]; variants: Variant[] } | null>(null);
   const [variantAnswers, setVariantAnswers] = useState<Record<number, string>>({});
   const [variantResults, setVariantResults] = useState<Record<number, boolean | null>>({});
@@ -107,6 +114,15 @@ export default function PracticePage() {
     fetch("/api/knowledge-points")
       .then((res) => res.json())
       .then((data) => setKnowledgePoints(data.data ?? []));
+  }, []);
+
+  useEffect(() => {
+    try {
+      const hidden = window.localStorage.getItem(STUDENT_PRACTICE_GUIDE_KEY) === "hidden";
+      setShowPracticeGuide(!hidden);
+    } catch {
+      setShowPracticeGuide(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -129,21 +145,21 @@ export default function PracticePage() {
     }
   }, [searchParams]);
 
-  async function loadQuestion() {
-    if (mode === "timed" && timeLeft === 0) {
+  async function requestQuestion(next: { subject: string; grade: string; knowledgePointId?: string; mode: PracticeMode }) {
+    if (next.mode === "timed" && timeLeft === 0) {
       setTimeLeft(60);
       setTimerRunning(true);
     }
     const res = await fetch("/api/practice/next", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subject, grade, knowledgePointId, mode })
+      body: JSON.stringify(next)
     });
     const data = await res.json();
     if (!res.ok) {
       setError(data?.error ?? "暂无题目");
       setQuestion(null);
-      return;
+      return false;
     }
     setError(null);
     setQuestion(data.question ?? null);
@@ -154,6 +170,70 @@ export default function PracticePage() {
     setVariantResults({});
     setExplainPack(null);
     setExplainMode("text");
+    return true;
+  }
+
+  async function loadQuestion() {
+    await requestQuestion({
+      subject,
+      grade,
+      knowledgePointId,
+      mode
+    });
+  }
+
+  function hidePracticeGuide() {
+    setShowPracticeGuide(false);
+    try {
+      window.localStorage.setItem(STUDENT_PRACTICE_GUIDE_KEY, "hidden");
+    } catch {
+      // ignore localStorage errors
+    }
+  }
+
+  function showPracticeGuideAgain() {
+    setShowPracticeGuide(true);
+    try {
+      window.localStorage.removeItem(STUDENT_PRACTICE_GUIDE_KEY);
+    } catch {
+      // ignore localStorage errors
+    }
+  }
+
+  async function applyPracticeQuickFix(action: "clear_filters" | "switch_normal" | "switch_adaptive") {
+    if (autoFixing) return;
+    const next = {
+      subject,
+      grade,
+      knowledgePointId,
+      mode
+    };
+    let hint = "";
+    if (action === "clear_filters") {
+      next.knowledgePointId = undefined;
+      setKnowledgePointId(undefined);
+      setKnowledgeSearch("");
+      hint = "已清空知识点筛选，正在重新获取题目。";
+    } else if (action === "switch_normal") {
+      next.mode = "normal";
+      setMode("normal");
+      setTimeLeft(0);
+      setTimerRunning(false);
+      hint = "已切换到普通练习模式，正在重新获取题目。";
+    } else if (action === "switch_adaptive") {
+      next.mode = "adaptive";
+      setMode("adaptive");
+      setTimeLeft(0);
+      setTimerRunning(false);
+      hint = "已切换到自适应推荐模式，正在重新获取题目。";
+    }
+    setAutoFixHint(hint);
+    setAutoFixing(true);
+    try {
+      await requestQuestion(next);
+    } finally {
+      setAutoFixing(false);
+    }
   }
 
   async function submitAnswer() {
@@ -422,6 +502,32 @@ export default function PracticePage() {
         onLineModeChange={mathView.setLineMode}
       />
 
+      {showPracticeGuide ? (
+        <Card title="功能引导（学生版）" tag="上手">
+          <div className="grid" style={{ gap: 8 }}>
+            <div style={{ fontSize: 13, color: "var(--ink-1)" }}>
+              推荐顺序：选择模式与知识点 → 获取题目 → 提交答案 → 看 AI 讲解 → 做变式训练。
+            </div>
+            <div className="pill-list">
+              <span className="pill">遇到“暂无题目”优先清空知识点筛选</span>
+              <span className="pill">卡住时可切回普通/自适应模式再试</span>
+              <span className="pill">解析页可切文字/图解/类比三种讲法</span>
+            </div>
+            <div className="cta-row">
+              <button className="button ghost" type="button" onClick={hidePracticeGuide}>
+                我已了解，隐藏引导
+              </button>
+            </div>
+          </div>
+        </Card>
+      ) : (
+        <div className="cta-row">
+          <button className="button ghost" type="button" onClick={showPracticeGuideAgain}>
+            显示功能引导
+          </button>
+        </div>
+      )}
+
       <Card title="练习设置" tag="配置">
         <div className="grid grid-3" style={{ marginTop: 12 }}>
           <label>
@@ -518,6 +624,35 @@ export default function PracticePage() {
           {mode === "timed" ? "开始限时" : "获取题目"}
         </button>
         {error ? <div style={{ marginTop: 8, color: "#b42318", fontSize: 13 }}>{error}</div> : null}
+        {autoFixHint ? <div className="status-note info">{autoFixHint}</div> : null}
+        {error ? (
+          <div className="cta-row" style={{ marginTop: 8 }}>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={autoFixing}
+              onClick={() => applyPracticeQuickFix("clear_filters")}
+            >
+              清空筛选并重试
+            </button>
+            <button
+              className="button secondary"
+              type="button"
+              disabled={autoFixing}
+              onClick={() => applyPracticeQuickFix("switch_normal")}
+            >
+              切到普通模式重试
+            </button>
+            <button
+              className="button ghost"
+              type="button"
+              disabled={autoFixing}
+              onClick={() => applyPracticeQuickFix("switch_adaptive")}
+            >
+              切到自适应模式重试
+            </button>
+          </div>
+        ) : null}
         {mode === "timed" ? (
           <div style={{ marginTop: 8, fontSize: 13, color: "var(--ink-1)" }}>
             剩余时间：{timeLeft}s
