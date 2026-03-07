@@ -4,24 +4,25 @@ import { useEffect, useState } from "react";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
 import { SUBJECT_LABELS } from "@/lib/constants";
+import type { StudentGrowthData } from "./types";
 
 export default function StudentGrowthPage() {
-  const [data, setData] = useState<any>(null);
+  const [data, setData] = useState<StudentGrowthData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function load() {
-    setError(null);
-    const res = await fetch("/api/student/growth");
-    const payload = await res.json();
-    if (!res.ok) {
-      setError(payload?.error ?? "加载失败");
-      return;
-    }
-    setData(payload);
-  }
-
   useEffect(() => {
-    load();
+    async function load() {
+      setError(null);
+      const res = await fetch("/api/student/growth");
+      const payload = (await res.json()) as StudentGrowthData & { error?: string };
+      if (!res.ok) {
+        setError(payload.error ?? "加载失败");
+        return;
+      }
+      setData(payload);
+    }
+
+    void load();
   }, []);
 
   if (error) {
@@ -74,9 +75,9 @@ export default function StudentGrowthPage() {
       </Card>
 
       <Card title="学科掌握度" tag="学科">
-        {data.subjects?.length ? (
+        {data.subjects.length ? (
           <div className="grid" style={{ gap: 12 }}>
-            {data.subjects.map((item: any) => (
+            {data.subjects.map((item) => (
               <div className="card" key={item.subject}>
                 <div className="section-title">{SUBJECT_LABELS[item.subject] ?? item.subject}</div>
                 <p>正确率 {item.accuracy}%</p>
@@ -90,9 +91,9 @@ export default function StudentGrowthPage() {
       </Card>
 
       <Card title="薄弱知识点" tag="薄弱">
-        {data.weakPoints?.length ? (
+        {data.weakPoints.length ? (
           <div className="grid" style={{ gap: 12 }}>
-            {data.weakPoints.map((item: any) => (
+            {data.weakPoints.map((item) => (
               <div className="card" key={item.id}>
                 <div className="section-title">{item.title}</div>
                 <p>

@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
 import { GRADE_OPTIONS } from "@/lib/constants";
+import type { RegisterPayload, RegisterResponse, RegisterRole } from "./types";
 
 export default function RegisterPage() {
-  const [role, setRole] = useState<"student" | "parent">("student");
+  const [role, setRole] = useState<RegisterRole>("student");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,30 +19,39 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(event: React.FormEvent) {
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setLoading(true);
     setError(null);
     setMessage(null);
 
-    const payload: any = { role, name, email, password };
-    if (role === "student") {
-      payload.grade = grade;
-      payload.schoolCode = schoolCode || undefined;
-    }
-    if (role === "parent") {
-      payload.observerCode = observerCode;
-      payload.studentEmail = studentEmail;
-    }
+    const payload: RegisterPayload =
+      role === "student"
+        ? {
+            role,
+            name,
+            email,
+            password,
+            grade,
+            schoolCode: schoolCode || undefined
+          }
+        : {
+            role,
+            name,
+            email,
+            password,
+            observerCode,
+            studentEmail
+          };
 
     const res = await fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
+    const data = (await res.json()) as RegisterResponse;
     if (!res.ok) {
-      setError(data?.error ?? "注册失败");
+      setError(data.error ?? "注册失败");
     } else {
       setMessage("注册成功，请登录。");
       setName("");
@@ -67,39 +77,22 @@ export default function RegisterPage() {
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="form-field">
             <div className="section-title">角色</div>
-            <select
-              className="form-control"
-              value={role}
-              onChange={(event) => setRole(event.target.value as "student" | "parent")}
-            >
+            <select className="form-control" value={role} onChange={(event) => setRole(event.target.value as RegisterRole)}>
               <option value="student">学生</option>
               <option value="parent">家长</option>
             </select>
           </label>
           <label className="form-field">
             <div className="section-title">姓名</div>
-            <input
-              className="form-control"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-            />
+            <input className="form-control" value={name} onChange={(event) => setName(event.target.value)} />
           </label>
           <label className="form-field">
             <div className="section-title">邮箱</div>
-            <input
-              className="form-control"
-              value={email}
-              onChange={(event) => setEmail(event.target.value)}
-            />
+            <input className="form-control" value={email} onChange={(event) => setEmail(event.target.value)} />
           </label>
           <label className="form-field">
             <div className="section-title">密码</div>
-            <input
-              className="form-control"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
+            <input className="form-control" type="password" value={password} onChange={(event) => setPassword(event.target.value)} />
             <div className="form-note">
               默认建议至少 8 位，包含大写字母、小写字母和数字（以系统配置为准）。
             </div>
@@ -108,11 +101,7 @@ export default function RegisterPage() {
             <>
               <label className="form-field">
                 <div className="section-title">年级</div>
-                <select
-                  className="form-control"
-                  value={grade}
-                  onChange={(event) => setGrade(event.target.value)}
-                >
+                <select className="form-control" value={grade} onChange={(event) => setGrade(event.target.value)}>
                   {GRADE_OPTIONS.map((item) => (
                     <option key={item.value} value={item.value}>
                       {item.label}
@@ -160,13 +149,8 @@ export default function RegisterPage() {
             {loading ? "提交中..." : "注册"}
           </button>
         </form>
-        <div className="auth-footnote">
+        <div className="section-sub" style={{ marginTop: 12 }}>
           已有账号？<Link href="/login">去登录</Link>
-        </div>
-        <div className="pill-list" style={{ marginTop: 10 }}>
-          <span className="pill">支持 K12 学段</span>
-          <span className="pill">多学科同步</span>
-          <span className="pill">家校协同</span>
         </div>
       </Card>
     </div>

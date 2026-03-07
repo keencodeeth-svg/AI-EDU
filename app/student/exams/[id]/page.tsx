@@ -3,148 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Card from "@/components/Card";
-import EduIcon from "@/components/EduIcon";
-import MathText from "@/components/MathText";
 import MathViewControls from "@/components/MathViewControls";
 import { SUBJECT_LABELS } from "@/lib/constants";
 import { useMathViewSettings } from "@/lib/math-view-settings";
-
-type ExamDetail = {
-  exam: {
-    id: string;
-    title: string;
-    description?: string;
-    publishMode: "teacher_assigned" | "targeted";
-    antiCheatLevel: "off" | "basic";
-    startAt?: string;
-    endAt: string;
-    durationMinutes?: number;
-    status: "published" | "closed";
-  };
-  class: {
-    id: string;
-    name: string;
-    subject: string;
-    grade: string;
-  };
-  assignment: {
-    status: "pending" | "in_progress" | "submitted";
-    startedAt?: string;
-    submittedAt?: string;
-    score?: number;
-    total?: number;
-  };
-  questions: Array<{
-    id: string;
-    stem: string;
-    options: string[];
-    score: number;
-    orderIndex: number;
-  }>;
-  draftAnswers: Record<string, string>;
-  submission: {
-    score: number;
-    total: number;
-    submittedAt: string;
-    answers: Record<string, string>;
-  } | null;
-  reviewPackSummary?: {
-    wrongCount: number;
-    estimatedMinutes: number;
-    topWeakKnowledgePoints: Array<{
-      knowledgePointId: string;
-      title: string;
-      wrongCount: number;
-    }>;
-  } | null;
-  access: {
-    stage: "upcoming" | "open" | "ended" | "closed";
-    canEnter: boolean;
-    canSubmit: boolean;
-    lockReason: string | null;
-    serverNow: string;
-  };
-};
-
-type SubmitResult = {
-  score: number;
-  total: number;
-  submittedAt: string;
-  wrongCount: number;
-  queuedReviewCount: number;
-  details: Array<{
-    questionId: string;
-    correct: boolean;
-    answer: string;
-    correctAnswer: string;
-    score: number;
-  }>;
-  reviewPackSummary?: {
-    wrongCount: number;
-    estimatedMinutes: number;
-    topWeakKnowledgePoints: Array<{
-      knowledgePointId: string;
-      title: string;
-      wrongCount: number;
-    }>;
-  } | null;
-};
-
-type ReviewPack = {
-  wrongCount: number;
-  generatedAt: string;
-  summary: {
-    topWeakKnowledgePoints: Array<{
-      knowledgePointId: string;
-      title: string;
-      wrongCount: number;
-    }>;
-    wrongByDifficulty: Array<{ difficulty: string; count: number }>;
-    wrongByType: Array<{ questionType: string; count: number }>;
-    estimatedMinutes: number;
-  };
-  rootCauses: string[];
-  actionItems: Array<{
-    id: string;
-    title: string;
-    description: string;
-    estimatedMinutes: number;
-  }>;
-  sevenDayPlan: Array<{
-    day: number;
-    title: string;
-    focus: string;
-    estimatedMinutes: number;
-  }>;
-  wrongQuestions?: Array<{
-    questionId: string;
-    stem: string;
-    knowledgePointTitle: string;
-    yourAnswer: string;
-    correctAnswer: string;
-  }>;
-};
-
-type LocalDraft = {
-  answers: Record<string, string>;
-  updatedAt: string;
-  clientStartedAt?: string;
-};
-
-const LOCAL_DRAFT_PREFIX = "exam-local-draft:";
-
-function formatRemain(seconds: number) {
-  const safe = Math.max(0, seconds);
-  const hours = Math.floor(safe / 3600);
-  const minutes = Math.floor((safe % 3600) / 60);
-  const secs = safe % 60;
-  if (hours > 0) {
-    return `${hours.toString().padStart(2, "0")}:${minutes.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
-  }
-  return `${minutes.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-}
+import ExamAnswerSheetCard from "./_components/ExamAnswerSheetCard";
+import ExamOverviewCard from "./_components/ExamOverviewCard";
+import ExamResultCard from "./_components/ExamResultCard";
+import ExamReviewPackCard from "./_components/ExamReviewPackCard";
+import type { ExamDetail, LocalDraft, ReviewPack, ReviewPackSummary, SubmitResult } from "./types";
+import { LOCAL_DRAFT_PREFIX } from "./utils";
 
 export default function StudentExamDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<ExamDetail | null>(null);
@@ -510,18 +377,10 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
         setDirty(false);
         setPendingLocalSync(false);
         clearLocalDraft();
-        const reviewNotice =
-          typeof payload.queuedReviewCount === "number" && payload.queuedReviewCount > 0
-            ? `本次考试错题已加入今日复练清单（${payload.queuedReviewCount} 题）。`
-            : "";
-        const reviewPackNotice =
-          payload?.reviewPackSummary?.estimatedMinutes
-            ? `系统已生成考试复盘包，预计 ${payload.reviewPackSummary.estimatedMinutes} 分钟完成。`
-            : "";
+        const reviewNotice = typeof payload.queuedReviewCount === "number" && payload.queuedReviewCount > 0 ? `本次考试错题已加入今日复练清单（${payload.queuedReviewCount} 题）。` : "";
+        const reviewPackNotice = payload?.reviewPackSummary?.estimatedMinutes ? `系统已生成考试复盘包，预计 ${payload.reviewPackSummary.estimatedMinutes} 分钟完成。` : "";
         if (trigger === "timeout") {
-          const timeoutNotice = ["考试时间结束，系统已自动提交。", reviewNotice, reviewPackNotice]
-            .filter(Boolean)
-            .join("");
+          const timeoutNotice = ["考试时间结束，系统已自动提交。", reviewNotice, reviewPackNotice].filter(Boolean).join("");
           setSyncNotice(timeoutNotice);
         } else if (reviewNotice || reviewPackNotice) {
           setSyncNotice([reviewNotice, reviewPackNotice].filter(Boolean).join(" "));
@@ -583,6 +442,14 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
     submitExam("manual");
   }
 
+  function handleAnswerChange(questionId: string, value: string) {
+    if (!startedAt) {
+      setClientStartedAt(new Date().toISOString());
+    }
+    setAnswers((prev) => ({ ...prev, [questionId]: value }));
+    setDirty(true);
+  }
+
   if (error) {
     return (
       <Card title="考试详情">
@@ -607,6 +474,8 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
   const finalScore = result?.score ?? data.submission?.score ?? data.assignment.score ?? 0;
   const finalTotal = result?.total ?? data.submission?.total ?? data.assignment.total ?? totalScore;
   const answerCount = Object.values(answers).filter((value) => value && value.trim()).length;
+  const stageLabel = submitted ? "已提交" : data.access.stage === "upcoming" ? "待开始" : data.access.stage === "open" ? "考试进行中" : "不可作答";
+  const reviewPackSummary: ReviewPackSummary | null = data.reviewPackSummary ?? result?.reviewPackSummary ?? null;
 
   return (
     <div className="grid math-view-surface" style={{ gap: 18, ...mathView.style }}>
@@ -617,16 +486,9 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
             {data.class.name} · {SUBJECT_LABELS[data.class.subject] ?? data.class.subject} · {data.class.grade} 年级
           </div>
         </div>
-        <span className="chip">
-          {submitted
-            ? "已提交"
-            : data.access.stage === "upcoming"
-              ? "待开始"
-              : data.access.stage === "open"
-                ? "考试进行中"
-                : "不可作答"}
-        </span>
+        <span className="chip">{stageLabel}</span>
       </div>
+
       <MathViewControls
         fontScale={mathView.fontScale}
         lineMode={mathView.lineMode}
@@ -636,253 +498,51 @@ export default function StudentExamDetailPage({ params }: { params: { id: string
         onLineModeChange={mathView.setLineMode}
       />
 
-      <Card title="考试信息" tag="概览">
-        <div className="grid grid-2">
-          <div className="card feature-card">
-            <EduIcon name="board" />
-            <div className="section-title">考试说明</div>
-            <p>{data.exam.description || "请认真作答，按时提交。"}</p>
-            <div className="pill-list">
-              {data.exam.startAt ? (
-                <span className="pill">开始 {new Date(data.exam.startAt).toLocaleString("zh-CN")}</span>
-              ) : (
-                <span className="pill">可立即开始</span>
-              )}
-              <span className="pill">截止 {new Date(data.exam.endAt).toLocaleString("zh-CN")}</span>
-              <span className="pill">{data.exam.status === "closed" ? "状态 已关闭" : "状态 开放中"}</span>
-              <span className="pill">
-                监测 {data.exam.antiCheatLevel === "basic" ? "切屏/离屏记录中" : "关闭"}
-              </span>
-              <span className="pill">网络 {online ? "在线" : "离线"}</span>
-            </div>
-          </div>
-          <div className="card feature-card">
-            <EduIcon name="chart" />
-            <div className="section-title">作答状态</div>
-            <div className="pill-list">
-              <span className="pill">已答 {answerCount}/{data.questions.length}</span>
-              <span className="pill">总分 {totalScore}</span>
-              <span className="pill">时长 {data.exam.durationMinutes ? `${data.exam.durationMinutes} 分钟` : "不限"}</span>
-              {!submitted && remainingSeconds !== null ? (
-                <span className="pill">剩余 {formatRemain(remainingSeconds)}</span>
-              ) : null}
-              {!submitted && data.exam.durationMinutes && !startedAt ? (
-                <span className="pill">开始作答后计时</span>
-              ) : null}
-            </div>
-            {submitted ? (
-              <div style={{ marginTop: 8, fontSize: 13 }}>
-                成绩：{finalScore}/{finalTotal}
-              </div>
-            ) : (
-              <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
-                {saving ? "自动保存中..." : savedAt ? `最近保存：${new Date(savedAt).toLocaleTimeString("zh-CN")}` : "尚未保存"}
-              </div>
-            )}
-            {syncNotice ? <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>{syncNotice}</div> : null}
-            {lockReason ? (
-              <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>
-                {lockReason}，当前仅可查看作答记录。
-              </div>
-            ) : null}
-          </div>
-        </div>
-        <div className="cta-row" style={{ marginTop: 12 }}>
-          <Link className="button ghost" href="/student/exams">
-            返回考试列表
-          </Link>
-          {!submitted ? (
-            <button
-              className="button secondary"
-              type="button"
-              onClick={saveDraft}
-              disabled={saving || submitting || lockedByTime || lockedByServer}
-            >
-              {saving ? "保存中..." : "保存进度"}
-            </button>
-          ) : null}
-        </div>
-      </Card>
+      <ExamOverviewCard
+        data={data}
+        submitted={submitted}
+        online={online}
+        answerCount={answerCount}
+        totalScore={totalScore}
+        remainingSeconds={remainingSeconds}
+        startedAt={startedAt}
+        saving={saving}
+        savedAt={savedAt}
+        syncNotice={syncNotice}
+        lockReason={lockReason}
+        finalScore={finalScore}
+        finalTotal={finalTotal}
+        submitting={submitting}
+        lockedByTime={lockedByTime}
+        lockedByServer={lockedByServer}
+        onSaveDraft={saveDraft}
+      />
 
-      <Card title="考试作答" tag="作答">
-        <form onSubmit={handleSubmit} style={{ display: "grid", gap: 14 }}>
-          {data.questions.map((question, index) => (
-            <div className="card" key={question.id}>
-              <div className="section-title">
-                {index + 1}. <MathText text={question.stem} showCopyActions />
-              </div>
-              <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
-                {question.options.map((option) => (
-                  <label key={option} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <input
-                      type="radio"
-                      name={question.id}
-                      value={option}
-                      checked={answers[question.id] === option}
-                      disabled={submitted || lockedByTime || lockedByServer || submitting}
-                      onChange={(event) => {
-                        if (!startedAt) {
-                          setClientStartedAt(new Date().toISOString());
-                        }
-                        setAnswers((prev) => ({ ...prev, [question.id]: event.target.value }));
-                        setDirty(true);
-                      }}
-                    />
-                    <MathText text={option} />
-                  </label>
-                ))}
-              </div>
-              <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>分值：{question.score}</div>
-            </div>
-          ))}
+      <ExamAnswerSheetCard
+        data={data}
+        answers={answers}
+        submitted={submitted}
+        lockedByTime={lockedByTime}
+        lockedByServer={lockedByServer}
+        submitting={submitting}
+        online={online}
+        lockReason={lockReason}
+        finalScore={finalScore}
+        finalTotal={finalTotal}
+        queuedReviewCount={result?.queuedReviewCount}
+        onSubmit={handleSubmit}
+        onAnswerChange={handleAnswerChange}
+      />
 
-          {submitted ? (
-            <div className="card">
-              <div className="section-title">考试已提交</div>
-              <p>
-                你的成绩：{finalScore}/{finalTotal}
-              </p>
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                提交时间：{data.assignment.submittedAt ? new Date(data.assignment.submittedAt).toLocaleString("zh-CN") : "-"}
-              </div>
-              {result?.queuedReviewCount ? (
-                <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
-                  错题已加入今日复练清单：{result.queuedReviewCount} 题
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <button className="button primary" type="submit" disabled={submitting || !online || lockedByServer}>
-              {submitting
-                ? "提交中..."
-                : !online
-                  ? "离线状态不可提交"
-                  : lockedByServer
-                    ? lockReason ?? "当前不可提交"
-                    : lockedByTime
-                      ? "时间已结束，立即提交"
-                      : "提交考试"}
-            </button>
-          )}
-        </form>
-      </Card>
+      <ExamResultCard details={result?.details ?? []} />
 
-      {result?.details?.length ? (
-        <Card title="答题结果" tag="反馈">
-          <div className="grid" style={{ gap: 8 }}>
-            {result.details.map((item, index) => (
-              <div className="card" key={item.questionId}>
-                <div className="section-title">
-                  {index + 1}. {item.correct ? "正确" : "错误"}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  你的答案：<MathText text={item.answer || "未作答"} />；正确答案：
-                  <MathText text={item.correctAnswer} />；分值：{item.score}
-                </div>
-              </div>
-            ))}
-          </div>
-        </Card>
-      ) : null}
-
-      {(submitted || Boolean(reviewPack) || Boolean(data.reviewPackSummary)) ? (
-        <Card title="考试复盘包" tag="闭环">
-          {reviewPackLoading ? <p>复盘包加载中...</p> : null}
-          {!reviewPackLoading && !reviewPack ? (
-            <div className="grid" style={{ gap: 8 }}>
-              <p>
-                系统已生成复盘摘要：错题 {data.reviewPackSummary?.wrongCount ?? 0} 题，预计{" "}
-                {data.reviewPackSummary?.estimatedMinutes ?? 0} 分钟。
-              </p>
-              <div className="cta-row">
-                <button className="button secondary" type="button" onClick={() => void loadReviewPack()}>
-                  加载完整复盘包
-                </button>
-              </div>
-            </div>
-          ) : null}
-          {reviewPack ? (
-            <div className="grid" style={{ gap: 10 }}>
-              <div className="grid grid-3">
-                <div className="card">
-                  <div className="section-title">错题总数</div>
-                  <p>{reviewPack.wrongCount}</p>
-                </div>
-                <div className="card">
-                  <div className="section-title">预计复盘时长</div>
-                  <p>{reviewPack.summary.estimatedMinutes} 分钟</p>
-                </div>
-                <div className="card">
-                  <div className="section-title">生成时间</div>
-                  <p style={{ fontSize: 13 }}>{new Date(reviewPack.generatedAt).toLocaleString("zh-CN")}</p>
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="section-title">核心错因</div>
-                <div className="grid" style={{ gap: 6 }}>
-                  {reviewPack.rootCauses.length ? (
-                    reviewPack.rootCauses.map((cause, index) => (
-                      <div key={`cause-${index}`} style={{ fontSize: 13, color: "var(--ink-1)" }}>
-                        {index + 1}. {cause}
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: 13, color: "var(--ink-1)" }}>暂无错因分析。</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="section-title">薄弱知识点</div>
-                <div className="grid" style={{ gap: 6 }}>
-                  {reviewPack.summary.topWeakKnowledgePoints.length ? (
-                    reviewPack.summary.topWeakKnowledgePoints.map((item) => (
-                      <div key={item.knowledgePointId} style={{ fontSize: 13, color: "var(--ink-1)" }}>
-                        {item.title} · 错题 {item.wrongCount}
-                      </div>
-                    ))
-                  ) : (
-                    <div style={{ fontSize: 13, color: "var(--ink-1)" }}>暂无聚类薄弱点。</div>
-                  )}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="section-title">推荐动作</div>
-                <div className="grid" style={{ gap: 8 }}>
-                  {reviewPack.actionItems.map((item) => (
-                    <div key={item.id} style={{ fontSize: 13 }}>
-                      <strong>{item.title}</strong> · {item.estimatedMinutes} 分钟
-                      <div style={{ color: "var(--ink-1)" }}>{item.description}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="card">
-                <div className="section-title">7 日修复计划</div>
-                <div className="grid" style={{ gap: 6 }}>
-                  {reviewPack.sevenDayPlan.map((item) => (
-                    <div key={`day-${item.day}`} style={{ fontSize: 13 }}>
-                      D{item.day} · {item.title} · {item.estimatedMinutes} 分钟
-                      <div style={{ color: "var(--ink-1)" }}>{item.focus}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="cta-row">
-                <Link className="button secondary" href="/wrong-book">
-                  打开今日复练清单
-                </Link>
-                <Link className="button ghost" href="/practice?mode=review">
-                  进入错题复练
-                </Link>
-              </div>
-            </div>
-          ) : null}
-        </Card>
+      {(submitted || Boolean(reviewPack) || Boolean(reviewPackSummary)) ? (
+        <ExamReviewPackCard
+          reviewPackLoading={reviewPackLoading}
+          reviewPack={reviewPack}
+          reviewPackSummary={reviewPackSummary}
+          onLoadReviewPack={() => void loadReviewPack()}
+        />
       ) : null}
     </div>
   );

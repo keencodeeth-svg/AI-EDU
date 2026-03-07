@@ -45,6 +45,36 @@ type RubricItem = {
   levels: RubricLevel[];
 };
 
+type RubricPayloadLevel = {
+  label?: string;
+  score?: number;
+  description?: string;
+};
+
+type RubricPayloadItem = {
+  title?: string;
+  description?: string;
+  maxScore?: number;
+  weight?: number;
+  levels?: RubricPayloadLevel[] | null;
+};
+
+function normalizeRubricItems(items: RubricPayloadItem[] = []): RubricItem[] {
+  return items.map((item) => ({
+    title: item.title ?? "",
+    description: item.description ?? "",
+    maxScore: Number(item.maxScore ?? 5),
+    weight: Number(item.weight ?? 1),
+    levels: Array.isArray(item.levels)
+      ? item.levels.map((level) => ({
+          label: level.label ?? "",
+          score: Number(level.score ?? 0),
+          description: level.description ?? ""
+        }))
+      : []
+  }));
+}
+
 export default function TeacherAssignmentDetailPage({ params }: { params: { id: string } }) {
   const [data, setData] = useState<AssignmentDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -73,20 +103,7 @@ export default function TeacherAssignmentDetailPage({ params }: { params: { id: 
     const res = await fetch(`/api/teacher/assignments/${params.id}/rubrics`);
     const payload = await res.json();
     if (res.ok) {
-      const items: RubricItem[] = (payload.data ?? []).map((item: any) => ({
-        title: item.title ?? "",
-        description: item.description ?? "",
-        maxScore: Number(item.maxScore ?? 5),
-        weight: Number(item.weight ?? 1),
-        levels: Array.isArray(item.levels)
-          ? item.levels.map((level: any) => ({
-              label: level.label ?? "",
-              score: Number(level.score ?? 0),
-              description: level.description ?? ""
-            }))
-          : []
-      }));
-      setRubrics(items);
+      setRubrics(normalizeRubricItems(payload.data ?? []));
     }
   }, [params.id]);
 
@@ -355,21 +372,7 @@ export default function TeacherAssignmentDetailPage({ params }: { params: { id: 
                 setRubricError(payload?.error ?? "保存失败");
               } else {
                 setRubricMessage("评分细则已保存");
-                setRubrics(
-                  (payload.data ?? []).map((item: any) => ({
-                    title: item.title ?? "",
-                    description: item.description ?? "",
-                    maxScore: Number(item.maxScore ?? 5),
-                    weight: Number(item.weight ?? 1),
-                    levels: Array.isArray(item.levels)
-                      ? item.levels.map((level: any) => ({
-                          label: level.label ?? "",
-                          score: Number(level.score ?? 0),
-                          description: level.description ?? ""
-                        }))
-                      : []
-                  }))
-                );
+                setRubrics(normalizeRubricItems(payload.data ?? []));
               }
               setRubricSaving(false);
             }}

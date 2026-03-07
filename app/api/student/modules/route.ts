@@ -1,7 +1,7 @@
 import { getCurrentUser } from "@/lib/auth";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentsByClassIds, getAssignmentProgressByStudent } from "@/lib/assignments";
-import { getModulesByClass } from "@/lib/modules";
+import { getModulesByClass, type CourseModule } from "@/lib/modules";
 import { unauthorized } from "@/lib/api/http";
 import { createLearningRoute } from "@/lib/api/domains";
 
@@ -18,7 +18,7 @@ export const GET = createLearningRoute({
     const progress = await getAssignmentProgressByStudent(user.id);
     const progressMap = new Map(progress.map((item) => [item.assignmentId, item]));
 
-    const modulesByClass = new Map<string, any[]>();
+    const modulesByClass = new Map<string, CourseModule[]>();
     for (const klass of classes) {
       const modules = await getModulesByClass(klass.id);
       modulesByClass.set(klass.id, modules);

@@ -72,6 +72,113 @@ export async function runLearningSuite(context) {
   );
   assert.ok(practiceSubmit.body?.mastery && typeof practiceSubmit.body.mastery === "object");
 
+  const answerOnlyAssist = await apiFetch("/api/ai/assist", {
+    method: "POST",
+    json: {
+      question: "12 + 8 等于多少？",
+      subject: "math",
+      grade: "2",
+      answerMode: "answer_only"
+    }
+  });
+  assert.equal(answerOnlyAssist.status, 200, `POST /api/ai/assist failed: ${answerOnlyAssist.raw}`);
+  const answerOnlyAssistData = answerOnlyAssist.body?.data ?? answerOnlyAssist.body;
+  assert.equal(typeof answerOnlyAssistData?.answer, "string", "Answer-only assist should return answer");
+  assert.equal((answerOnlyAssistData?.steps ?? []).length, 0, "Answer-only assist should suppress steps");
+  assert.equal((answerOnlyAssistData?.hints ?? []).length, 0, "Answer-only assist should suppress hints");
+
+  const imageAssistForm = new FormData();
+  imageAssistForm.set("question", "3/4 + 1/4 等于多少？");
+  imageAssistForm.set("subject", "math");
+  imageAssistForm.set("grade", "4");
+  imageAssistForm.set("answerMode", "hints_first");
+  imageAssistForm.append("images", new Blob([Buffer.from("api-test-image-1")], { type: "image/png" }), "question-1.png");
+  imageAssistForm.append("images", new Blob([Buffer.from("api-test-image-2")], { type: "image/png" }), "question-2.png");
+  const imageAssist = await apiFetch("/api/ai/solve-from-image", {
+    method: "POST",
+    body: imageAssistForm
+  });
+  assert.equal(imageAssist.status, 200, `POST /api/ai/solve-from-image failed: ${imageAssist.raw}`);
+  assert.equal(
+    typeof (imageAssist.body?.answer ?? imageAssist.body?.data?.answer),
+    "string",
+    "Image assist should return answer"
+  );
+  const imageAssistData = imageAssist.body?.data ?? imageAssist.body;
+  assert.ok((imageAssistData?.hints ?? []).length >= 1, "Hints-first image assist should include hints");
+  assert.equal(
+    typeof imageAssistData?.quality?.confidenceScore,
+    "number",
+    "Image assist should include quality.confidenceScore"
+  );
+  assert.equal(typeof imageAssistData?.quality?.fallbackAction, "string", "Image assist should include fallbackAction");
+
+  const historyCreate = await apiFetch("/api/ai/history", {
+    method: "POST",
+    json: {
+      question: "图片识别：3/4 + 1/4 等于多少？",
+      answer: "1",
+      meta: {
+        origin: "image",
+        subject: "math",
+        grade: "4",
+        answerMode: "step_by_step",
+        provider: "mock",
+        recognizedQuestion: "3/4 + 1/4 等于多少？",
+        imageCount: 2,
+        quality: {
+          confidenceScore: 88,
+          riskLevel: "low",
+          needsHumanReview: false,
+          fallbackAction: "可直接使用。",
+          reasons: ["API 测试样本"]
+        }
+      }
+    }
+  });
+  assert.equal(historyCreate.status, 200, `POST /api/ai/history failed: ${historyCreate.raw}`);
+  assert.equal(historyCreate.body?.data?.meta?.origin, "image", "History item should persist meta.origin");
+  assert.equal(historyCreate.body?.data?.meta?.imageCount, 2, "History item should persist meta.imageCount");
+
+  const patchHistory = await apiFetch(`/api/ai/history/${historyCreate.body?.data?.id}`, {
+    method: "PATCH",
+    json: {
+      favorite: true,
+      tags: ["识题", "分数"]
+    }
+  });
+  assert.equal(patchHistory.status, 200, `PATCH /api/ai/history/:id failed: ${patchHistory.raw}`);
+  assert.equal(patchHistory.body?.data?.favorite, true, "History patch should update favorite state");
+  assert.deepEqual(patchHistory.body?.data?.tags ?? [], ["识题", "分数"], "History patch should update tags");
+
+  const historyList = await apiFetch("/api/ai/history");
+  assert.equal(historyList.status, 200, `GET /api/ai/history failed: ${historyList.raw}`);
+  const createdHistoryItem = (historyList.body?.data ?? []).find((item) => item.id === historyCreate.body?.data?.id);
+  assert.ok(createdHistoryItem, "History list should include newly created item");
+  assert.equal(createdHistoryItem?.meta?.provider, "mock", "History list should preserve meta.provider");
+  assert.equal(createdHistoryItem?.meta?.recognizedQuestion, "3/4 + 1/4 等于多少？");
+
+  const tooManyImageAssist = new FormData();
+  tooManyImageAssist.append("images", new Blob([Buffer.from("1")], { type: "image/png" }), "1.png");
+  tooManyImageAssist.append("images", new Blob([Buffer.from("2")], { type: "image/png" }), "2.png");
+  tooManyImageAssist.append("images", new Blob([Buffer.from("3")], { type: "image/png" }), "3.png");
+  tooManyImageAssist.append("images", new Blob([Buffer.from("4")], { type: "image/png" }), "4.png");
+  const overflowImageAssist = await apiFetch("/api/ai/solve-from-image", {
+    method: "POST",
+    body: tooManyImageAssist
+  });
+  assert.equal(overflowImageAssist.status, 400, "Image assist should reject more than 3 images");
+
+  const studentDashboardOverview = await apiFetch("/api/dashboard/overview");
+  assert.equal(studentDashboardOverview.status, 200, `GET /api/dashboard/overview failed: ${studentDashboardOverview.raw}`);
+  assert.equal(studentDashboardOverview.body?.data?.role, "student", "Student dashboard overview should detect student role");
+  assert.ok(Array.isArray(studentDashboardOverview.body?.data?.metrics), "Student dashboard overview should include metrics");
+  assert.ok(Array.isArray(studentDashboardOverview.body?.data?.quickActions), "Student dashboard overview should include quick actions");
+  const tutorQuickAction = (studentDashboardOverview.body?.data?.quickActions ?? []).find((item) => item.id === "student-tutor");
+  assert.ok(tutorQuickAction, "Student dashboard overview should include tutor quick action");
+  assert.equal(tutorQuickAction?.label, "拍题即问", "Tutor quick action should expose upgraded label");
+  assert.ok(String(tutorQuickAction?.href ?? "").includes("intent=image"), "Tutor quick action should deep-link into image mode");
+
   const challengeOverview = await apiFetch("/api/challenges");
   assert.equal(challengeOverview.status, 200, `GET /api/challenges failed: ${challengeOverview.raw}`);
   assert.ok(Array.isArray(challengeOverview.body?.data?.tasks), "Challenges should include tasks");
@@ -238,6 +345,19 @@ export async function runLearningSuite(context) {
   assert.equal(typeof weeklyReport.body?.estimatedMinutes, "number", "Weekly report should include estimatedMinutes");
   assert.ok(Array.isArray(weeklyReport.body?.parentTips), "Weekly report should include parentTips");
 
+  const studentAssignments = await apiFetch("/api/student/assignments");
+  assert.equal(studentAssignments.status, 200, `GET /api/student/assignments failed: ${studentAssignments.raw}`);
+  assert.ok(Array.isArray(studentAssignments.body?.data), "Student assignments should include data array");
+  const firstStudentAssignment = studentAssignments.body?.data?.[0];
+  if (firstStudentAssignment) {
+    assert.equal(typeof firstStudentAssignment.className, "string", "Student assignment should include className");
+    assert.equal(typeof firstStudentAssignment.classSubject, "string", "Student assignment should include classSubject");
+    assert.ok(
+      ["pending", "completed"].includes(firstStudentAssignment.status),
+      "Student assignment should include normalized status"
+    );
+  }
+
   const parentCandidates = [
     {
       email: process.env.API_TEST_PARENT_EMAIL || "parent@demo.com",
@@ -250,6 +370,7 @@ export async function runLearningSuite(context) {
   ];
 
   let parentLogin = null;
+  let parentAccount = null;
   for (const candidate of parentCandidates) {
     const resp = await apiFetch("/api/auth/login", {
       method: "POST",
@@ -258,6 +379,7 @@ export async function runLearningSuite(context) {
     });
     if (resp.status === 200) {
       parentLogin = resp;
+      parentAccount = candidate;
       break;
     }
   }
@@ -283,9 +405,131 @@ export async function runLearningSuite(context) {
       useCookies: false,
       json: { email: tempParentEmail, password: tempParentPassword, role: "parent" }
     });
+    parentAccount = { email: tempParentEmail, password: tempParentPassword };
   }
 
   assert.equal(parentLogin?.status, 200, "Parent login failed");
+  assert.ok(parentAccount?.email, "Parent account should be resolved for tutor-share regression");
+
+  const reloginStudentForParentShare = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email, password, role: "student" }
+  });
+  assert.equal(
+    reloginStudentForParentShare.status,
+    200,
+    `Student relogin for parent-share failed: ${reloginStudentForParentShare.raw}`
+  );
+
+  const tutorShareTargets = await apiFetch("/api/ai/share-targets");
+  assert.equal(tutorShareTargets.status, 200, `GET /api/ai/share-targets failed: ${tutorShareTargets.raw}`);
+  let parentShareTarget = (tutorShareTargets.body?.data ?? []).find((item) => item.kind === "parent");
+
+  if (!parentShareTarget) {
+    const tutorShareParentEmail = `api-test-parent-share-${Date.now().toString(36)}@local.test`;
+    const tutorShareParentPassword = "ApiParentShare123!";
+    const registerTutorShareParent = await apiFetch("/api/auth/register", {
+      method: "POST",
+      useCookies: false,
+      json: {
+        role: "parent",
+        email: tutorShareParentEmail,
+        password: tutorShareParentPassword,
+        name: "API Tutor Share Parent",
+        studentEmail: email
+      }
+    });
+    assert.equal(
+      registerTutorShareParent.status,
+      201,
+      `Tutor-share parent register failed: ${registerTutorShareParent.raw}`
+    );
+    parentAccount = { email: tutorShareParentEmail, password: tutorShareParentPassword };
+
+    const reloginStudentAfterParentBind = await apiFetch("/api/auth/login", {
+      method: "POST",
+      useCookies: false,
+      json: { email, password, role: "student" }
+    });
+    assert.equal(
+      reloginStudentAfterParentBind.status,
+      200,
+      `Student relogin after parent bind failed: ${reloginStudentAfterParentBind.raw}`
+    );
+
+    const tutorShareTargetsAfterBind = await apiFetch("/api/ai/share-targets");
+    assert.equal(
+      tutorShareTargetsAfterBind.status,
+      200,
+      `GET /api/ai/share-targets after parent bind failed: ${tutorShareTargetsAfterBind.raw}`
+    );
+    parentShareTarget = (tutorShareTargetsAfterBind.body?.data ?? []).find((item) => item.kind === "parent");
+  }
+
+  assert.ok(parentShareTarget, "Student tutor-share targets should include parent target");
+
+  const tutorShareToParent = await apiFetch("/api/ai/share-result", {
+    method: "POST",
+    json: {
+      targetId: parentShareTarget.id,
+      question: "拍题分享：1/3 + 2/3 等于多少？",
+      recognizedQuestion: "1/3 + 2/3 等于多少？",
+      answer: "1",
+      origin: "image",
+      subject: "math",
+      grade: "4",
+      answerMode: "hints_first",
+      provider: "mock",
+      steps: ["同分母分数相加，只加分子。", "1 + 2 = 3，所以得到 3/3 = 1。"],
+      hints: ["先看分母是否相同。"],
+      quality: {
+        confidenceScore: 90,
+        riskLevel: "low",
+        needsHumanReview: false,
+        fallbackAction: "可直接与孩子对照核查。",
+        reasons: ["分数同分母加法规则明确"]
+      }
+    }
+  });
+  assert.equal(tutorShareToParent.status, 200, `POST /api/ai/share-result parent failed: ${tutorShareToParent.raw}`);
+  const parentTutorShareThreadId = tutorShareToParent.body?.data?.threadId;
+  assert.ok(parentTutorShareThreadId, "Tutor share to parent should return threadId");
+
+  const reloginParentForTutorShare = await apiFetch("/api/auth/login", {
+    method: "POST",
+    useCookies: false,
+    json: { email: parentAccount.email, password: parentAccount.password, role: "parent" }
+  });
+  assert.equal(
+    reloginParentForTutorShare.status,
+    200,
+    `Parent relogin for tutor-share failed: ${reloginParentForTutorShare.raw}`
+  );
+
+  const parentTutorThreads = await apiFetch("/api/inbox/threads");
+  assert.equal(parentTutorThreads.status, 200, `Parent GET /api/inbox/threads failed: ${parentTutorThreads.raw}`);
+  const parentTutorThread = (parentTutorThreads.body?.data ?? []).find((item) => item.id === parentTutorShareThreadId);
+  assert.ok(parentTutorThread, "Parent inbox should include tutor-share thread");
+  assert.ok(String(parentTutorThread?.subject ?? "").includes("AI 解题分享"));
+
+  const parentTutorThreadDetail = await apiFetch(`/api/inbox/threads/${parentTutorShareThreadId}`);
+  assert.equal(
+    parentTutorThreadDetail.status,
+    200,
+    `Parent GET /api/inbox/threads/[id] for tutor-share failed: ${parentTutorThreadDetail.raw}`
+  );
+  assert.ok(
+    (parentTutorThreadDetail.body?.data?.messages ?? []).some(
+      (item) => item.content?.includes("AI 解题结果分享") && item.content?.includes("1/3 + 2/3") && item.content?.includes("答案")
+    ),
+    "Parent tutor-share thread should include shared tutor result summary"
+  );
+
+  const parentDashboardOverview = await apiFetch("/api/dashboard/overview");
+  assert.equal(parentDashboardOverview.status, 200, `Parent GET /api/dashboard/overview failed: ${parentDashboardOverview.raw}`);
+  assert.equal(parentDashboardOverview.body?.data?.role, "parent", "Parent dashboard overview should detect parent role");
+  assert.ok(Array.isArray(parentDashboardOverview.body?.data?.timeline), "Parent dashboard overview should include timeline");
 
   const parentAssignments = await apiFetch("/api/parent/assignments");
   assert.equal(parentAssignments.status, 200, `GET /api/parent/assignments failed: ${parentAssignments.raw}`);

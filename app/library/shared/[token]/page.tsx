@@ -4,19 +4,20 @@ import { useEffect, useState } from "react";
 import Card from "@/components/Card";
 import LibraryReader from "@/components/LibraryReader";
 import { SUBJECT_LABELS } from "@/lib/constants";
+import type { LibraryDetailItem, LibraryDetailResponse } from "../../types";
 
 export default function SharedLibraryPage({ params }: { params: { token: string } }) {
-  const [item, setItem] = useState<any>(null);
+  const [item, setItem] = useState<LibraryDetailItem | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`/api/library/shared/${params.token}`)
       .then((res) => res.json())
-      .then((data) => {
-        if (data?.error) {
+      .then((data: LibraryDetailResponse) => {
+        if (data.error) {
           setError(data.error);
         } else {
-          setItem(data?.data ?? null);
+          setItem(data.data ?? null);
         }
       });
   }, [params.token]);

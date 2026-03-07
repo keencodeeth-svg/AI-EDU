@@ -4,11 +4,14 @@ import { badRequest } from "@/lib/api/http";
 import { v } from "@/lib/api/validation";
 import { createAiRoute } from "@/lib/api/domains";
 
+const ANSWER_MODE_OPTIONS = ["answer_only", "step_by_step", "hints_first"] as const;
+
 type AssistRequest = {
   question: string;
   subject?: string;
   grade?: string;
   knowledgePoint?: string;
+  answerMode?: (typeof ANSWER_MODE_OPTIONS)[number];
 };
 
 const assistBodySchema = v.object<AssistRequest>(
@@ -16,7 +19,8 @@ const assistBodySchema = v.object<AssistRequest>(
     question: v.string({ minLength: 1 }),
     subject: v.optional(v.string({ minLength: 1 })),
     grade: v.optional(v.string({ minLength: 1 })),
-    knowledgePoint: v.optional(v.string({ minLength: 1 }))
+    knowledgePoint: v.optional(v.string({ minLength: 1 })),
+    answerMode: v.optional(v.enum(ANSWER_MODE_OPTIONS))
   },
   { allowUnknown: true }
 );
@@ -32,9 +36,10 @@ export const POST = createAiRoute({
     const response = await generateAssistAnswer({
       question: body.question.trim(),
       subject: body.subject,
-      grade: body.grade
+      grade: body.grade,
+      answerMode: body.answerMode
     });
-    // Route-level quality snapshot feeds runtime observability and admin diagnostics.
+
     const quality = assessAiQuality({
       kind: "assist",
       taskType: "assist",

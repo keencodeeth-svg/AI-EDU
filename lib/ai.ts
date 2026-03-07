@@ -21,6 +21,7 @@ export {
 export {
   extractKnowledgePointCandidates,
   generateAssistAnswer,
+  generateImageAssistAnswer,
   generateExplainVariants,
   generateHomeworkReview,
   generateLearningReport,
@@ -32,6 +33,8 @@ export type {
   AssistPayload,
   AssistResponse,
   ExplainVariants,
+  ImageAssistPayload,
+  ImageAssistResponse,
   GenerateKnowledgePointsPayload,
   GenerateKnowledgeTreePayload,
   GenerateQuestionPayload,

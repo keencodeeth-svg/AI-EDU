@@ -210,8 +210,11 @@ CREATE TABLE IF NOT EXISTS ai_history (
   answer TEXT NOT NULL,
   favorite BOOLEAN NOT NULL DEFAULT false,
   tags TEXT[] NOT NULL DEFAULT '{}',
-  created_at TIMESTAMPTZ NOT NULL
+  created_at TIMESTAMPTZ NOT NULL,
+  meta JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+ALTER TABLE ai_history ADD COLUMN IF NOT EXISTS meta JSONB NOT NULL DEFAULT '{}'::jsonb;
 
 CREATE TABLE IF NOT EXISTS correction_tasks (
   id TEXT PRIMARY KEY,

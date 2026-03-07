@@ -1,64 +1,157 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Card from "@/components/Card";
-import Stat from "@/components/Stat";
-import EduIcon from "@/components/EduIcon";
-import MathText from "@/components/MathText";
+import Link from "next/link";
+import StatePanel from "@/components/StatePanel";
+import ParentAssignmentsCard from "./_components/ParentAssignmentsCard";
+import ParentCorrectionsCard from "./_components/ParentCorrectionsCard";
+import ParentFavoritesCard from "./_components/ParentFavoritesCard";
+import ParentWeakPointsCard from "./_components/ParentWeakPointsCard";
+import ParentWeeklyReportCard from "./_components/ParentWeeklyReportCard";
+import type {
+  AssignmentListItem,
+  AssignmentSummary,
+  CorrectionSummary,
+  CorrectionTask,
+  EffectSummary,
+  ExecutionSummary,
+  FavoriteItem,
+  ParentActionItem,
+  ReceiptSource,
+  ReceiptStatus,
+  WeeklyReport
+} from "./types";
+
+type RequestError = Error & { status?: number };
+
+type ParentAssignmentsPayload = {
+  data?: AssignmentListItem[];
+  summary?: AssignmentSummary | null;
+  execution?: ExecutionSummary | null;
+  effect?: EffectSummary | null;
+  reminderText?: string;
+  actionItems?: ParentActionItem[];
+  parentTips?: string[];
+  estimatedMinutes?: number;
+};
+
+type ParentCorrectionsPayload = {
+  data?: CorrectionTask[];
+  summary?: CorrectionSummary | null;
+};
+
+type ParentFavoritesPayload = {
+  data?: FavoriteItem[];
+};
+
+async function requestJson<T>(url: string) {
+  const res = await fetch(url);
+  let data: T | Record<string, unknown> | null = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const error = new Error((data as { error?: string } | null)?.error ?? "加载失败") as RequestError;
+    error.status = res.status;
+    throw error;
+  }
+
+  return data as T;
+}
+
+function formatLoadedTime(value: string | null) {
+  if (!value) return "";
+  return new Date(value).toLocaleString("zh-CN", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
+}
 
 export default function ParentPage() {
-  const [report, setReport] = useState<any>(null);
-  const [tasks, setTasks] = useState<any[]>([]);
-  const [summary, setSummary] = useState<any>(null);
+  const [report, setReport] = useState<WeeklyReport | null>(null);
+  const [tasks, setTasks] = useState<CorrectionTask[]>([]);
+  const [summary, setSummary] = useState<CorrectionSummary | null>(null);
   const [reminderCopied, setReminderCopied] = useState(false);
-  const [assignmentList, setAssignmentList] = useState<any[]>([]);
-  const [assignmentSummary, setAssignmentSummary] = useState<any>(null);
-  const [assignmentExecution, setAssignmentExecution] = useState<any>(null);
-  const [assignmentEffect, setAssignmentEffect] = useState<any>(null);
+  const [assignmentList, setAssignmentList] = useState<AssignmentListItem[]>([]);
+  const [assignmentSummary, setAssignmentSummary] = useState<AssignmentSummary | null>(null);
+  const [assignmentExecution, setAssignmentExecution] = useState<ExecutionSummary | null>(null);
+  const [assignmentEffect, setAssignmentEffect] = useState<EffectSummary | null>(null);
   const [assignmentReminder, setAssignmentReminder] = useState("");
-  const [assignmentActionItems, setAssignmentActionItems] = useState<any[]>([]);
+  const [assignmentActionItems, setAssignmentActionItems] = useState<ParentActionItem[]>([]);
   const [assignmentParentTips, setAssignmentParentTips] = useState<string[]>([]);
   const [assignmentEstimatedMinutes, setAssignmentEstimatedMinutes] = useState(0);
   const [assignmentCopied, setAssignmentCopied] = useState(false);
-  const [favorites, setFavorites] = useState<any[]>([]);
+  const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [receiptLoadingKey, setReceiptLoadingKey] = useState<string | null>(null);
   const [receiptNotes, setReceiptNotes] = useState<Record<string, string>>({});
   const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pageError, setPageError] = useState<string | null>(null);
+  const [authRequired, setAuthRequired] = useState(false);
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
-  const loadWeekly = useCallback(async () => {
-    const res = await fetch("/api/report/weekly");
-    const data = await res.json();
-    setReport(data);
-  }, []);
+  const loadAll = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "refresh") {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+    setPageError(null);
 
-  const loadAssignments = useCallback(async () => {
-    const res = await fetch("/api/parent/assignments");
-    const data = await res.json();
-    setAssignmentList(data.data ?? []);
-    setAssignmentSummary(data.summary ?? null);
-    setAssignmentExecution(data.execution ?? null);
-    setAssignmentEffect(data.effect ?? null);
-    setAssignmentReminder(data.reminderText ?? "");
-    setAssignmentActionItems(data.actionItems ?? []);
-    setAssignmentParentTips(data.parentTips ?? []);
-    setAssignmentEstimatedMinutes(data.estimatedMinutes ?? 0);
+    try {
+      const [weeklyData, correctionsData, assignmentsData, favoritesData] = await Promise.all([
+        requestJson<WeeklyReport>("/api/report/weekly"),
+        requestJson<ParentCorrectionsPayload>("/api/corrections"),
+        requestJson<ParentAssignmentsPayload>("/api/parent/assignments"),
+        requestJson<ParentFavoritesPayload>("/api/parent/favorites")
+      ]);
+
+      setAuthRequired(false);
+      setReport(weeklyData);
+      setTasks(correctionsData.data ?? []);
+      setSummary(correctionsData.summary ?? null);
+      setAssignmentList(assignmentsData.data ?? []);
+      setAssignmentSummary(assignmentsData.summary ?? null);
+      setAssignmentExecution(assignmentsData.execution ?? null);
+      setAssignmentEffect(assignmentsData.effect ?? null);
+      setAssignmentReminder(assignmentsData.reminderText ?? "");
+      setAssignmentActionItems(assignmentsData.actionItems ?? []);
+      setAssignmentParentTips(assignmentsData.parentTips ?? []);
+      setAssignmentEstimatedMinutes(assignmentsData.estimatedMinutes ?? 0);
+      setFavorites(favoritesData.data ?? []);
+      setLastLoadedAt(new Date().toISOString());
+    } catch (nextError) {
+      const requestError = nextError as RequestError;
+      if (requestError.status === 401) {
+        setAuthRequired(true);
+        setReport(null);
+        setTasks([]);
+        setSummary(null);
+        setAssignmentList([]);
+        setAssignmentSummary(null);
+        setAssignmentExecution(null);
+        setAssignmentEffect(null);
+        setFavorites([]);
+      } else {
+        setPageError(requestError.message || "加载失败");
+      }
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
   }, []);
 
   useEffect(() => {
-    loadWeekly();
-    fetch("/api/corrections")
-      .then((res) => res.json())
-      .then((data) => {
-        setTasks(data.data ?? []);
-        setSummary(data.summary ?? null);
-      });
-    loadAssignments();
-    fetch("/api/parent/favorites")
-      .then((res) => res.json())
-      .then((data) => setFavorites(data.data ?? []));
-  }, [loadAssignments, loadWeekly]);
+    void loadAll();
+  }, [loadAll]);
 
-  async function submitReceipt(source: "weekly_report" | "assignment_plan", item: any, status: "done" | "skipped") {
+  async function submitReceipt(source: ReceiptSource, item: ParentActionItem, status: ReceiptStatus) {
     const key = `${source}:${item.id}`;
     const note = (receiptNotes[key] ?? "").trim();
     if (status === "skipped" && note.length < 2) {
@@ -86,22 +179,68 @@ export default function ParentPage() {
         return;
       }
 
-      if (source === "weekly_report") {
-        await loadWeekly();
-      } else {
-        await loadAssignments();
-      }
+      await loadAll("refresh");
     } finally {
       setReceiptLoadingKey(null);
     }
   }
 
-  if (!report) {
-    return <Card title="家长周报">加载中...</Card>;
+  async function copyText(text: string, setCopied: (value: boolean) => void) {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setCopied(false);
+    }
   }
 
-  if (report.error) {
-    return <Card title="家长周报">请先登录家长账号。</Card>;
+  function handleReceiptNoteChange(key: string, value: string) {
+    setReceiptNotes((prev) => ({ ...prev, [key]: value }));
+  }
+
+  if (loading && !report && !authRequired) {
+    return (
+      <StatePanel
+        tone="loading"
+        title="家长空间加载中"
+        description="正在同步学情周报、作业提醒、订正任务和收藏题目。"
+      />
+    );
+  }
+
+  if (authRequired) {
+    return (
+      <StatePanel
+        tone="info"
+        title="请先使用家长账号登录"
+        description="登录后即可查看孩子的周报、作业提醒、订正任务和监督建议。"
+        action={
+          <Link className="button secondary" href="/login">
+            去登录
+          </Link>
+        }
+      />
+    );
+  }
+
+  if (pageError && !report) {
+    return (
+      <StatePanel
+        tone="error"
+        title="家长空间暂时不可用"
+        description={pageError}
+        action={
+          <button className="button secondary" type="button" onClick={() => void loadAll("refresh")}>
+            重新加载
+          </button>
+        }
+      />
+    );
+  }
+
+  if (!report) {
+    return null;
   }
 
   const pendingTasks = tasks.filter((task) => task.status === "pending");
@@ -124,350 +263,85 @@ export default function ParentPage() {
       <div className="section-head">
         <div>
           <h2>家长空间</h2>
-          <div className="section-sub">掌握学情、作业进度与订正提醒。</div>
+          <div className="section-sub">掌握学情、作业进度与订正提醒，支持一键刷新与回执闭环跟进。</div>
         </div>
-        <span className="chip">家校协作</span>
+        <div className="workflow-toolbar">
+          <span className="chip">家校协作</span>
+          <span className="chip">作业待跟进 {assignmentSummary?.pending ?? 0} 份</span>
+          <span className="chip">订正待处理 {summary?.pending ?? pendingTasks.length} 题</span>
+          <span className="chip">收藏 {favorites.length} 题</span>
+          {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => void loadAll("refresh")}
+            disabled={loading || refreshing || receiptLoadingKey !== null}
+          >
+            {refreshing ? "刷新中..." : "刷新"}
+          </button>
+        </div>
       </div>
 
-      <Card title="家长周报" tag="学情">
-        <div className="feature-card">
-          <EduIcon name="chart" />
-          <p>近 7 天学习概览与环比变化。</p>
-        </div>
-        <div className="grid grid-2">
-          <Stat label="完成题量" value={`${report.stats.total} 题`} helper="近 7 天" />
-          <Stat label="正确率" value={`${report.stats.accuracy}%`} helper="近 7 天" />
-        </div>
-        <div className="grid grid-2" style={{ marginTop: 12 }}>
-          <div className="card">
-            <div className="section-title">上周完成题量</div>
-            <p>{report.previousStats?.total ?? 0} 题</p>
-          </div>
-          <div className="card">
-            <div className="section-title">上周正确率</div>
-            <p>{report.previousStats?.accuracy ?? 0}%</p>
-          </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">本周可执行行动卡（预计 {report.estimatedMinutes ?? 0} 分钟）</div>
-          {receiptError ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{receiptError}</div>
-          ) : null}
-          <div className="grid" style={{ gap: 8, marginTop: 8 }}>
-            {(report.actionItems ?? []).map((item: any) => (
-              <div className="card" key={item.id}>
-                <div className="section-title">{item.title}</div>
-                <p>{item.description}</p>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>家长提示：{item.parentTip}</div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  执行状态：
-                  {item.receipt?.status === "done"
-                    ? "已打卡"
-                    : item.receipt?.status === "skipped"
-                      ? "已跳过"
-                      : "未打卡"}
-                  {item.receipt?.completedAt ? ` · ${new Date(item.receipt.completedAt).toLocaleString("zh-CN")}` : ""}
-                </div>
-                {typeof item.receipt?.effectScore === "number" ? (
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>本次效果分：{item.receipt.effectScore}</div>
-                ) : null}
-                <label style={{ marginTop: 8, display: "block" }}>
-                  <div style={{ fontSize: 12, color: "var(--ink-1)", marginBottom: 4 }}>备注/跳过原因（可选）</div>
-                  <input
-                    value={receiptNotes[`weekly_report:${item.id}`] ?? item.receipt?.note ?? ""}
-                    onChange={(event) =>
-                      setReceiptNotes((prev) => ({ ...prev, [`weekly_report:${item.id}`]: event.target.value }))
-                    }
-                    placeholder="例如：今天有校内活动，改为明天执行"
-                    style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                  />
-                </label>
-                <div className="cta-row" style={{ marginTop: 8 }}>
-                  <button
-                    className="button ghost"
-                    type="button"
-                    disabled={receiptLoadingKey === `weekly_report:${item.id}`}
-                    onClick={() => submitReceipt("weekly_report", item, "done")}
-                  >
-                    {receiptLoadingKey === `weekly_report:${item.id}` ? "打卡中..." : "执行打卡"}
-                  </button>
-                  <button
-                    className="button secondary"
-                    type="button"
-                    disabled={receiptLoadingKey === `weekly_report:${item.id}`}
-                    onClick={() => submitReceipt("weekly_report", item, "skipped")}
-                  >
-                    {receiptLoadingKey === `weekly_report:${item.id}` ? "提交中..." : "暂时跳过"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
-          执行闭环：建议 {report.execution?.suggestedCount ?? 0} 项 · 已打卡 {report.execution?.completedCount ?? 0} 项 ·
-          已跳过 {report.execution?.skippedCount ?? 0} 项 · 待执行 {report.execution?.pendingCount ?? 0} 项 ·
-          完成率 {report.execution?.completionRate ?? 0}% · 连续执行 {report.execution?.streakDays ?? 0} 天 ·
-          累计执行时长 {report.execution?.doneMinutes ?? 0} 分钟 · 净效果分 {report.effect?.receiptEffectScore ?? 0}
-          （最近7日 {report.effect?.last7dEffectScore ?? 0}，平均每次 {report.effect?.avgEffectScore ?? 0}，完成贡献{" "}
-          {report.effect?.doneEffectScore ?? 0}，跳过影响 {report.effect?.skippedPenaltyScore ?? 0}）
-        </div>
-      </Card>
-      <Card title="薄弱点与建议" tag="诊断">
-        <div className="feature-card">
-          <EduIcon name="brain" />
-          <p>识别薄弱知识点，给出本周提升建议。</p>
-        </div>
-        <div className="grid" style={{ gap: 8 }}>
-          {report.weakPoints?.length ? (
-            report.weakPoints.map((item: any) => (
-              <div className="card" key={item.id}>
-                <div className="section-title">{item.title}</div>
-                <p>正确率 {item.ratio}%</p>
-                <p>建议：本周补做 5 题，巩固该知识点。</p>
-              </div>
-            ))
-          ) : (
-            <p>暂无薄弱点数据。</p>
-          )}
-        </div>
-        {report.suggestions?.length ? (
-          <div style={{ marginTop: 12 }}>
-            <div className="badge">本周建议</div>
-            <div className="grid" style={{ gap: 6, marginTop: 8 }}>
-              {report.suggestions.map((item: string, idx: number) => (
-                <div key={`${item}-${idx}`}>{item}</div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        {report.parentTips?.length ? (
-          <div style={{ marginTop: 12 }}>
-            <div className="badge">家长提示</div>
-            <div className="grid" style={{ gap: 6, marginTop: 8 }}>
-              {report.parentTips.map((item: string, idx: number) => (
-                <div key={`${item}-${idx}`}>{item}</div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-      </Card>
-      <Card title="订正任务提醒" tag="督学">
-        <div className="feature-card">
-          <EduIcon name="pencil" />
-          <p>自动生成订正清单与提醒文案。</p>
-        </div>
-        <div className="grid grid-2">
-          <div className="card">
-            <div className="section-title">待订正</div>
-            <p>{summary?.pending ?? pendingTasks.length} 题</p>
-          </div>
-          <div className="card">
-            <div className="section-title">逾期</div>
-            <p>{summary?.overdue ?? overdueTasks.length} 题</p>
-          </div>
-          <div className="card">
-            <div className="section-title">2 天内到期</div>
-            <p>{summary?.dueSoon ?? dueSoonTasks.length} 题</p>
-          </div>
-          <div className="card">
-            <div className="section-title">已完成</div>
-            <p>{summary?.completed ?? 0} 题</p>
-          </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">提醒文案</div>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "var(--ink-1)" }}>{reminderText}</pre>
-        </div>
-        <div className="cta-row">
-          <button
-            className="button secondary"
-            type="button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(reminderText);
-                setReminderCopied(true);
-                setTimeout(() => setReminderCopied(false), 2000);
-              } catch {
-                setReminderCopied(false);
-              }
-            }}
-          >
-            {reminderCopied ? "已复制" : "复制提醒文案"}
-          </button>
-        </div>
-      </Card>
-      <Card title="作业提醒" tag="作业">
-        <div className="feature-card">
-          <EduIcon name="board" />
-          <p>汇总老师布置作业与到期提醒。</p>
-        </div>
-        <div className="grid grid-2">
-          <div className="card">
-            <div className="section-title">待完成</div>
-            <p>{assignmentSummary?.pending ?? 0} 份</p>
-          </div>
-          <div className="card">
-            <div className="section-title">逾期</div>
-            <p>{assignmentSummary?.overdue ?? 0} 份</p>
-          </div>
-          <div className="card">
-            <div className="section-title">2 天内到期</div>
-            <p>{assignmentSummary?.dueSoon ?? 0} 份</p>
-          </div>
-          <div className="card">
-            <div className="section-title">已完成</div>
-            <p>{assignmentSummary?.completed ?? 0} 份</p>
-          </div>
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">作业行动卡（预计 {assignmentEstimatedMinutes} 分钟）</div>
-          {receiptError ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#b42318" }}>{receiptError}</div>
-          ) : null}
-          {assignmentActionItems.length ? (
-            <div className="grid" style={{ gap: 8, marginTop: 8 }}>
-              {assignmentActionItems.map((item) => (
-                <div className="card" key={item.id}>
-                  <div className="section-title">{item.title}</div>
-                  <p>{item.description}</p>
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>建议时长：{item.estimatedMinutes} 分钟</div>
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                    执行状态：
-                    {item.receipt?.status === "done"
-                      ? "已打卡"
-                      : item.receipt?.status === "skipped"
-                        ? "已跳过"
-                        : "未打卡"}
-                    {item.receipt?.completedAt
-                      ? ` · ${new Date(item.receipt.completedAt).toLocaleString("zh-CN")}`
-                      : ""}
-                  </div>
-                  {typeof item.receipt?.effectScore === "number" ? (
-                    <div style={{ fontSize: 12, color: "var(--ink-1)" }}>本次效果分：{item.receipt.effectScore}</div>
-                  ) : null}
-                  <label style={{ marginTop: 8, display: "block" }}>
-                    <div style={{ fontSize: 12, color: "var(--ink-1)", marginBottom: 4 }}>备注/跳过原因（可选）</div>
-                    <input
-                      value={receiptNotes[`assignment_plan:${item.id}`] ?? item.receipt?.note ?? ""}
-                      onChange={(event) =>
-                        setReceiptNotes((prev) => ({ ...prev, [`assignment_plan:${item.id}`]: event.target.value }))
-                      }
-                      placeholder="例如：本周外出，周末补做"
-                      style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                    />
-                  </label>
-                  <div className="cta-row" style={{ marginTop: 8 }}>
-                    <button
-                      className="button ghost"
-                      type="button"
-                      disabled={receiptLoadingKey === `assignment_plan:${item.id}`}
-                      onClick={() => submitReceipt("assignment_plan", item, "done")}
-                    >
-                      {receiptLoadingKey === `assignment_plan:${item.id}` ? "打卡中..." : "执行打卡"}
-                    </button>
-                    <button
-                      className="button secondary"
-                      type="button"
-                      disabled={receiptLoadingKey === `assignment_plan:${item.id}`}
-                      onClick={() => submitReceipt("assignment_plan", item, "skipped")}
-                    >
-                      {receiptLoadingKey === `assignment_plan:${item.id}` ? "提交中..." : "暂时跳过"}
-                    </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>暂无行动卡。</p>
-          )}
-        </div>
-        <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
-          执行闭环：建议 {assignmentExecution?.suggestedCount ?? 0} 项 · 已打卡{" "}
-          {assignmentExecution?.completedCount ?? 0} 项 · 完成率{" "}
-          {assignmentExecution?.completionRate ?? 0}% · 已跳过 {assignmentExecution?.skippedCount ?? 0} 项 ·
-          待执行 {assignmentExecution?.pendingCount ?? 0} 项 · 连续执行 {assignmentExecution?.streakDays ?? 0} 天 ·
-          累计执行时长 {assignmentExecution?.doneMinutes ?? 0} 分钟 · 净效果分 {assignmentEffect?.receiptEffectScore ?? 0}
-          （最近7日 {assignmentEffect?.last7dEffectScore ?? 0}，平均每次 {assignmentEffect?.avgEffectScore ?? 0}，完成贡献{" "}
-          {assignmentEffect?.doneEffectScore ?? 0}，跳过影响 {assignmentEffect?.skippedPenaltyScore ?? 0}）
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">作业清单</div>
-          {assignmentList.length ? (
-            <div className="grid" style={{ gap: 8 }}>
-              {assignmentList.slice(0, 5).map((item) => (
-                <div className="card" key={item.id}>
-                  <div className="section-title">{item.title}</div>
-                  <p>{item.className}</p>
-                  <p>截止 {new Date(item.dueDate).toLocaleDateString("zh-CN")}</p>
-                  <p>{item.status === "completed" ? "已完成" : "待完成"}</p>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>暂无作业。</p>
-          )}
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">提醒文案</div>
-          <pre style={{ whiteSpace: "pre-wrap", fontSize: 12, color: "var(--ink-1)" }}>{assignmentReminder}</pre>
-        </div>
-        {assignmentParentTips.length ? (
-          <div style={{ marginTop: 12 }}>
-            <div className="section-title">监督提示</div>
-            <div className="grid" style={{ gap: 6 }}>
-              {assignmentParentTips.map((item, idx) => (
-                <div key={`${item}-${idx}`} style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  {item}
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : null}
-        <div className="cta-row">
-          <button
-            className="button secondary"
-            type="button"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(assignmentReminder);
-                setAssignmentCopied(true);
-                setTimeout(() => setAssignmentCopied(false), 2000);
-              } catch {
-                setAssignmentCopied(false);
-              }
-            }}
-          >
-            {assignmentCopied ? "已复制" : "复制作业提醒"}
-          </button>
-        </div>
-      </Card>
-      <Card title="收藏题目" tag="复习">
-        <div className="feature-card">
-          <EduIcon name="book" />
-          <p>孩子收藏的重点题目与标签。</p>
-        </div>
-        {favorites.length ? (
-          <div className="grid" style={{ gap: 8, marginTop: 12 }}>
-            {favorites.slice(0, 5).map((item) => (
-              <div className="card" key={item.id}>
-                <div className="section-title">
-                  <MathText text={item.question?.stem ?? "题目"} />
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  {item.question?.knowledgePointTitle ?? "知识点"} · {item.question?.grade ?? "-"} 年级
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 6 }}>
-                  标签：{item.tags?.length ? item.tags.join("、") : "未设置"}
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p style={{ marginTop: 8 }}>暂无收藏记录。</p>
-        )}
-      </Card>
+      {pageError ? (
+        <StatePanel
+          compact
+          tone="error"
+          title="已展示最近一次成功数据"
+          description={`最新刷新失败：${pageError}`}
+          action={
+            <button className="button secondary" type="button" onClick={() => void loadAll("refresh")}>
+              再试一次
+            </button>
+          }
+        />
+      ) : null}
+
+      <div className="workflow-card-meta">
+        <span className="chip">近 7 天正确率 {report.stats.accuracy}%</span>
+        <span className="chip">周报行动卡 {(report.actionItems ?? []).length} 项</span>
+        <span className="chip">作业行动卡 {assignmentActionItems.length} 项</span>
+      </div>
+
+      <ParentWeeklyReportCard
+        report={report}
+        receiptError={receiptError}
+        receiptNotes={receiptNotes}
+        receiptLoadingKey={receiptLoadingKey}
+        onNoteChange={handleReceiptNoteChange}
+        onSubmitReceipt={submitReceipt}
+      />
+
+      <ParentWeakPointsCard report={report} />
+
+      <ParentCorrectionsCard
+        summary={summary}
+        pendingCount={pendingTasks.length}
+        overdueCount={overdueTasks.length}
+        dueSoonCount={dueSoonTasks.length}
+        reminderText={reminderText}
+        reminderCopied={reminderCopied}
+        onCopyReminder={() => copyText(reminderText, setReminderCopied)}
+      />
+
+      <ParentAssignmentsCard
+        assignmentSummary={assignmentSummary}
+        assignmentEstimatedMinutes={assignmentEstimatedMinutes}
+        assignmentActionItems={assignmentActionItems}
+        assignmentExecution={assignmentExecution}
+        assignmentEffect={assignmentEffect}
+        assignmentList={assignmentList}
+        assignmentReminder={assignmentReminder}
+        assignmentParentTips={assignmentParentTips}
+        assignmentCopied={assignmentCopied}
+        receiptError={receiptError}
+        receiptNotes={receiptNotes}
+        receiptLoadingKey={receiptLoadingKey}
+        onNoteChange={handleReceiptNoteChange}
+        onSubmitReceipt={submitReceipt}
+        onCopyReminder={() => copyText(assignmentReminder, setAssignmentCopied)}
+      />
+
+      <ParentFavoritesCard favorites={favorites} />
     </div>
   );
 }

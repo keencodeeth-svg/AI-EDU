@@ -122,13 +122,8 @@ export default function QuestionsListPanel({
   const [resultView, setResultView] = useState<"compact" | "detailed">("compact");
   const [openResultGroups, setOpenResultGroups] = useState<Record<string, boolean>>({});
   const [selectedQuestion, setSelectedQuestion] = useState<Question | null>(null);
-
-  const controlStyle = {
-    width: "100%",
-    padding: 9,
-    borderRadius: 10,
-    border: "1px solid var(--stroke)"
-  } as const;
+  const [advancedFiltersOpen, setAdvancedFiltersOpen] = useState(false);
+  const controlClassName = "select-control questions-control";
 
   const activeFilters = [
     query.subject !== "all" ? `学科：${SUBJECT_LABELS[query.subject] ?? query.subject}` : null,
@@ -149,6 +144,20 @@ export default function QuestionsListPanel({
         : null,
     query.duplicateClusterId.trim() ? `重复簇：${query.duplicateClusterId.trim()}` : null
   ].filter(Boolean) as string[];
+
+  const hasAdvancedFilters = Boolean(
+    query.riskLevel !== "all" ||
+      query.answerConflict !== "all" ||
+      query.duplicateClusterId.trim() ||
+      query.difficulty !== "all" ||
+      query.questionType !== "all"
+  );
+
+  useEffect(() => {
+    if (hasAdvancedFilters) {
+      setAdvancedFiltersOpen(true);
+    }
+  }, [hasAdvancedFilters]);
 
   const groupedResults = useMemo(() => {
     const buckets = new Map<string, ResultGroup>();
@@ -301,177 +310,164 @@ export default function QuestionsListPanel({
         </div>
       ) : null}
 
-      <div className="grid" style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
-        <label>
-          <div className="section-title">搜索</div>
-          <input
-            value={query.search}
-            onChange={(event) => patchQuery({ search: event.target.value })}
-            placeholder="题干 / 标签 / 章节 / 答案"
-            style={controlStyle}
-          />
-        </label>
-        <label>
-          <div className="section-title">学科</div>
-          <select
-            value={query.subject}
-            onChange={(event) => patchQuery({ subject: event.target.value, grade: "all", chapter: "all" })}
-            style={controlStyle}
-          >
-            <option value="all">全部学科</option>
-            {facets.subjects.map((item) => (
-              <option value={item.value} key={item.value}>
-                {(SUBJECT_LABELS[item.value] ?? item.value) + ` (${item.count})`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <div className="section-title">年级</div>
-          <select
-            value={query.grade}
-            onChange={(event) => patchQuery({ grade: event.target.value, chapter: "all" })}
-            style={controlStyle}
-          >
-            <option value="all">全部年级</option>
-            {facets.grades.map((item) => (
-              <option value={item.value} key={item.value}>
-                {`${item.value} 年级 (${item.count})`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <div className="section-title">章节</div>
-          <select
-            value={query.chapter}
-            onChange={(event) => patchQuery({ chapter: event.target.value })}
-            style={controlStyle}
-          >
-            <option value="all">全部章节</option>
-            {facets.chapters.map((item) => (
-              <option value={item.value} key={item.value}>
-                {`${item.value} (${item.count})`}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
-          <div className="section-title">题目池</div>
-          <select
-            value={query.pool}
-            onChange={(event) =>
-              patchQuery({ pool: event.target.value as "all" | "isolated" | "active" })
-            }
-            style={controlStyle}
-          >
-            <option value="all">全部题目</option>
-            <option value="isolated">仅隔离池</option>
-            <option value="active">排除隔离池</option>
-          </select>
-        </label>
-      </div>
-
-      <details
-        style={{ marginTop: 8 }}
-        open={Boolean(
-          query.riskLevel !== "all" ||
-            query.answerConflict !== "all" ||
-            query.duplicateClusterId.trim() ||
-            query.difficulty !== "all" ||
-            query.questionType !== "all"
-        )}
-      >
-        <summary
-          style={{
-            cursor: "pointer",
-            listStyle: "none",
-            fontSize: 13,
-            fontWeight: 700,
-            color: "var(--ink-1)",
-            display: "inline-flex",
-            alignItems: "center",
-            gap: 8
-          }}
-        >
-          高级筛选（质检/风险）
+      <details className="questions-filter-panel">
+        <summary>
+          筛选条件
+          <span className="badge">{activeFilters.length || 0}</span>
         </summary>
-        <div
-          className="grid"
-          style={{ gap: 8, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", marginTop: 8 }}
-        >
-          <label>
-            <div className="section-title">难度</div>
-            <select
-              value={query.difficulty}
-              onChange={(event) => patchQuery({ difficulty: event.target.value })}
-              style={controlStyle}
-            >
-              <option value="all">全部难度</option>
-              {facets.difficulties.map((item) => (
-                <option value={item.value} key={item.value}>
-                  {(difficultyLabel[item.value] ?? item.value) + ` (${item.count})`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">题型</div>
-            <select
-              value={query.questionType}
-              onChange={(event) => patchQuery({ questionType: event.target.value })}
-              style={controlStyle}
-            >
-              <option value="all">全部题型</option>
-              {facets.questionTypes.map((item) => (
-                <option value={item.value} key={item.value}>
-                  {(questionTypeLabel[item.value] ?? item.value) + ` (${item.count})`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">质量风险</div>
-            <select
-              value={query.riskLevel}
-              onChange={(event) =>
-                patchQuery({ riskLevel: event.target.value as "all" | "low" | "medium" | "high" })
-              }
-              style={controlStyle}
-            >
-              <option value="all">全部风险</option>
-              <option value="high">高风险</option>
-              <option value="medium">中风险</option>
-              <option value="low">低风险</option>
-            </select>
-          </label>
-          <label>
-            <div className="section-title">答案冲突</div>
-            <select
-              value={query.answerConflict}
-              onChange={(event) =>
-                patchQuery({ answerConflict: event.target.value as "all" | "yes" | "no" })
-              }
-              style={controlStyle}
-            >
-              <option value="all">全部</option>
-              <option value="yes">仅冲突</option>
-              <option value="no">排除冲突</option>
-            </select>
-          </label>
-          <label>
-            <div className="section-title">重复簇 ID</div>
-            <input
-              value={query.duplicateClusterId}
-              onChange={(event) => patchQuery({ duplicateClusterId: event.target.value })}
-              placeholder="输入簇 ID（支持包含匹配）"
-              style={controlStyle}
-            />
-          </label>
+        <div className="questions-filter-panel-body">
+          <div className="grid questions-filter-grid">
+            <label>
+              <div className="section-title">搜索</div>
+              <input
+                className={controlClassName}
+                value={query.search}
+                onChange={(event) => patchQuery({ search: event.target.value })}
+                placeholder="题干 / 标签 / 章节 / 答案"
+              />
+            </label>
+            <label>
+              <div className="section-title">学科</div>
+              <select
+                className={controlClassName}
+                value={query.subject}
+                onChange={(event) => patchQuery({ subject: event.target.value, grade: "all", chapter: "all" })}
+              >
+                <option value="all">全部学科</option>
+                {facets.subjects.map((item) => (
+                  <option value={item.value} key={item.value}>
+                    {(SUBJECT_LABELS[item.value] ?? item.value) + ` (${item.count})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-title">年级</div>
+              <select
+                className={controlClassName}
+                value={query.grade}
+                onChange={(event) => patchQuery({ grade: event.target.value, chapter: "all" })}
+              >
+                <option value="all">全部年级</option>
+                {facets.grades.map((item) => (
+                  <option value={item.value} key={item.value}>
+                    {`${item.value} 年级 (${item.count})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-title">章节</div>
+              <select
+                className={controlClassName}
+                value={query.chapter}
+                onChange={(event) => patchQuery({ chapter: event.target.value })}
+              >
+                <option value="all">全部章节</option>
+                {facets.chapters.map((item) => (
+                  <option value={item.value} key={item.value}>
+                    {`${item.value} (${item.count})`}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <div className="section-title">题目池</div>
+              <select
+                className={controlClassName}
+                value={query.pool}
+                onChange={(event) =>
+                  patchQuery({ pool: event.target.value as "all" | "isolated" | "active" })
+                }
+              >
+                <option value="all">全部题目</option>
+                <option value="isolated">仅隔离池</option>
+                <option value="active">排除隔离池</option>
+              </select>
+            </label>
+          </div>
+
+          <details
+            className="questions-advanced-filters"
+            open={advancedFiltersOpen}
+            onToggle={(event) => setAdvancedFiltersOpen(event.currentTarget.open)}
+          >
+            <summary>高级筛选（质检/风险）</summary>
+            <div className="grid questions-filter-grid questions-advanced-grid">
+              <label>
+                <div className="section-title">难度</div>
+                <select
+                  className={controlClassName}
+                  value={query.difficulty}
+                  onChange={(event) => patchQuery({ difficulty: event.target.value })}
+                >
+                  <option value="all">全部难度</option>
+                  {facets.difficulties.map((item) => (
+                    <option value={item.value} key={item.value}>
+                      {(difficultyLabel[item.value] ?? item.value) + ` (${item.count})`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <div className="section-title">题型</div>
+                <select
+                  className={controlClassName}
+                  value={query.questionType}
+                  onChange={(event) => patchQuery({ questionType: event.target.value })}
+                >
+                  <option value="all">全部题型</option>
+                  {facets.questionTypes.map((item) => (
+                    <option value={item.value} key={item.value}>
+                      {(questionTypeLabel[item.value] ?? item.value) + ` (${item.count})`}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <div className="section-title">质量风险</div>
+                <select
+                  className={controlClassName}
+                  value={query.riskLevel}
+                  onChange={(event) =>
+                    patchQuery({ riskLevel: event.target.value as "all" | "low" | "medium" | "high" })
+                  }
+                >
+                  <option value="all">全部风险</option>
+                  <option value="high">高风险</option>
+                  <option value="medium">中风险</option>
+                  <option value="low">低风险</option>
+                </select>
+              </label>
+              <label>
+                <div className="section-title">答案冲突</div>
+                <select
+                  className={controlClassName}
+                  value={query.answerConflict}
+                  onChange={(event) =>
+                    patchQuery({ answerConflict: event.target.value as "all" | "yes" | "no" })
+                  }
+                >
+                  <option value="all">全部</option>
+                  <option value="yes">仅冲突</option>
+                  <option value="no">排除冲突</option>
+                </select>
+              </label>
+              <label>
+                <div className="section-title">重复簇 ID</div>
+                <input
+                  className={controlClassName}
+                  value={query.duplicateClusterId}
+                  onChange={(event) => patchQuery({ duplicateClusterId: event.target.value })}
+                  placeholder="输入簇 ID（支持包含匹配）"
+                />
+              </label>
+            </div>
+          </details>
         </div>
       </details>
 
-      <div className="cta-row" style={{ marginTop: 10 }}>
+      <div className="cta-row questions-toolbar">
         <button
           className="button ghost"
           type="button"
@@ -492,22 +488,22 @@ export default function QuestionsListPanel({
         >
           清空筛选
         </button>
-        <label style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: "var(--ink-1)" }}>每页</span>
+        <label className="questions-page-size">
+          <span>每页</span>
           <select
+            className={controlClassName}
             value={pageSize}
             onChange={(event) => {
               setPageSize(Number(event.target.value));
               setPage(() => 1);
             }}
-            style={{ padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
           >
             <option value={10}>10</option>
             <option value={20}>20</option>
             <option value={50}>50</option>
           </select>
         </label>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        <div className="questions-quick-tags">
           <button
             className={query.subject === "all" ? "button secondary" : "button ghost"}
             type="button"
@@ -559,7 +555,7 @@ export default function QuestionsListPanel({
         </div>
       </div>
 
-      <div className="cta-row" style={{ marginTop: 8 }}>
+      <div className="cta-row questions-view-toolbar">
         <span className="badge">结果视图</span>
         <button
           className={resultView === "compact" ? "button secondary" : "button ghost"}
@@ -583,42 +579,24 @@ export default function QuestionsListPanel({
         </button>
       </div>
 
-      <div className="split-rail-layout" style={{ marginTop: 12 }}>
-        <div className="side-rail card" style={{ padding: 12 }}>
-          <div className="section-title" style={{ marginTop: 0 }}>
-            分类导航（默认收起）
-          </div>
-          <div style={{ display: "grid", gap: 8 }}>
+      <div className="split-rail-layout questions-results-layout">
+        <details className="side-rail card questions-side-rail">
+          <summary>
+            <span>分类导航</span>
+            <span className="badge">{tree.length}</span>
+          </summary>
+          <div className="questions-side-rail-body">
             {tree.map((subjectNode) => (
-              <details
-                key={subjectNode.subject}
-                open={query.subject === subjectNode.subject}
-                style={{
-                  border: "1px solid var(--stroke)",
-                  borderRadius: 10,
-                  background: "rgba(255, 255, 255, 0.6)",
-                  padding: 8
-                }}
-              >
-                <summary
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    cursor: "pointer",
-                    listStyle: "none",
-                    fontSize: 13,
-                    fontWeight: 700
-                  }}
-                >
+              <details key={subjectNode.subject} className="questions-tree-group">
+                <summary className="questions-tree-summary">
                   <span>{SUBJECT_LABELS[subjectNode.subject] ?? subjectNode.subject}</span>
                   <span className="badge">{subjectNode.count}</span>
                 </summary>
-                <div style={{ marginTop: 8, display: "grid", gap: 8 }}>
+                <div className="questions-tree-content">
                   {subjectNode.grades.map((gradeNode) => (
-                    <div key={`${subjectNode.subject}-${gradeNode.grade}`} className="card" style={{ padding: 8 }}>
+                    <div key={`${subjectNode.subject}-${gradeNode.grade}`} className="card questions-grade-card">
                       <button
-                        className={query.grade === gradeNode.grade ? "button secondary" : "button ghost"}
+                        className={query.grade === gradeNode.grade ? "button secondary questions-grade-button" : "button ghost questions-grade-button"}
                         type="button"
                         onClick={() =>
                           patchQuery({
@@ -627,16 +605,15 @@ export default function QuestionsListPanel({
                             chapter: "all"
                           })
                         }
-                        style={{ width: "100%", justifyContent: "space-between" }}
                       >
                         <span>{gradeNode.grade} 年级</span>
                         <span>{gradeNode.count}</span>
                       </button>
-                      <div style={{ marginTop: 6, display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      <div className="questions-chapter-tags">
                         {gradeNode.chapters.slice(0, 8).map((chapterNode) => (
                           <button
                             key={`${subjectNode.subject}-${gradeNode.grade}-${chapterNode.chapter}`}
-                            className="badge"
+                            className="badge questions-tag-button"
                             type="button"
                             onClick={() =>
                               patchQuery({
@@ -645,7 +622,6 @@ export default function QuestionsListPanel({
                                 chapter: chapterNode.chapter
                               })
                             }
-                            style={{ border: "none", cursor: "pointer" }}
                           >
                             {chapterNode.chapter} · {chapterNode.count}
                           </button>
@@ -657,51 +633,51 @@ export default function QuestionsListPanel({
               </details>
             ))}
           </div>
-        </div>
+        </details>
 
-        <div className="masonry-list" style={{ gridTemplateColumns: "1fr" }}>
+        <div className="masonry-list questions-result-list">
           {selectedQuestion ? (
-            <div className="card full-span" style={{ padding: 12, background: "rgba(255, 255, 255, 0.88)" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-                <div className="section-title" style={{ marginTop: 0 }}>
+            <div className="card full-span questions-selected-card">
+              <div className="questions-selected-header">
+                <div className="section-title questions-selected-title">
                   题目详情
                 </div>
                 <button className="button ghost" type="button" onClick={() => setSelectedQuestion(null)}>
                   关闭
                 </button>
               </div>
-              <div style={{ marginTop: 4, fontSize: 12, color: "var(--ink-1)" }}>
+              <div className="questions-selected-meta">
                 {SUBJECT_LABELS[selectedQuestion.subject] ?? selectedQuestion.subject} · {selectedQuestion.grade} 年级 ·
                 难度 {difficultyLabel[selectedQuestion.difficulty ?? "medium"] ?? selectedQuestion.difficulty ?? "中"} ·
                 题型 {questionTypeLabel[selectedQuestion.questionType ?? "choice"] ?? selectedQuestion.questionType ?? "选择题"} ·
                 ID {selectedQuestion.id}
               </div>
-              <div style={{ marginTop: 10 }}>
+              <div className="questions-selected-stem">
                 <MathText as="div" text={selectedQuestion.stem} />
               </div>
               {selectedQuestion.options.length ? (
-                <div style={{ marginTop: 10, display: "grid", gap: 6 }}>
+                <div className="questions-selected-options">
                   {selectedQuestion.options.map((option) => (
-                    <div key={`${selectedQuestion.id}-opt-${option}`} className="card" style={{ padding: 8 }}>
+                    <div key={`${selectedQuestion.id}-opt-${option}`} className="card questions-selected-option">
                       <MathText text={option} />
                     </div>
                   ))}
                 </div>
               ) : null}
-              <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 8 }}>
+              <div className="questions-selected-badges">
                 <span className="badge">
                   正确答案：<MathText text={selectedQuestion.answer} />
                 </span>
                 <span className="badge">知识点ID：{selectedQuestion.knowledgePointId}</span>
               </div>
-              <div style={{ marginTop: 10 }}>
-                <div className="section-title" style={{ marginTop: 0 }}>
+              <div className="questions-selected-explanation">
+                <div className="section-title questions-selected-title">
                   解析
                 </div>
                 <MathText as="div" text={selectedQuestion.explanation?.trim() || "暂无解析"} />
               </div>
               {selectedQuestion.tags?.length ? (
-                <div style={{ marginTop: 10, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className="questions-selected-tags">
                   {selectedQuestion.tags.map((tag) => (
                     <span className="badge" key={`${selectedQuestion.id}-tag-${tag}`}>
                       {tag}
@@ -729,66 +705,38 @@ export default function QuestionsListPanel({
             groupedResults.map((group) => (
               <details
                 key={group.id}
-                className="card full-span"
+                className="card full-span questions-result-group"
                 open={openResultGroups[group.id] ?? false}
                 onToggle={(event) => patchGroupOpen(group.id, event.currentTarget.open)}
-                style={{ padding: 12 }}
               >
-                <summary
-                  style={{
-                    cursor: "pointer",
-                    listStyle: "none",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8,
-                    fontWeight: 700
-                  }}
-                >
+                <summary className="questions-result-group-summary">
                   <span>{group.label}</span>
                   <span className="badge">{group.items.length} 题</span>
                 </summary>
-                <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                <div className="questions-result-group-meta">
                   <span className="pill">隔离池 {group.isolatedCount}</span>
                   <span className="pill">答案冲突 {group.conflictCount}</span>
                 </div>
 
                 {resultView === "compact" ? (
-                  <div className="grid" style={{ gap: 8, marginTop: 10 }}>
+                  <div className="grid questions-compact-list">
                     {group.items.map((item) => {
                       const badges = buildQuestionBadges(item).slice(0, 4);
                       return (
-                        <div
-                          key={item.id}
-                          style={{
-                            border: "1px solid var(--stroke)",
-                            borderRadius: 12,
-                            background: "rgba(255,255,255,0.72)",
-                            padding: 10
-                          }}
-                        >
-                          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "flex-start" }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div
-                                style={{
-                                  fontSize: 14,
-                                  fontWeight: 700,
-                                  display: "-webkit-box",
-                                  WebkitLineClamp: 1,
-                                  WebkitBoxOrient: "vertical",
-                                  overflow: "hidden"
-                                }}
-                              >
+                        <div key={item.id} className="questions-compact-item">
+                          <div className="questions-compact-header">
+                            <div className="questions-compact-main">
+                              <div className="questions-compact-title">
                                 <MathText text={item.stem} />
                               </div>
-                              <div style={{ marginTop: 4, fontSize: 12, color: "var(--ink-1)" }}>
+                              <div className="questions-compact-meta">
                                 {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 · 难度{" "}
                                 {difficultyLabel[item.difficulty ?? "medium"] ?? item.difficulty ?? "中"} · 题型{" "}
                                 {questionTypeLabel[item.questionType ?? "choice"] ?? item.questionType ?? "选择题"} ·
                                 选项 {item.options.length} 个
                               </div>
                             </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, justifyContent: "flex-end" }}>
+                            <div className="questions-item-actions">
                               <span className="badge">
                                 答案：<MathText text={item.answer} />
                               </span>
@@ -812,7 +760,7 @@ export default function QuestionsListPanel({
                             </div>
                           </div>
                           {badges.length ? (
-                            <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                            <div className="questions-compact-badges">
                               {badges.map((badge) => (
                                 <span className="badge" key={badge.key}>
                                   {badge.text}
@@ -825,14 +773,11 @@ export default function QuestionsListPanel({
                     })}
                   </div>
                 ) : (
-                  <div
-                    className="grid"
-                    style={{ gap: 10, gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", marginTop: 10 }}
-                  >
+                  <div className="grid questions-detailed-list">
                     {group.items.map((item) => (
-                      <div className="card" key={item.id}>
+                      <div className="card questions-detailed-item" key={item.id}>
                         {buildQuestionBadges(item).length ? (
-                          <div style={{ marginBottom: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <div className="questions-detailed-badges">
                             {buildQuestionBadges(item).map((badge) => (
                               <span className="badge" key={badge.key}>
                                 {badge.text}
@@ -840,25 +785,17 @@ export default function QuestionsListPanel({
                             ))}
                           </div>
                         ) : null}
-                        <div
-                          className="section-title"
-                          style={{
-                            display: "-webkit-box",
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: "vertical",
-                            overflow: "hidden"
-                          }}
-                        >
+                        <div className="section-title questions-detailed-title">
                           <MathText text={item.stem} />
                         </div>
-                        <div style={{ fontSize: 12, color: "var(--ink-1)", lineHeight: 1.5 }}>
+                        <div className="questions-detailed-meta">
                           {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级 · 难度{" "}
                           {difficultyLabel[item.difficulty ?? "medium"] ?? item.difficulty ?? "中"} · 题型{" "}
                           {questionTypeLabel[item.questionType ?? "choice"] ?? item.questionType ?? "选择题"} · 选项{" "}
                           {item.options.length} 个
                         </div>
                         {item.tags?.length ? (
-                          <div style={{ marginTop: 6, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                          <div className="questions-detailed-tags">
                             {item.tags.slice(0, 8).map((tag) => (
                               <span className="badge" key={`${item.id}-${tag}`}>
                                 {tag}
@@ -867,11 +804,11 @@ export default function QuestionsListPanel({
                           </div>
                         ) : null}
                         {item.isolationReason?.length ? (
-                          <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
+                          <div className="questions-detailed-reason">
                             隔离原因：{item.isolationReason.join("；")}
                           </div>
                         ) : null}
-                        <div style={{ marginTop: 8, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                        <div className="questions-item-actions">
                           <button className="button secondary" type="button" onClick={() => setSelectedQuestion(item)}>
                             查看详情
                           </button>
@@ -896,12 +833,12 @@ export default function QuestionsListPanel({
               </details>
             ))}
 
-          <div className="card full-span" style={{ padding: 14 }}>
-            <div className="cta-row" style={{ marginTop: 0, justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
+          <div className="card full-span questions-pagination-card">
+            <div className="cta-row questions-pagination-row">
+              <div className="questions-pagination-meta">
                 共 {meta.total} 条，当前 {pageStart}-{pageEnd}
               </div>
-              <div className="cta-row" style={{ marginTop: 0 }}>
+              <div className="cta-row questions-pagination-actions">
                 <button
                   className="button ghost"
                   type="button"

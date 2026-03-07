@@ -8,9 +8,14 @@ import type {
   AiKnowledgePointForm,
   BatchForm,
   KnowledgePoint,
+  KnowledgePointBatchPreviewFailedItem,
+  KnowledgePointBatchPreviewItem,
+  KnowledgePointBatchPreviewResponse,
   KnowledgePointFacets,
   KnowledgePointForm,
   KnowledgePointListPayload,
+  KnowledgePointMutationResponse,
+  KnowledgePointProcessFailedItem,
   KnowledgePointQuery,
   KnowledgePointTreeNode,
   TreeForm
@@ -96,7 +101,7 @@ export default function KnowledgePointsAdminPage() {
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchMessage, setBatchMessage] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState<string | null>(null);
-  const [batchPreview, setBatchPreview] = useState<any[]>([]);
+  const [batchPreview, setBatchPreview] = useState<KnowledgePointBatchPreviewItem[]>([]);
   const [batchConfirming, setBatchConfirming] = useState(false);
   const [batchShowDetail, setBatchShowDetail] = useState(false);
 
@@ -193,16 +198,16 @@ export default function KnowledgePointsAdminPage() {
       })
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as KnowledgePointMutationResponse;
     if (!res.ok) {
-      setAiErrors([data?.error ?? "生成失败"]);
+      setAiErrors([data.error ?? "生成失败"]);
       setAiLoading(false);
       return;
     }
 
-    const skipped = data.skipped ?? [];
+    const skipped: KnowledgePointProcessFailedItem[] = data.skipped ?? [];
     if (skipped.length) {
-      setAiErrors(skipped.map((item: any) => `第 ${item.index + 1} 条：${item.reason}`));
+      setAiErrors(skipped.map((item) => `第 ${item.index + 1} 条：${item.reason}`));
     }
     setAiMessage(`已生成 ${data.created?.length ?? 0} 条知识点。`);
     setAiLoading(false);
@@ -227,16 +232,16 @@ export default function KnowledgePointsAdminPage() {
       })
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as KnowledgePointMutationResponse;
     if (!res.ok) {
-      setTreeErrors([data?.error ?? "生成失败"]);
+      setTreeErrors([data.error ?? "生成失败"]);
       setTreeLoading(false);
       return;
     }
 
-    const skipped = data.skipped ?? [];
+    const skipped: KnowledgePointProcessFailedItem[] = data.skipped ?? [];
     if (skipped.length) {
-      setTreeErrors(skipped.slice(0, 5).map((item: any) => `第 ${item.index + 1} 条：${item.reason}`));
+      setTreeErrors(skipped.slice(0, 5).map((item) => `第 ${item.index + 1} 条：${item.reason}`));
     }
     setTreeMessage(`已生成 ${data.created?.length ?? 0} 条知识点。`);
     setTreeLoading(false);
@@ -260,8 +265,8 @@ export default function KnowledgePointsAdminPage() {
     setBatchPreview([]);
 
     const comboChunks = chunkArray(combos, PREVIEW_COMBO_CHUNK_SIZE);
-    const allItems: any[] = [];
-    const allFailed: any[] = [];
+    const allItems: KnowledgePointBatchPreviewItem[] = [];
+    const allFailed: KnowledgePointBatchPreviewFailedItem[] = [];
 
     for (const [index, comboChunk] of comboChunks.entries()) {
       setBatchProgress(`正在生成预览：第 ${index + 1}/${comboChunks.length} 批（${comboChunk.length} 个组合）`);
@@ -277,9 +282,9 @@ export default function KnowledgePointsAdminPage() {
           pointsPerChapter: batchForm.pointsPerChapter
         })
       });
-      const data = await res.json();
+      const data = (await res.json()) as KnowledgePointBatchPreviewResponse;
       if (!res.ok) {
-        setBatchError(data?.error ?? "生成预览失败");
+        setBatchError(data.error ?? "生成预览失败");
         setBatchLoading(false);
         setBatchProgress(null);
         return;
@@ -288,7 +293,7 @@ export default function KnowledgePointsAdminPage() {
       allFailed.push(...(data.failed ?? []));
     }
 
-    const itemMap = new Map<string, any>();
+    const itemMap = new Map<string, KnowledgePointBatchPreviewItem>();
     allItems.forEach((item) => {
       const key = `${item.subject}|${item.grade}`;
       itemMap.set(key, item);
@@ -298,7 +303,7 @@ export default function KnowledgePointsAdminPage() {
       setBatchError(
         allFailed
           .slice(0, 16)
-          .map((item: any) => `${SUBJECT_LABELS[item.subject] ?? item.subject}${item.grade}年级：${item.reason}`)
+          .map((item) => `${SUBJECT_LABELS[item.subject] ?? item.subject}${item.grade}年级：${item.reason}`)
           .join("；")
       );
     }
@@ -330,7 +335,7 @@ export default function KnowledgePointsAdminPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ items: chunk })
       });
-      const data = await res.json();
+      const data = (await res.json()) as KnowledgePointMutationResponse;
       if (!res.ok) {
         failedBatches += 1;
         continue;

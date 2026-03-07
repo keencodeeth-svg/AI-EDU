@@ -24,6 +24,13 @@ type DbNotification = {
   read_at: string | null;
 };
 
+type NotificationInput = {
+  userId: string;
+  title: string;
+  content: string;
+  type: string;
+};
+
 function mapNotification(row: DbNotification): Notification {
   return {
     id: row.id,
@@ -48,35 +55,62 @@ export async function getNotificationsByUser(userId: string): Promise<Notificati
   return rows.map(mapNotification);
 }
 
-export async function createNotification(input: {
-  userId: string;
-  title: string;
-  content: string;
-  type: string;
-}): Promise<Notification> {
+export async function createNotificationsBulk(input: NotificationInput[]): Promise<Notification[]> {
+  if (!input.length) {
+    return [];
+  }
+
   const createdAt = new Date().toISOString();
   if (!isDbEnabled()) {
     const list = readJson<Notification[]>(NOTIFY_FILE, []);
-    const next: Notification = {
+    const next = input.map<Notification>((item) => ({
       id: `notice-${crypto.randomBytes(6).toString("hex")}`,
-      userId: input.userId,
-      title: input.title,
-      content: input.content,
-      type: input.type,
+      userId: item.userId,
+      title: item.title,
+      content: item.content,
+      type: item.type,
       createdAt
-    };
-    list.push(next);
+    }));
+    list.push(...next);
     writeJson(NOTIFY_FILE, list);
     return next;
   }
-  const id = `notice-${crypto.randomBytes(6).toString("hex")}`;
-  const row = await queryOne<DbNotification>(
+
+  const ids: string[] = [];
+  const params: Array<string | null> = [];
+  const values = input.map((item, index) => {
+    const id = `notice-${crypto.randomBytes(6).toString("hex")}`;
+    ids.push(id);
+    const offset = index * 6;
+    params.push(id, item.userId, item.title, item.content, item.type, createdAt);
+    return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6})`;
+  });
+
+  const rows = await query<DbNotification>(
     `INSERT INTO notifications (id, user_id, title, content, type, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6)
+     VALUES ${values.join(", ")}
      RETURNING *`,
-    [id, input.userId, input.title, input.content, input.type, createdAt]
+    params
   );
-  return row ? mapNotification(row) : { id, ...input, createdAt };
+  const rowMap = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id, index) => {
+    const matched = rowMap.get(id);
+    return matched
+      ? mapNotification(matched)
+      : {
+          id,
+          userId: input[index].userId,
+          title: input[index].title,
+          content: input[index].content,
+          type: input[index].type,
+          createdAt
+        };
+  });
+}
+
+export async function createNotification(input: NotificationInput): Promise<Notification> {
+  const created = await createNotificationsBulk([input]);
+  return created[0];
 }
 
 export async function markNotificationRead(id: string): Promise<Notification | null> {

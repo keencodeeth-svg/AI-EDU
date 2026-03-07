@@ -4,6 +4,8 @@ import UserMenu from "@/components/UserMenu";
 import DensityToggle from "@/components/DensityToggle";
 import RoleSidebarNav from "@/components/RoleSidebarNav";
 import AppToastHub from "@/components/AppToastHub";
+import MobileAppNav from "@/components/MobileAppNav";
+import GlobalCommandPalette from "@/components/GlobalCommandPalette";
 
 export const metadata = {
   title: "航科AI教育",
@@ -214,6 +216,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
     admin: "管理空间",
     school_admin: "学校空间"
   };
+  const roleLabel = role ? roleLabelMap[role] : "访客模式";
 
   return (
     <html lang="zh-CN">
@@ -222,15 +225,19 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           跳转到主内容
         </a>
         <div className="app-shell with-side-nav">
-          <aside className="app-sidebar">
+          <aside className="app-sidebar desktop-sidebar">
             <div className="brand">航科AI教育</div>
             <RoleSidebarNav primaryLinks={primaryLinks} navGroups={navGroups} />
           </aside>
 
           <div className="app-main-shell">
             <header className="site-header compact-header">
-              <div className="section-sub">{role ? roleLabelMap[role] : "访客模式"}</div>
+              <div className="site-header-left">
+                <MobileAppNav roleLabel={roleLabel} primaryLinks={primaryLinks} navGroups={navGroups} />
+                <div className="section-sub desktop-role-badge">{roleLabel}</div>
+              </div>
               <div className="header-actions">
+                <GlobalCommandPalette roleLabel={roleLabel} primaryLinks={primaryLinks} navGroups={navGroups} />
                 {user ? <DensityToggle /> : null}
                 <UserMenu user={user} />
               </div>

@@ -6,6 +6,7 @@ import { GRADE_OPTIONS, SUBJECT_LABELS, SUBJECT_OPTIONS } from "@/lib/constants"
 import type {
   AiKnowledgePointForm,
   BatchForm,
+  KnowledgePointBatchPreviewItem,
   KnowledgePointForm,
   TreeForm
 } from "../types";
@@ -17,7 +18,7 @@ type Props = {
   batchError: string | null;
   batchMessage: string | null;
   batchProgress: string | null;
-  batchPreview: any[];
+  batchPreview: KnowledgePointBatchPreviewItem[];
   batchShowDetail: boolean;
   setBatchShowDetail: Dispatch<SetStateAction<boolean>>;
   batchConfirming: boolean;
@@ -203,7 +204,7 @@ export default function KnowledgePointsToolsPanel({
                   <div className="section-title">
                     {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级
                   </div>
-                  {item.units?.slice(0, 3).map((unit: any) => (
+                  {item.units?.slice(0, 3).map((unit) => (
                     <div key={unit.title} style={{ marginTop: 8 }}>
                       <div style={{ fontWeight: 600 }}>{unit.title}</div>
                       <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
@@ -211,11 +212,11 @@ export default function KnowledgePointsToolsPanel({
                       </div>
                       {batchShowDetail ? (
                         <div style={{ marginTop: 6, display: "grid", gap: 6 }}>
-                          {unit.chapters?.map((chapter: any) => (
+                          {unit.chapters?.map((chapter) => (
                             <div className="card" key={`${unit.title}-${chapter.title}`}>
                               <div style={{ fontWeight: 600 }}>{chapter.title}</div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                                {chapter.points?.map((point: any) => (
+                                {chapter.points?.map((point) => (
                                   <span className="badge" key={`${unit.title}-${chapter.title}-${point.title}`}>
                                     {point.title}
                                   </span>

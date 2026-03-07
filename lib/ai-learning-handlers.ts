@@ -13,8 +13,11 @@ import {
 import { GENERATE_PROMPT, SYSTEM_PROMPT } from "./ai-prompts";
 import { buildExplainFallback, buildHomeworkFallback, extractJson } from "./ai-utils";
 import type {
+  AssistAnswerMode,
   AssistPayload,
   AssistResponse,
+  ImageAssistPayload,
+  ImageAssistResponse,
   KnowledgePointExtraction,
   LearningReport,
   LessonOutline,
@@ -398,28 +401,108 @@ export async function generateLearningReport(payload: {
   } as LearningReport;
 }
 
+const DEFAULT_ASSIST_ANSWER_MODE: AssistAnswerMode = "step_by_step";
+
+function normalizeAssistAnswerMode(answerMode?: AssistAnswerMode): AssistAnswerMode {
+  return answerMode ?? DEFAULT_ASSIST_ANSWER_MODE;
+}
+
+function getAssistModeLabel(answerMode: AssistAnswerMode) {
+  switch (answerMode) {
+    case "answer_only":
+      return "只要答案";
+    case "hints_first":
+      return "先提示后答案";
+    default:
+      return "分步讲解";
+  }
+}
+
+function buildAssistModeInstruction(answerMode: AssistAnswerMode) {
+  switch (answerMode) {
+    case "answer_only":
+      return "请只给出最终答案和一句简短核对建议，steps 与 hints 输出空数组，不要展开推导。";
+    case "hints_first":
+      return "请先给 2-3 条启发式提示，再给最终答案，并补充 2-4 条简短步骤。";
+    default:
+      return "请先给最终答案，再给 3-5 条清晰步骤，并补充 1-3 条简短提示。";
+  }
+}
+
+function buildVisionAssistModeInstruction(answerMode: AssistAnswerMode) {
+  switch (answerMode) {
+    case "answer_only":
+      return "请先识别图片中的题目内容，再只给最终答案。steps 与 hints 输出空数组。";
+    case "hints_first":
+      return "请先识别完整题目，再先给 2-3 条提示，再给答案，最后给 2-4 条步骤。";
+    default:
+      return "请先识别完整题目，再给答案、3-5 条步骤和 1-3 条提示。";
+  }
+}
+
+function buildAssistFallbackScaffold(answerMode: AssistAnswerMode) {
+  switch (answerMode) {
+    case "answer_only":
+      return {
+        steps: [] as string[],
+        hints: [] as string[]
+      };
+    case "hints_first":
+      return {
+        steps: ["根据提示锁定解法", "代入题目条件逐步求解", "回到题干核对答案"],
+        hints: ["先判断考查的是哪个知识点", "先圈出已知量和问题", "复杂计算先列式再动笔"]
+      };
+    default:
+      return {
+        steps: ["识别题干关键点", "匹配知识点", "按顺序推理", "回到题目核对结果"],
+        hints: ["先读清已知条件", "注意单位和关键字"]
+      };
+  }
+}
+
+function finalizeAssistSegments(answerMode: AssistAnswerMode, answer: string, steps: string[], hints: string[]) {
+  const normalizedAnswer = answer.trim() || "我暂时还没整理出答案，请补充题目后再试。";
+  if (answerMode === "answer_only") {
+    return {
+      answer: normalizedAnswer,
+      steps: [] as string[],
+      hints: [] as string[]
+    };
+  }
+
+  const scaffold = buildAssistFallbackScaffold(answerMode);
+  const nextSteps = steps.filter(Boolean).slice(0, 5);
+  const nextHints = hints.filter(Boolean).slice(0, 4);
+  return {
+    answer: normalizedAnswer,
+    steps: nextSteps.length ? nextSteps : scaffold.steps,
+    hints: nextHints.length ? nextHints : scaffold.hints
+  };
+}
+
 export async function generateAssistAnswer(payload: AssistPayload): Promise<AssistResponse> {
   const question = payload.question.trim();
   const subject = payload.subject;
   const grade = payload.grade;
   const memoryContext = payload.memoryContext?.trim();
+  const answerMode = normalizeAssistAnswerMode(payload.answerMode);
 
   const relatedQuestion = await retrieveSimilarQuestion(question, subject, grade);
   const relatedKps = await retrieveKnowledgePoints(question, subject, grade);
 
-  const contextLines = [];
-  if (relatedQuestion) {
-    contextLines.push(`参考题目：${relatedQuestion.stem}`);
-    contextLines.push(`参考解析：${relatedQuestion.explanation}`);
-  }
-  if (relatedKps.length) {
-    contextLines.push(`相关知识点：${relatedKps.map((kp) => kp.title).join("、")}`);
-  }
-  if (memoryContext) {
-    contextLines.push(`学习记忆：${memoryContext}`);
-  }
+  const contextLines = [
+    subject ? `学科：${subject}` : "",
+    grade ? `年级：${grade}` : "",
+    relatedQuestion ? `参考题目：${relatedQuestion.stem}` : "",
+    relatedQuestion ? `参考解析：${relatedQuestion.explanation}` : "",
+    relatedKps.length ? `相关知识点：${relatedKps.map((kp) => kp.title).join("、")}` : "",
+    memoryContext ? `学习记忆：${memoryContext}` : "",
+    `作答模式：${getAssistModeLabel(answerMode)}`,
+    buildAssistModeInstruction(answerMode),
+    '严格输出 JSON：{"answer":"...","steps":["..."],"hints":["..."]}。不要输出额外文本。'
+  ].filter(Boolean);
 
-  const userPrompt = `问题：${question}\n${contextLines.join("\n")}\n请用 3-5 句话讲清楚思路。`;
+  const userPrompt = [`问题：${question}`, ...contextLines].join("\n");
 
   const llm = await callRoutedLLM({
     taskType: "assist",
@@ -429,40 +512,179 @@ export async function generateAssistAnswer(payload: AssistPayload): Promise<Assi
     ],
     customPrompt: `${SYSTEM_PROMPT}\n${userPrompt}`
   });
+
+  const sourceTitles = relatedKps.map((kp) => kp.title);
   if (llm?.text) {
-    // Primary path: routed model answer + light structured scaffolding for UI rendering.
+    const parsed = asJsonObject(extractJson(llm.text));
+    const normalized = finalizeAssistSegments(
+      answerMode,
+      (parsed ? getStringField(parsed, "answer") : "") || llm.text,
+      parsed ? getStringArrayField(parsed, "steps", 5) : [],
+      parsed ? getStringArrayField(parsed, "hints", 4) : []
+    );
+
     return {
-      answer: llm.text,
-      steps: ["识别题干关键点", "匹配知识点", "给出清晰步骤"],
-      hints: ["先理解题意", "注意单位一致"],
-      sources: relatedKps.map((kp) => kp.title),
+      answer: normalized.answer,
+      steps: normalized.steps,
+      hints: normalized.hints,
+      sources: sourceTitles,
       provider: llm.provider,
       quality: llm.quality
     };
   }
 
   if (relatedQuestion) {
-    // Secondary path: retrieval fallback when model chain is unavailable.
+    const normalized = finalizeAssistSegments(
+      answerMode,
+      relatedQuestion.explanation,
+      ["看清题目条件", "列出关键关系", "逐步计算"],
+      ["先把题目中的已知量圈出来", "分步检查"]
+    );
+
     return {
-      answer: relatedQuestion.explanation,
-      steps: ["看清题目条件", "列出关键关系", "逐步计算"],
-      hints: ["先把题目中的已知量圈出来", "分步检查"],
+      answer: normalized.answer,
+      steps: normalized.steps,
+      hints: normalized.hints,
       sources: [relatedQuestion.knowledgePointId],
       provider: "mock"
     };
   }
 
   const kpNames = relatedKps.map((kp) => kp.title);
-  // Last-resort fallback keeps tutoring endpoint usable even without model + retrieval hit.
   const fallback = kpNames.length
     ? `这道题可能属于：${kpNames.join("、")}。建议先回顾该知识点，再按步骤解题。`
     : "先找出题目中的数量关系，然后一步步推理。";
+  const normalized = finalizeAssistSegments(
+    answerMode,
+    fallback,
+    ["找出已知条件", "确定目标", "逐步推导"],
+    ["画图或列式", "检查是否需要通分"]
+  );
 
   return {
-    answer: fallback,
-    steps: ["找出已知条件", "确定目标", "逐步推导"],
-    hints: ["画图或列式", "检查是否需要通分"],
+    answer: normalized.answer,
+    steps: normalized.steps,
+    hints: normalized.hints,
     sources: kpNames,
     provider: "mock"
+  };
+}
+
+export async function generateImageAssistAnswer(payload: ImageAssistPayload): Promise<ImageAssistResponse> {
+  const question = payload.question?.trim();
+  const subject = payload.subject;
+  const grade = payload.grade;
+  const answerMode = normalizeAssistAnswerMode(payload.answerMode);
+  const images = payload.images.slice(0, 3);
+
+  if (!images.length) {
+    if (question) {
+      const assist = await generateAssistAnswer({ question, subject, grade, answerMode });
+      const fallbackHints =
+        answerMode === "answer_only" ? [] : ["未收到图片，已按文字问题作答。", ...assist.hints].slice(0, 4);
+      return {
+        recognizedQuestion: question,
+        answer: assist.answer,
+        steps: assist.steps,
+        hints: fallbackHints,
+        sources: assist.sources,
+        provider: assist.provider,
+        quality: assist.quality
+      };
+    }
+
+    const normalized = finalizeAssistSegments(
+      answerMode,
+      "请先拍照或上传题目图片，再开始识题。",
+      ["拍摄完整题干", "确保光线充足", "确认图片清晰后再上传"],
+      ["尽量只保留题目区域", "如果有选项，请一并拍进去"]
+    );
+    return {
+      answer: normalized.answer,
+      steps: normalized.steps,
+      hints: normalized.hints,
+      sources: [],
+      provider: "mock"
+    };
+  }
+
+  const visionChain = normalizeProviderChain(getEffectiveAiProviderChain()).filter((provider) => provider !== "custom");
+  const promptLines = [
+    subject ? `学科：${subject}` : "",
+    grade ? `年级：${grade}` : "",
+    question ? `用户补充：${question}` : "",
+    `作答模式：${getAssistModeLabel(answerMode)}`,
+    buildVisionAssistModeInstruction(answerMode),
+    "若图片不清晰或信息缺失，请明确指出缺失点，不要编造题目条件。",
+    '严格输出 JSON：{"recognizedQuestion":"...","answer":"...","steps":["..."],"hints":["..."]}。不要输出额外文本。'
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const content: VisionPromptPart[] = [{ type: "text", text: promptLines }];
+  images.forEach((item) => {
+    content.push({ type: "image_url", image_url: { url: `data:${item.mimeType};base64,${item.base64}` } });
+  });
+
+  const llm = await callRoutedLLM({
+    taskType: "assist",
+    capability: "vision",
+    chain: visionChain.length ? visionChain : ["mock"],
+    messages: [
+      { role: "system", content: SYSTEM_PROMPT },
+      { role: "user", content }
+    ],
+    customPrompt: `${SYSTEM_PROMPT}\n${question || "请识别图片题目并给出答案。"}`
+  });
+
+  if (!llm?.text) {
+    if (question) {
+      const assist = await generateAssistAnswer({ question, subject, grade, answerMode });
+      const fallbackHints =
+        answerMode === "answer_only" ? [] : ["图片识别暂不可用，已按你补充的文字作答。", ...assist.hints].slice(0, 4);
+      return {
+        recognizedQuestion: question,
+        answer: assist.answer,
+        steps: assist.steps,
+        hints: fallbackHints,
+        sources: assist.sources,
+        provider: assist.provider,
+        quality: assist.quality
+      };
+    }
+
+    const normalized = finalizeAssistSegments(
+      answerMode,
+      "暂时没能稳定识别出图片中的题目。请重新拍一张更清晰的照片，或在下方补充文字后再试。",
+      ["让题干和选项完整入镜", "避免反光、倾斜和遮挡", "尽量只拍当前题目"],
+      ["手机可贴近题目拍摄", "如果题目较长，可分次上传"]
+    );
+    return {
+      answer: normalized.answer,
+      steps: normalized.steps,
+      hints: normalized.hints,
+      sources: [],
+      provider: "mock"
+    };
+  }
+
+  const parsed = asJsonObject(extractJson(llm.text));
+  const recognizedQuestion = (parsed ? getStringField(parsed, "recognizedQuestion") : "") || question || "";
+  const relatedKps = recognizedQuestion ? await retrieveKnowledgePoints(recognizedQuestion, subject, grade) : [];
+  const normalized = finalizeAssistSegments(
+    answerMode,
+    (parsed ? getStringField(parsed, "answer") : "") || llm.text,
+    parsed ? getStringArrayField(parsed, "steps", 5) : [],
+    parsed ? getStringArrayField(parsed, "hints", 4) : []
+  );
+
+  return {
+    recognizedQuestion: recognizedQuestion || undefined,
+    answer: normalized.answer,
+    steps: normalized.steps,
+    hints: normalized.hints,
+    sources: relatedKps.map((kp) => kp.title),
+    provider: llm.provider,
+    quality: llm.quality
   };
 }

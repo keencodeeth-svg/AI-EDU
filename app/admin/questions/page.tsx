@@ -9,7 +9,12 @@ import type {
   Question,
   QuestionFacets,
   QuestionForm,
+  QuestionGenerateResponse,
+  QuestionImportItemPayload,
+  QuestionImportResponse,
   QuestionListPayload,
+  QuestionProcessFailedItem,
+  QuestionQualityResultItem,
   QuestionQualitySummary,
   QuestionQuery,
   QuestionTreeNode
@@ -165,6 +170,10 @@ export default function QuestionsAdminPage() {
     setPage(1);
   }
 
+  function isHighRiskQuestionResult(item: QuestionQualityResultItem) {
+    return item.duplicateRisk === "high" || item.ambiguityRisk === "high";
+  }
+
   async function handleImport(file?: File | null) {
     if (!file) return;
     setImportMessage(null);
@@ -176,7 +185,7 @@ export default function QuestionsAdminPage() {
       return;
     }
     const headers = rows[0].map((h) => h.trim());
-    const items: any[] = [];
+    const items: QuestionImportItemPayload[] = [];
     const errors: string[] = [];
 
     for (let i = 1; i < rows.length; i += 1) {
@@ -228,16 +237,14 @@ export default function QuestionsAdminPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ items })
     });
-    const data = await res.json();
+    const data = (await res.json()) as QuestionImportResponse;
     if (!res.ok) {
-      setImportErrors([data?.error ?? "导入失败"]);
+      setImportErrors([data.error ?? "导入失败"]);
       return;
     }
-    const highRiskCount = (data.items ?? []).filter(
-      (item: any) => item.duplicateRisk === "high" || item.ambiguityRisk === "high"
-    ).length;
+    const highRiskCount = (data.items ?? []).filter(isHighRiskQuestionResult).length;
     setImportMessage(
-      `已导入 ${data.created} 题，失败 ${data.failed?.length ?? 0} 条，高风险 ${highRiskCount} 题。`
+      `已导入 ${data.created ?? 0} 题，失败 ${data.failed?.length ?? 0} 条，高风险 ${highRiskCount} 题。`
     );
     setImportErrors(errors);
     loadQuestions();
@@ -276,20 +283,18 @@ export default function QuestionsAdminPage() {
       body: JSON.stringify(payload)
     });
 
-    const data = await res.json();
+    const data = (await res.json()) as QuestionGenerateResponse;
     if (!res.ok) {
-      setAiErrors([data?.error ?? "生成失败"]);
+      setAiErrors([data.error ?? "生成失败"]);
       setAiLoading(false);
       return;
     }
 
-    const failed = data.failed ?? [];
+    const failed: QuestionProcessFailedItem[] = data.failed ?? [];
     if (failed.length) {
-      setAiErrors(failed.map((item: any) => `第 ${item.index + 1} 题：${item.reason}`));
+      setAiErrors(failed.map((item) => `第 ${item.index + 1} 题：${item.reason}`));
     }
-    const highRiskCount = (data.created ?? []).filter(
-      (item: any) => item.duplicateRisk === "high" || item.ambiguityRisk === "high"
-    ).length;
+    const highRiskCount = (data.created ?? []).filter(isHighRiskQuestionResult).length;
     setAiMessage(`已生成 ${data.created?.length ?? 0} 题，高风险 ${highRiskCount} 题。`);
     setAiLoading(false);
     loadQuestions();
@@ -406,7 +411,7 @@ export default function QuestionsAdminPage() {
         <span className="chip">管理端</span>
       </div>
 
-      <div className="cta-row" style={{ marginTop: 0 }}>
+      <div className="cta-row questions-workspace-switch">
         <button
           className={workspace === "list" ? "button secondary" : "button ghost"}
           type="button"

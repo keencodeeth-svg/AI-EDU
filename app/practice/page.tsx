@@ -3,71 +3,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Card from "@/components/Card";
-import MathText from "@/components/MathText";
 import MathViewControls from "@/components/MathViewControls";
-import { GRADE_OPTIONS, SUBJECT_OPTIONS } from "@/lib/constants";
 import { trackEvent } from "@/lib/analytics-client";
 import { useMathViewSettings } from "@/lib/math-view-settings";
-
-const STUDENT_PRACTICE_GUIDE_KEY = "guide:student-practice:v1";
-
-type PracticeMode = "normal" | "challenge" | "timed" | "wrong" | "adaptive" | "review";
-
-type Question = {
-  id: string;
-  stem: string;
-  options: string[];
-  knowledgePointId: string;
-  recommendation?: {
-    reason?: string;
-    weaknessRank?: number | null;
-  };
-};
-
-type KnowledgePoint = {
-  id: string;
-  subject: string;
-  grade: string;
-  title: string;
-  chapter?: string;
-  unit?: string;
-};
-
-type Variant = {
-  stem: string;
-  options: string[];
-  answer: string;
-  explanation: string;
-};
-
-type ExplainPack = {
-  text: string;
-  visual: string;
-  analogy: string;
-  provider?: string;
-  manualReviewRule?: string;
-  citationGovernance?: {
-    total: number;
-    averageConfidence: number;
-    highTrustCount: number;
-    mediumTrustCount: number;
-    lowTrustCount: number;
-    riskLevel: "low" | "medium" | "high";
-    needsManualReview: boolean;
-    manualReviewReason: string;
-  };
-  citations?: Array<{
-    itemId: string;
-    itemTitle: string;
-    snippet: string;
-    score: number;
-    confidence: number;
-    trustLevel: "high" | "medium" | "low";
-    riskLevel: "low" | "medium" | "high";
-    matchRatio: number;
-    reason: string[];
-  }>;
-};
+import PracticeGuideCard from "./_components/PracticeGuideCard";
+import PracticeMobileActionBar from "./_components/PracticeMobileActionBar";
+import PracticeQuestionCard from "./_components/PracticeQuestionCard";
+import PracticeResultCard from "./_components/PracticeResultCard";
+import PracticeSettingsCard from "./_components/PracticeSettingsCard";
+import { PracticeVariantAnalysisCard, PracticeVariantTrainingCard } from "./_components/PracticeVariantCards";
+import { PRACTICE_MODE_LABELS, STUDENT_PRACTICE_GUIDE_KEY } from "./config";
+import type {
+  ExplainPack,
+  KnowledgePoint,
+  KnowledgePointGroup,
+  PracticeMode,
+  PracticeQuickFixAction,
+  PracticeResult,
+  Question,
+  VariantPack
+} from "./types";
+import { usePracticeGuide } from "./usePracticeGuide";
 
 export default function PracticePage() {
   const searchParams = useSearchParams();
@@ -80,26 +36,15 @@ export default function PracticePage() {
   const [mode, setMode] = useState<PracticeMode>("normal");
   const [question, setQuestion] = useState<Question | null>(null);
   const [answer, setAnswer] = useState("");
-  const [result, setResult] = useState<{
-    correct: boolean;
-    explanation: string;
-    answer: string;
-    masteryScore?: number;
-    masteryDelta?: number;
-    confidenceScore?: number;
-    recencyWeight?: number;
-    masteryTrend7d?: number;
-    weaknessRank?: number | null;
-  } | null>(null);
+  const [result, setResult] = useState<PracticeResult | null>(null);
   const [challengeCount, setChallengeCount] = useState(0);
   const [challengeCorrect, setChallengeCorrect] = useState(0);
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showPracticeGuide, setShowPracticeGuide] = useState(true);
   const [autoFixing, setAutoFixing] = useState(false);
   const [autoFixHint, setAutoFixHint] = useState<string | null>(null);
-  const [variantPack, setVariantPack] = useState<{ analysis: string; hints: string[]; variants: Variant[] } | null>(null);
+  const [variantPack, setVariantPack] = useState<VariantPack | null>(null);
   const [variantAnswers, setVariantAnswers] = useState<Record<number, string>>({});
   const [variantResults, setVariantResults] = useState<Record<number, boolean | null>>({});
   const [loadingVariants, setLoadingVariants] = useState(false);
@@ -109,20 +54,12 @@ export default function PracticePage() {
   const [explainPack, setExplainPack] = useState<ExplainPack | null>(null);
   const [explainLoading, setExplainLoading] = useState(false);
   const mathView = useMathViewSettings("student-practice");
+  const { showPracticeGuide, hidePracticeGuide, showPracticeGuideAgain } = usePracticeGuide(STUDENT_PRACTICE_GUIDE_KEY);
 
   useEffect(() => {
     fetch("/api/knowledge-points")
       .then((res) => res.json())
       .then((data) => setKnowledgePoints(data.data ?? []));
-  }, []);
-
-  useEffect(() => {
-    try {
-      const hidden = window.localStorage.getItem(STUDENT_PRACTICE_GUIDE_KEY) === "hidden";
-      setShowPracticeGuide(!hidden);
-    } catch {
-      setShowPracticeGuide(true);
-    }
   }, []);
 
   useEffect(() => {
@@ -182,25 +119,7 @@ export default function PracticePage() {
     });
   }
 
-  function hidePracticeGuide() {
-    setShowPracticeGuide(false);
-    try {
-      window.localStorage.setItem(STUDENT_PRACTICE_GUIDE_KEY, "hidden");
-    } catch {
-      // ignore localStorage errors
-    }
-  }
-
-  function showPracticeGuideAgain() {
-    setShowPracticeGuide(true);
-    try {
-      window.localStorage.removeItem(STUDENT_PRACTICE_GUIDE_KEY);
-    } catch {
-      // ignore localStorage errors
-    }
-  }
-
-  async function applyPracticeQuickFix(action: "clear_filters" | "switch_normal" | "switch_adaptive") {
+  async function applyPracticeQuickFix(action: PracticeQuickFixAction) {
     if (autoFixing) return;
     const next = {
       subject,
@@ -423,7 +342,7 @@ export default function PracticePage() {
   }, [filtered, knowledgeSearch]);
 
   const groupedKnowledgePoints = useMemo(() => {
-    const groupMap = new Map<string, { unit: string; chapter: string; items: KnowledgePoint[] }>();
+    const groupMap = new Map<string, KnowledgePointGroup>();
     filteredKnowledgePoints.forEach((kp) => {
       const unit = kp.unit ?? "未分单元";
       const chapter = kp.chapter ?? "未分章节";
@@ -475,23 +394,35 @@ export default function PracticePage() {
     setChallengeCorrect(0);
   }
 
-  const modeLabel: Record<string, string> = {
-    normal: "普通练习",
-    challenge: "闯关模式",
-    timed: "限时模式",
-    wrong: "错题专练",
-    adaptive: "自适应推荐",
-    review: "记忆复习"
-  };
+  const selectedKnowledgeTitle = useMemo(() => {
+    if (!knowledgePointId) return "全部知识点";
+    const current = filtered.find((kp) => kp.id === knowledgePointId);
+    return current?.title ?? "全部知识点";
+  }, [filtered, knowledgePointId]);
+
+  const canSubmitCurrentQuestion = Boolean(question && answer && !(mode === "timed" && timeLeft === 0));
+
+  function handleModeChange(next: PracticeMode) {
+    setMode(next);
+    setResult(null);
+    setQuestion(null);
+    setAnswer("");
+    setTimeLeft(0);
+    setTimerRunning(false);
+    setVariantPack(null);
+    setVariantAnswers({});
+    setVariantResults({});
+    resetChallenge();
+  }
 
   return (
-    <div className="grid math-view-surface" style={{ gap: 18, ...mathView.style }}>
+    <div className="grid math-view-surface practice-page" style={{ gap: 18, ...mathView.style }}>
       <div className="section-head">
         <div>
           <h2>智能练习</h2>
           <div className="section-sub">个性化练习 + AI 讲解 + 变式训练。</div>
         </div>
-        <span className="chip">{modeLabel[mode] ?? "练习模式"}</span>
+        <span className="chip">{PRACTICE_MODE_LABELS[mode] ?? "练习模式"}</span>
       </div>
       <MathViewControls
         fontScale={mathView.fontScale}
@@ -502,398 +433,98 @@ export default function PracticePage() {
         onLineModeChange={mathView.setLineMode}
       />
 
-      {showPracticeGuide ? (
-        <Card title="功能引导（学生版）" tag="上手">
-          <div className="grid" style={{ gap: 8 }}>
-            <div style={{ fontSize: 13, color: "var(--ink-1)" }}>
-              推荐顺序：选择模式与知识点 → 获取题目 → 提交答案 → 看 AI 讲解 → 做变式训练。
-            </div>
-            <div className="pill-list">
-              <span className="pill">遇到“暂无题目”优先清空知识点筛选</span>
-              <span className="pill">卡住时可切回普通/自适应模式再试</span>
-              <span className="pill">解析页可切文字/图解/类比三种讲法</span>
-            </div>
-            <div className="cta-row">
-              <button className="button ghost" type="button" onClick={hidePracticeGuide}>
-                我已了解，隐藏引导
-              </button>
-            </div>
-          </div>
-        </Card>
-      ) : (
-        <div className="cta-row">
-          <button className="button ghost" type="button" onClick={showPracticeGuideAgain}>
-            显示功能引导
-          </button>
-        </div>
-      )}
+      <PracticeGuideCard visible={showPracticeGuide} onHide={hidePracticeGuide} onShow={showPracticeGuideAgain} />
 
-      <Card title="练习设置" tag="配置">
-        <div className="grid grid-3" style={{ marginTop: 12 }}>
-          <label>
-            <div className="section-title">学科</div>
-            <select
-              value={subject}
-              onChange={(event) => setSubject(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              {SUBJECT_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">年级</div>
-            <select
-              value={grade}
-              onChange={(event) => setGrade(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              {GRADE_OPTIONS.map((item) => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">模式</div>
-            <select
-              value={mode}
-              onChange={(event) => {
-                const next = event.target.value as "normal" | "challenge" | "timed" | "wrong" | "adaptive" | "review";
-                setMode(next);
-                setResult(null);
-                setQuestion(null);
-                setAnswer("");
-                setTimeLeft(0);
-                setTimerRunning(false);
-                setVariantPack(null);
-                setVariantAnswers({});
-                setVariantResults({});
-                resetChallenge();
-              }}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value="normal">普通练习</option>
-              <option value="challenge">闯关模式</option>
-              <option value="timed">限时模式</option>
-              <option value="wrong">错题专练</option>
-              <option value="adaptive">自适应推荐</option>
-              <option value="review">记忆复习</option>
-            </select>
-          </label>
-          <label>
-            <div className="section-title">知识点检索</div>
-            <input
-              value={knowledgeSearch}
-              onChange={(event) => setKnowledgeSearch(event.target.value)}
-              placeholder="按知识点/章节/单元搜索"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            />
-          </label>
-          <label>
-            <div className="section-title">知识点</div>
-            <select
-              value={knowledgePointId}
-              onChange={(event) => setKnowledgePointId(event.target.value || undefined)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value="">全部</option>
-              {groupedKnowledgePoints.map((group) => (
-                <optgroup
-                  key={`${group.unit}-${group.chapter}`}
-                  label={`${group.unit} / ${group.chapter}（${group.items.length}）`}
-                >
-                  {group.items.map((kp) => (
-                    <option value={kp.id} key={kp.id}>
-                      {kp.title}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-            <div style={{ marginTop: 6, fontSize: 12, color: "var(--ink-1)" }}>
-              已显示 {filteredKnowledgePoints.length}/{filtered.length} 个知识点
-            </div>
-          </label>
-        </div>
-        <button className="button primary" style={{ marginTop: 12 }} onClick={loadQuestion}>
-          {mode === "timed" ? "开始限时" : "获取题目"}
-        </button>
-        {error ? <div style={{ marginTop: 8, color: "#b42318", fontSize: 13 }}>{error}</div> : null}
-        {autoFixHint ? <div className="status-note info">{autoFixHint}</div> : null}
-        {error ? (
-          <div className="cta-row" style={{ marginTop: 8 }}>
-            <button
-              className="button secondary"
-              type="button"
-              disabled={autoFixing}
-              onClick={() => applyPracticeQuickFix("clear_filters")}
-            >
-              清空筛选并重试
-            </button>
-            <button
-              className="button secondary"
-              type="button"
-              disabled={autoFixing}
-              onClick={() => applyPracticeQuickFix("switch_normal")}
-            >
-              切到普通模式重试
-            </button>
-            <button
-              className="button ghost"
-              type="button"
-              disabled={autoFixing}
-              onClick={() => applyPracticeQuickFix("switch_adaptive")}
-            >
-              切到自适应模式重试
-            </button>
-          </div>
-        ) : null}
-        {mode === "timed" ? (
-          <div style={{ marginTop: 8, fontSize: 13, color: "var(--ink-1)" }}>
-            剩余时间：{timeLeft}s
-          </div>
-        ) : null}
-        {mode === "challenge" ? (
-          <div style={{ marginTop: 8, fontSize: 13, color: "var(--ink-1)" }}>
-            闯关进度：{challengeCount}/5，正确 {challengeCorrect}
-          </div>
-        ) : null}
-      </Card>
+      <PracticeSettingsCard
+        subject={subject}
+        grade={grade}
+        mode={mode}
+        knowledgeSearch={knowledgeSearch}
+        knowledgePointId={knowledgePointId}
+        groupedKnowledgePoints={groupedKnowledgePoints}
+        filteredKnowledgePointsCount={filteredKnowledgePoints.length}
+        filteredCount={filtered.length}
+        selectedKnowledgeTitle={selectedKnowledgeTitle}
+        error={error}
+        autoFixHint={autoFixHint}
+        autoFixing={autoFixing}
+        timeLeft={timeLeft}
+        challengeCount={challengeCount}
+        challengeCorrect={challengeCorrect}
+        onSubjectChange={setSubject}
+        onGradeChange={setGrade}
+        onModeChange={handleModeChange}
+        onKnowledgeSearchChange={setKnowledgeSearch}
+        onKnowledgePointChange={setKnowledgePointId}
+        onLoadQuestion={loadQuestion}
+        onQuickFix={applyPracticeQuickFix}
+      />
 
       {question ? (
-        <Card title="题目" tag="作答">
-          <MathText as="p" text={question.stem} showCopyActions />
-          {question.recommendation?.reason ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
-              推荐原因：{question.recommendation.reason}
-              {typeof question.recommendation.weaknessRank === "number"
-                ? `（薄弱度第 ${question.recommendation.weaknessRank} 位）`
-                : ""}
-            </div>
-          ) : null}
-          <div className="cta-row" style={{ marginTop: 8 }}>
-            <button className="button secondary" onClick={toggleFavorite} disabled={favoriteLoading}>
-              {favorite ? "已收藏" : "收藏"}
-            </button>
-            <button className="button secondary" onClick={editFavoriteTags} disabled={!favorite}>
-              标签
-            </button>
-            {favorite?.tags?.length ? (
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>标签：{favorite.tags.join("、")}</div>
-            ) : null}
-          </div>
-          <div className="grid" style={{ gap: 8, marginTop: 12 }}>
-            {question.options.map((option) => (
-              <label className="card" key={option} style={{ cursor: "pointer" }}>
-                <input
-                  type="radio"
-                  name={question.id}
-                  checked={answer === option}
-                  onChange={() => setAnswer(option)}
-                  style={{ marginRight: 8 }}
-                />
-                <MathText text={option} />
-              </label>
-            ))}
-          </div>
-          <div className="cta-row">
-            <button className="button secondary" onClick={loadQuestion}>
-              换一题
-            </button>
-            <button className="button primary" onClick={submitAnswer} disabled={!answer || (mode === "timed" && timeLeft === 0)}>
-              提交答案
-            </button>
-          </div>
-        </Card>
+        <PracticeQuestionCard
+          question={question}
+          answer={answer}
+          favorite={favorite}
+          favoriteLoading={favoriteLoading}
+          canSubmit={canSubmitCurrentQuestion}
+          onAnswerChange={setAnswer}
+          onToggleFavorite={toggleFavorite}
+          onEditFavoriteTags={editFavoriteTags}
+          onLoadQuestion={loadQuestion}
+          onSubmit={submitAnswer}
+        />
       ) : null}
 
       {result ? (
-        <Card title="解析" tag="讲解">
-          <div className="badge">{result.correct ? "回答正确" : "回答错误"}</div>
-          <p style={{ marginTop: 8 }}>
-            正确答案：<MathText text={result.answer} />
-          </p>
-          <div className="pill-list" style={{ marginTop: 8 }}>
-            <span className="pill">掌握度 {result.masteryScore ?? 0}</span>
-            <span className="pill">
-              变化 {result.masteryDelta && result.masteryDelta > 0 ? "+" : ""}
-              {result.masteryDelta ?? 0}
-            </span>
-            <span className="pill">置信度 {result.confidenceScore ?? 0}</span>
-            <span className="pill">近期权重 {result.recencyWeight ?? 0}</span>
-            <span className="pill">
-              趋势 {result.masteryTrend7d && result.masteryTrend7d > 0 ? "+" : ""}
-              {result.masteryTrend7d ?? 0}
-            </span>
-            {typeof result.weaknessRank === "number" ? (
-              <span className="pill">薄弱度第 {result.weaknessRank} 位</span>
-            ) : null}
-          </div>
-          <div className="cta-row" style={{ marginTop: 8 }}>
-            <button className="button secondary" onClick={() => setExplainMode("text")}>
-              文字版
-            </button>
-            <button className="button secondary" onClick={() => setExplainMode("visual")}>
-              图解版
-            </button>
-            <button className="button secondary" onClick={() => setExplainMode("analogy")}>
-              类比版
-            </button>
-          </div>
-          {explainLoading ? (
-            <div style={{ marginTop: 10 }}>解析生成中...</div>
-          ) : (
-            <MathText
-              as="div"
-              className="explain-content"
-              text={explainPack ? explainPack[explainMode] : result.explanation}
-              showCopyActions
-            />
-          )}
-          {typeof result.masteryScore === "number" ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
-              当前知识点掌握分：{result.masteryScore}
-              {typeof result.masteryDelta === "number"
-                ? `（${result.masteryDelta >= 0 ? "+" : ""}${result.masteryDelta}）`
-                : ""}
-            </div>
-          ) : null}
-          {explainPack?.provider ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "var(--ink-1)" }}>
-              解析来源：{explainPack.provider}
-            </div>
-          ) : null}
-          {explainPack?.manualReviewRule ? (
-            <div style={{ marginTop: 8, fontSize: 12, color: "#b54708" }}>{explainPack.manualReviewRule}</div>
-          ) : null}
-          {explainPack?.citations?.length ? (
-            <div className="grid" style={{ gap: 6, marginTop: 10 }}>
-              <div className="badge">教材依据</div>
-              {explainPack.citationGovernance ? (
-                <div className="card" style={{ fontSize: 12 }}>
-                  平均置信度 {explainPack.citationGovernance.averageConfidence} · 高可信{" "}
-                  {explainPack.citationGovernance.highTrustCount} 条 · 中可信{" "}
-                  {explainPack.citationGovernance.mediumTrustCount} 条 · 低可信{" "}
-                  {explainPack.citationGovernance.lowTrustCount} 条
-                </div>
-              ) : null}
-              {explainPack.citations.map((item) => (
-                <div className="card" key={`${item.itemId}-${item.score}`} style={{ fontSize: 12 }}>
-                  <div style={{ fontWeight: 600 }}>
-                    {item.itemTitle}
-                    <span
-                      style={{
-                        marginLeft: 8,
-                        fontSize: 11,
-                        color: item.trustLevel === "high" ? "#027a48" : item.trustLevel === "medium" ? "#b54708" : "#b42318"
-                      }}
-                    >
-                      {item.trustLevel === "high" ? "高可信" : item.trustLevel === "medium" ? "中可信" : "低可信"} · 置信度{" "}
-                      {item.confidence}
-                    </span>
-                  </div>
-                  <div style={{ color: "var(--ink-1)", marginTop: 4 }}>{item.snippet}</div>
-                  {item.reason?.length ? (
-                    <div style={{ marginTop: 4, color: "var(--ink-1)" }}>{item.reason.join("；")}</div>
-                  ) : null}
-                </div>
-              ))}
-            </div>
-          ) : null}
-          <div className="cta-row" style={{ marginTop: 12 }}>
-            <button className="button secondary" onClick={loadVariants}>
-              {loadingVariants ? "生成中..." : "AI 错题讲解 + 变式训练"}
-            </button>
-          </div>
-        </Card>
+        <PracticeResultCard
+          result={result}
+          explainMode={explainMode}
+          explainPack={explainPack}
+          explainLoading={explainLoading}
+          loadingVariants={loadingVariants}
+          onExplainModeChange={setExplainMode}
+          onLoadVariants={loadVariants}
+        />
       ) : null}
 
-      {variantPack ? (
-        <Card title="错题讲解" tag="纠错">
-          <MathText as="p" text={variantPack.analysis} showCopyActions />
-          {variantPack.hints?.length ? (
-            <div className="grid" style={{ gap: 6, marginTop: 10 }}>
-              <div className="badge">提示</div>
-              {variantPack.hints.map((hint) => (
-                <MathText as="div" key={hint} text={hint} />
-              ))}
-            </div>
-          ) : null}
-        </Card>
-      ) : null}
+      {variantPack ? <PracticeVariantAnalysisCard variantPack={variantPack} /> : null}
 
       {variantPack?.variants?.length ? (
-        <Card title="变式训练" tag="迁移">
-          <div className="grid" style={{ gap: 12 }}>
-            {variantPack.variants.map((variant, index) => {
-              const selected = variantAnswers[index];
-              const checked = variantResults[index];
-              return (
-                <div className="card" key={`${variant.stem}-${index}`}>
-                  <div className="section-title">变式题 {index + 1}</div>
-                  <MathText as="p" text={variant.stem} showCopyActions />
-                  <div className="grid" style={{ gap: 8, marginTop: 10 }}>
-                    {variant.options.map((option) => (
-                      <label className="card" key={option} style={{ cursor: "pointer" }}>
-                        <input
-                          type="radio"
-                          name={`variant-${index}`}
-                          checked={selected === option}
-                          onChange={() =>
-                            setVariantAnswers((prev) => ({
-                              ...prev,
-                              [index]: option
-                            }))
-                          }
-                          style={{ marginRight: 8 }}
-                        />
-                        <MathText text={option} />
-                      </label>
-                    ))}
-                  </div>
-                  <div className="cta-row" style={{ marginTop: 10 }}>
-                    <button
-                      className="button primary"
-                      onClick={() =>
-                        setVariantResults((prev) => ({
-                          ...prev,
-                          [index]: selected === variant.answer
-                        }))
-                      }
-                      disabled={!selected}
-                    >
-                      提交本题
-                    </button>
-                  </div>
-                  {checked !== undefined && checked !== null ? (
-                    <div style={{ marginTop: 8, fontSize: 13 }}>
-                      {checked ? "回答正确" : "回答错误"}
-                      <div>
-                        正确答案：<MathText text={variant.answer} />
-                      </div>
-                      <MathText as="div" text={variant.explanation} showCopyActions />
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
+        <PracticeVariantTrainingCard
+          variantPack={variantPack}
+          variantAnswers={variantAnswers}
+          variantResults={variantResults}
+          onAnswerChange={(index, value) =>
+            setVariantAnswers((prev) => ({
+              ...prev,
+              [index]: value
+            }))
+          }
+          onSubmit={(index, selected, correctAnswer) =>
+            setVariantResults((prev) => ({
+              ...prev,
+              [index]: selected === correctAnswer
+            }))
+          }
+        />
       ) : null}
 
       {mode === "challenge" && challengeCount >= 5 ? (
         <Card title="闯关结果" tag="成果">
-          <p>本次闯关正确 {challengeCorrect} / 5</p>
-          <button className="button secondary" onClick={resetChallenge}>
+          <p className="practice-challenge-result">本次闯关正确 {challengeCorrect} / 5</p>
+          <button className="button secondary" type="button" onClick={resetChallenge}>
             再来一次
           </button>
         </Card>
       ) : null}
+
+      <PracticeMobileActionBar
+        questionVisible={Boolean(question)}
+        canSubmit={canSubmitCurrentQuestion}
+        timedMode={mode === "timed"}
+        onLoadQuestion={loadQuestion}
+        onSubmit={submitAnswer}
+      />
     </div>
   );
 }

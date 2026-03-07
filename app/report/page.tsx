@@ -1,68 +1,68 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Card from "@/components/Card";
 import { trackEvent } from "@/lib/analytics-client";
+import type { ReportProfileResponse, ReportSortMode, WeeklyReportResponse } from "./types";
+import {
+  getChapterOptions,
+  getDisplaySubjectGroups,
+  getRatioColor,
+  getVisibleKnowledgeItems,
+  isErrorResponse
+} from "./utils";
 
 export default function ReportPage() {
-  const [report, setReport] = useState<any>(null);
-  const [profile, setProfile] = useState<any>(null);
+  const [report, setReport] = useState<WeeklyReportResponse | null>(null);
+  const [profile, setProfile] = useState<ReportProfileResponse | null>(null);
   const [trackedReportView, setTrackedReportView] = useState(false);
   const [subjectFilter, setSubjectFilter] = useState("all");
   const [chapterFilter, setChapterFilter] = useState("all");
-  const [sortMode, setSortMode] = useState("ratio-asc");
+  const [sortMode, setSortMode] = useState<ReportSortMode>("ratio-asc");
 
   useEffect(() => {
     fetch("/api/report/weekly")
       .then((res) => res.json())
-      .then((data) => setReport(data));
+      .then((data: WeeklyReportResponse) => setReport(data));
     fetch("/api/report/profile")
       .then((res) => res.json())
-      .then((data) => setProfile(data));
+      .then((data: ReportProfileResponse) => setProfile(data));
   }, []);
 
   useEffect(() => {
-    if (!report || trackedReportView) return;
+    if (!report || isErrorResponse(report) || trackedReportView) return;
     trackEvent({
       eventName: "report_weekly_view",
       page: "/report",
       props: {
-        hasError: Boolean(report.error),
-        total: report?.stats?.total ?? null,
-        accuracy: report?.stats?.accuracy ?? null
+        hasError: false,
+        total: report.stats.total,
+        accuracy: report.stats.accuracy
       }
     });
     setTrackedReportView(true);
   }, [report, trackedReportView]);
 
-  const ratioColor = (ratio: number) => {
-    const hue = Math.min(120, Math.max(0, Math.round((ratio / 100) * 120)));
-    return `hsl(${hue}, 70%, 88%)`;
-  };
+  const profileData = useMemo(
+    () => (profile && !isErrorResponse(profile) ? profile : null),
+    [profile]
+  );
 
-  const chapterOptions: string[] = (() => {
-    if (!profile?.subjects?.length) return [];
-    const groups =
-      subjectFilter === "all"
-        ? profile.subjects
-        : profile.subjects.filter((group: any) => group.subject === subjectFilter);
-    const chapters = groups
-      .flatMap((group: any) => group.items.map((item: any) => item.chapter))
-      .filter((item: any): item is string => typeof item === "string" && item.length > 0);
-    return Array.from(new Set(chapters)) as string[];
-  })();
+  const displaySubjects = useMemo(
+    () => getDisplaySubjectGroups(profileData, subjectFilter),
+    [profileData, subjectFilter]
+  );
 
-  const displaySubjects = profile?.subjects?.length
-    ? subjectFilter === "all"
-      ? profile.subjects
-      : profile.subjects.filter((group: any) => group.subject === subjectFilter)
-    : [];
+  const chapterOptions = useMemo(
+    () => getChapterOptions(displaySubjects),
+    [displaySubjects]
+  );
 
   if (!report) {
     return <Card title="学习报告">加载中...</Card>;
   }
 
-  if (report.error) {
+  if (isErrorResponse(report)) {
     return <Card title="学习报告">请先登录学生账号。</Card>;
   }
 
@@ -100,8 +100,8 @@ export default function ReportPage() {
       </Card>
       <Card title="学习画像 · 知识点掌握热力图" tag="画像">
         {!profile ? <p>加载中...</p> : null}
-        {profile?.error ? <p>学习画像加载失败。</p> : null}
-        {profile?.subjects?.length ? (
+        {profile && isErrorResponse(profile) ? <p>学习画像加载失败。</p> : null}
+        {profileData?.subjects.length ? (
           <div className="grid" style={{ gap: 16 }}>
             <div className="card" style={{ display: "grid", gap: 10 }}>
               <div className="section-title">筛选</div>
@@ -117,7 +117,7 @@ export default function ReportPage() {
                     style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
                   >
                     <option value="all">全部</option>
-                    {profile.subjects.map((group: any) => (
+                    {profileData.subjects.map((group) => (
                       <option key={group.subject} value={group.subject}>
                         {group.label}
                       </option>
@@ -143,7 +143,7 @@ export default function ReportPage() {
                   <div style={{ fontSize: 12, color: "var(--ink-1)" }}>排序</div>
                   <select
                     value={sortMode}
-                    onChange={(event) => setSortMode(event.target.value)}
+                    onChange={(event) => setSortMode(event.target.value as ReportSortMode)}
                     style={{ width: "100%", padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
                   >
                     <option value="ratio-asc">正确率从低到高</option>
@@ -153,14 +153,8 @@ export default function ReportPage() {
                 </label>
               </div>
             </div>
-            {displaySubjects.map((group: any) => {
-              const filteredItems = group.items
-                .filter((item: any) => (chapterFilter === "all" ? true : item.chapter === chapterFilter))
-                .sort((a: any, b: any) => {
-                  if (sortMode === "ratio-desc") return b.ratio - a.ratio;
-                  if (sortMode === "total-desc") return b.total - a.total;
-                  return a.ratio - b.ratio;
-                });
+            {displaySubjects.map((group) => {
+              const filteredItems = getVisibleKnowledgeItems(group.items, chapterFilter, sortMode);
 
               return (
                 <div key={group.subject}>
@@ -168,14 +162,14 @@ export default function ReportPage() {
                     {group.label}（{group.practiced}/{group.total} 已练习，均值 {group.avgRatio}%）
                   </div>
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                    {filteredItems.map((item: any) => (
+                    {filteredItems.map((item) => (
                       <div
                         key={item.id}
                         style={{
                           padding: "8px 12px",
                           borderRadius: 12,
                           border: "1px solid var(--stroke)",
-                          background: ratioColor(item.ratio),
+                          background: getRatioColor(item.ratio),
                           minWidth: 140
                         }}
                       >
@@ -196,7 +190,7 @@ export default function ReportPage() {
       </Card>
       <Card title="掌握趋势（近 7 天）" tag="趋势">
         <div className="grid" style={{ gap: 8 }}>
-          {report.trend?.map((item: any) => (
+          {report.trend?.map((item) => (
             <div key={item.date} style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <div style={{ width: 80, fontSize: 12, color: "var(--ink-1)" }}>{item.date}</div>
               <div style={{ flex: 1, background: "rgba(30,90,122,0.08)", borderRadius: 999, height: 10 }}>
@@ -217,7 +211,7 @@ export default function ReportPage() {
       <Card title="薄弱点" tag="提醒">
         <div className="grid" style={{ gap: 8 }}>
           {report.weakPoints?.length ? (
-            report.weakPoints.map((item: any) => (
+            report.weakPoints.map((item) => (
               <div className="card" key={item.id}>
                 <div className="section-title">{item.title}</div>
                 <p>
@@ -233,7 +227,7 @@ export default function ReportPage() {
           <div style={{ marginTop: 12 }}>
             <div className="badge">学习建议</div>
             <div className="grid" style={{ gap: 6, marginTop: 8 }}>
-              {report.suggestions.map((item: string, idx: number) => (
+              {report.suggestions.map((item, idx) => (
                 <div key={`${item}-${idx}`}>{item}</div>
               ))}
             </div>

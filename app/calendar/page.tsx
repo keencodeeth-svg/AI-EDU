@@ -3,20 +3,21 @@
 import { useEffect, useState } from "react";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import type { CalendarItem, CalendarItemType, CalendarResponse } from "./types";
 
-const TYPE_LABELS: Record<string, string> = {
+const TYPE_LABELS: Record<CalendarItemType, string> = {
   assignment: "作业",
   announcement: "公告",
   correction: "订正"
 };
 
 export default function CalendarPage() {
-  const [items, setItems] = useState<any[]>([]);
+  const [items, setItems] = useState<CalendarItem[]>([]);
 
   useEffect(() => {
     fetch("/api/calendar")
       .then((res) => res.json())
-      .then((data) => setItems(data.data ?? []));
+      .then((data: CalendarResponse) => setItems(data.data ?? []));
   }, []);
 
   return (
@@ -43,8 +44,7 @@ export default function CalendarPage() {
                   <span className="card-tag">{TYPE_LABELS[item.type] ?? item.type}</span>
                 </div>
                 <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  {new Date(item.date).toLocaleDateString("zh-CN")}{" "}
-                  {item.className ? `· ${item.className}` : ""}
+                  {new Date(item.date).toLocaleDateString("zh-CN")} {item.className ? `· ${item.className}` : ""}
                 </div>
                 {item.status ? (
                   <div className="pill-list" style={{ marginTop: 8 }}>

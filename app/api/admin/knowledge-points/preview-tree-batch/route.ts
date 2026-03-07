@@ -1,10 +1,16 @@
 import { requireRole } from "@/lib/guard";
-import { generateKnowledgeTreeDraft } from "@/lib/ai";
+import { generateKnowledgeTreeDraft, type KnowledgeTreeDraft } from "@/lib/ai";
 import { badRequest, unauthorized } from "@/lib/api/http";
 import { isAllowedSubject, previewTreeBatchBodySchema } from "@/lib/api/schemas/admin";
 import { parseJson } from "@/lib/api/validation";
 import { createAdminRoute } from "@/lib/api/domains";
 export const dynamic = "force-dynamic";
+
+type PreviewTreeBatchItem = {
+  subject: string;
+  grade: string;
+  units: KnowledgeTreeDraft["units"];
+};
 
 export const POST = createAdminRoute({
   cache: "private-realtime",
@@ -55,7 +61,7 @@ export const POST = createAdminRoute({
     badRequest("invalid subjects");
   }
 
-  const items: any[] = [];
+  const items: PreviewTreeBatchItem[] = [];
   const failed: { subject: string; grade: string; reason: string }[] = [];
 
   for (const combo of combos) {

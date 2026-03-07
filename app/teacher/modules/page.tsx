@@ -1,23 +1,29 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Card from "@/components/Card";
-import EduIcon from "@/components/EduIcon";
-import { SUBJECT_LABELS } from "@/lib/constants";
-
-type ClassItem = { id: string; name: string; subject: string; grade: string };
+import ModulesClassSelectorCard from "./_components/ModulesClassSelectorCard";
+import ModulesCreateCard from "./_components/ModulesCreateCard";
+import ModulesListCard from "./_components/ModulesListCard";
+import ModulesResourcesCard from "./_components/ModulesResourcesCard";
+import type {
+  ClassItem,
+  ModuleItem,
+  ModuleResourceItem,
+  ModuleResourcePayload,
+  ModuleResourceType
+} from "./types";
 
 export default function TeacherModulesPage() {
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [classId, setClassId] = useState("");
-  const [modules, setModules] = useState<any[]>([]);
+  const [modules, setModules] = useState<ModuleItem[]>([]);
   const [moduleId, setModuleId] = useState("");
-  const [resources, setResources] = useState<any[]>([]);
+  const [resources, setResources] = useState<ModuleResourceItem[]>([]);
   const [moduleTitle, setModuleTitle] = useState("");
   const [moduleDesc, setModuleDesc] = useState("");
   const [parentId, setParentId] = useState("");
   const [orderIndex, setOrderIndex] = useState(0);
-  const [resourceType, setResourceType] = useState<"file" | "link">("file");
+  const [resourceType, setResourceType] = useState<ModuleResourceType>("file");
   const [resourceTitle, setResourceTitle] = useState("");
   const [resourceUrl, setResourceUrl] = useState("");
   const [resourceFile, setResourceFile] = useState<File | null>(null);
@@ -31,7 +37,7 @@ export default function TeacherModulesPage() {
       if (!target) return;
       const res = await fetch(`/api/teacher/modules?classId=${target}`);
       const data = await res.json();
-      const list = data.data ?? [];
+      const list = (data.data ?? []) as ModuleItem[];
       setModules(list);
       if (list.length) {
         setModuleId(list[0].id);
@@ -51,7 +57,7 @@ export default function TeacherModulesPage() {
       }
       const res = await fetch(`/api/teacher/modules/${target}/resources`);
       const data = await res.json();
-      setResources(data.data ?? []);
+      setResources((data.data ?? []) as ModuleResourceItem[]);
     },
     [moduleId]
   );
@@ -60,7 +66,7 @@ export default function TeacherModulesPage() {
     fetch("/api/teacher/classes")
       .then((res) => res.json())
       .then((data) => {
-        const list = data.data ?? [];
+        const list = (data.data ?? []) as ClassItem[];
         setClasses(list);
         if (list.length) {
           setClassId(list[0].id);
@@ -124,7 +130,7 @@ export default function TeacherModulesPage() {
       return;
     }
 
-    let payload: any = {
+    let payload: ModuleResourcePayload = {
       title: resourceTitle,
       resourceType
     };
@@ -210,203 +216,40 @@ export default function TeacherModulesPage() {
         <span className="chip">模块</span>
       </div>
 
-      <Card title="选择班级" tag="班级">
-        <label>
-          <div className="section-title">班级</div>
-          <select
-            value={classId}
-            onChange={(event) => setClassId(event.target.value)}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-          >
-            {classes.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name} · {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级
-              </option>
-            ))}
-          </select>
-        </label>
-      </Card>
+      <ModulesClassSelectorCard classes={classes} classId={classId} onClassChange={setClassId} />
 
-      <Card title="新增模块" tag="章节">
-        <div className="feature-card">
-          <EduIcon name="book" />
-          <p>创建章节/单元结构，支持层级模块。</p>
-        </div>
-        <form onSubmit={handleCreateModule} style={{ display: "grid", gap: 12 }}>
-          <label>
-            <div className="section-title">模块标题</div>
-            <input
-              value={moduleTitle}
-              onChange={(event) => setModuleTitle(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            />
-          </label>
-          <label>
-            <div className="section-title">模块说明（可选）</div>
-            <textarea
-              value={moduleDesc}
-              onChange={(event) => setModuleDesc(event.target.value)}
-              rows={2}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            />
-          </label>
-          <label>
-            <div className="section-title">上级模块（可选）</div>
-            <select
-              value={parentId}
-              onChange={(event) => setParentId(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value="">无</option>
-              {modules.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">排序序号</div>
-            <input
-              type="number"
-              value={orderIndex}
-              onChange={(event) => setOrderIndex(Number(event.target.value))}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            />
-          </label>
-          {error ? <div style={{ color: "#b42318", fontSize: 13 }}>{error}</div> : null}
-          {message ? <div style={{ color: "#027a48", fontSize: 13 }}>{message}</div> : null}
-          <button className="button primary" type="submit">
-            创建模块
-          </button>
-        </form>
-      </Card>
+      <ModulesCreateCard
+        modules={modules}
+        moduleTitle={moduleTitle}
+        moduleDesc={moduleDesc}
+        parentId={parentId}
+        orderIndex={orderIndex}
+        error={error}
+        message={message}
+        onSubmit={handleCreateModule}
+        onModuleTitleChange={setModuleTitle}
+        onModuleDescChange={setModuleDesc}
+        onParentIdChange={setParentId}
+        onOrderIndexChange={setOrderIndex}
+      />
 
-      <Card title="模块列表" tag="结构">
-        {modules.length ? (
-          <div className="grid" style={{ gap: 10 }}>
-            {modules.map((item, index) => (
-              <div className="card" key={item.id}>
-                <div className="section-title">{item.title}</div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                  {item.description || "暂无说明"}
-                </div>
-                <div style={{ fontSize: 12, color: "var(--ink-1)" }}>排序 {item.orderIndex}</div>
-                <div className="cta-row" style={{ marginTop: 8 }}>
-                  <button
-                    className="button ghost"
-                    type="button"
-                    disabled={moving || index === 0}
-                    onClick={() => swapOrder(index, "up")}
-                  >
-                    上移
-                  </button>
-                  <button
-                    className="button ghost"
-                    type="button"
-                    disabled={moving || index === modules.length - 1}
-                    onClick={() => swapOrder(index, "down")}
-                  >
-                    下移
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p>暂无模块。</p>
-        )}
-      </Card>
+      <ModulesListCard modules={modules} moving={moving} onSwapOrder={swapOrder} />
 
-      <Card title="模块资源" tag="课件">
-        <div className="feature-card">
-          <EduIcon name="board" />
-          <p>上传课件或添加链接资源。</p>
-        </div>
-        <label>
-          <div className="section-title">选择模块</div>
-          <select
-            value={moduleId}
-            onChange={(event) => setModuleId(event.target.value)}
-            style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-          >
-            <option value="">请选择模块</option>
-            {modules.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.title}
-              </option>
-            ))}
-          </select>
-        </label>
-        {moduleId ? (
-          <form onSubmit={handleAddResource} style={{ display: "grid", gap: 12, marginTop: 12 }}>
-            <label>
-              <div className="section-title">资源标题</div>
-              <input
-                value={resourceTitle}
-                onChange={(event) => setResourceTitle(event.target.value)}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              />
-            </label>
-            <label>
-              <div className="section-title">资源类型</div>
-              <select
-                value={resourceType}
-                onChange={(event) => setResourceType(event.target.value as "file" | "link")}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              >
-                <option value="file">上传文件</option>
-                <option value="link">链接</option>
-              </select>
-            </label>
-            {resourceType === "file" ? (
-              <label>
-                <div className="section-title">上传文件</div>
-                <input type="file" onChange={(event) => setResourceFile(event.target.files?.[0] ?? null)} />
-              </label>
-            ) : (
-              <label>
-                <div className="section-title">资源链接</div>
-                <input
-                  value={resourceUrl}
-                  onChange={(event) => setResourceUrl(event.target.value)}
-                  placeholder="https://"
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                />
-              </label>
-            )}
-            <button className="button primary" type="submit">
-              添加资源
-            </button>
-          </form>
-        ) : (
-          <p style={{ marginTop: 8 }}>请先选择模块。</p>
-        )}
-        <div style={{ marginTop: 12 }}>
-          {resources.length ? (
-            <div className="grid" style={{ gap: 10 }}>
-              {resources.map((item) => (
-                <div className="card" key={item.id}>
-                  <div className="section-title">{item.title}</div>
-                  <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                    {item.resourceType === "link" ? item.linkUrl : item.fileName}
-                  </div>
-                  <button
-                    className="button ghost"
-                    type="button"
-                    onClick={() => handleDeleteResource(item.id)}
-                    style={{ marginTop: 8 }}
-                  >
-                    删除
-                  </button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>暂无资源。</p>
-          )}
-        </div>
-      </Card>
+      <ModulesResourcesCard
+        modules={modules}
+        moduleId={moduleId}
+        resourceType={resourceType}
+        resourceTitle={resourceTitle}
+        resourceUrl={resourceUrl}
+        resources={resources}
+        onModuleChange={setModuleId}
+        onSubmit={handleAddResource}
+        onResourceTitleChange={setResourceTitle}
+        onResourceTypeChange={setResourceType}
+        onResourceFileChange={setResourceFile}
+        onResourceUrlChange={setResourceUrl}
+        onDeleteResource={handleDeleteResource}
+      />
     </div>
   );
 }

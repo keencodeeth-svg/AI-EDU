@@ -1,168 +1,50 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
-import Card from "@/components/Card";
-import EduIcon from "@/components/EduIcon";
 import { SUBJECT_LABELS } from "@/lib/constants";
-
-type LibraryItem = {
-  id: string;
-  title: string;
-  description?: string;
-  contentType: "textbook" | "courseware" | "lesson_plan";
-  subject: string;
-  grade: string;
-  accessScope: "global" | "class";
-  sourceType: "file" | "link" | "text";
-  fileName?: string;
-  mimeType?: string;
-  contentBase64?: string;
-  linkUrl?: string;
-  textContent?: string;
-  classId?: string;
-  generatedByAi: boolean;
-  createdAt: string;
-  extractedKnowledgePoints: string[];
-};
-
-type ClassItem = {
-  id: string;
-  name: string;
-  subject: string;
-  grade: string;
-};
-
-type BatchImportSummary = {
-  textbooksTotal: number;
-  textbooksImported: number;
-  textbooksFailed: number;
-  questionsTotal: number;
-  questionsImported: number;
-  questionsFailed: number;
-  knowledgePointsCreated: number;
-};
-
-type LibraryMeta = {
-  total: number;
-  page: number;
-  pageSize: number;
-  totalPages: number;
-  hasPrev: boolean;
-  hasNext: boolean;
-};
-
-type LibraryFacets = {
-  subjects: Array<{ value: string; count: number }>;
-  grades: Array<{ value: string; count: number }>;
-  contentTypes: Array<{ value: string; count: number }>;
-};
-
-type LibrarySummary = {
-  textbookCount: number;
-  coursewareCount: number;
-  lessonPlanCount: number;
-};
-
-const DEFAULT_META: LibraryMeta = {
-  total: 0,
-  page: 1,
-  pageSize: 24,
-  totalPages: 0,
-  hasPrev: false,
-  hasNext: false
-};
-
-const DEFAULT_FACETS: LibraryFacets = {
-  subjects: [],
-  grades: [],
-  contentTypes: []
-};
-
-const DEFAULT_SUMMARY: LibrarySummary = {
-  textbookCount: 0,
-  coursewareCount: 0,
-  lessonPlanCount: 0
-};
-
-function buildBatchImportTemplate() {
-  return {
-    options: {
-      autoCreateKnowledgePoint: true,
-      skipExistingQuestionStem: true
-    },
-    textbooks: [
-      {
-        title: "四年级数学 上册 第一单元",
-        description: "教材导入示例（文件）",
-        contentType: "textbook",
-        subject: "math",
-        grade: "4",
-        sourceType: "file",
-        fileName: "四年级数学-第一单元.txt",
-        mimeType: "text/plain",
-        contentBase64: "56ys5LiA5Y2V5YWD77ya5Zub5YiZ6L+Q566X56S65L6L5YaF5a65",
-        accessScope: "global"
-      }
-    ],
-    questions: [
-      {
-        subject: "math",
-        grade: "4",
-        knowledgePointTitle: "四则运算",
-        chapter: "第一单元",
-        stem: "12 + 18 = ?",
-        options: ["20", "28", "30", "32"],
-        answer: "30",
-        explanation: "把十位和个位分别相加。",
-        difficulty: "easy",
-        questionType: "choice",
-        tags: ["计算", "基础"],
-        abilities: ["运算能力"]
-      }
-    ]
-  };
-}
-
-function contentTypeLabel(type: string) {
-  if (type === "courseware") return "课件";
-  if (type === "lesson_plan") return "教案";
-  return "教材";
-}
-
-function contentTypeRank(type: LibraryItem["contentType"]) {
-  if (type === "textbook") return 0;
-  if (type === "courseware") return 1;
-  return 2;
-}
-
-function toBase64(file: File) {
-  return new Promise<{ base64: string; mimeType: string; fileName: string; size: number }>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const result = String(reader.result ?? "");
-      const base64 = result.includes(",") ? result.split(",")[1] : result;
-      resolve({
-        base64,
-        mimeType: file.type || "application/octet-stream",
-        fileName: file.name,
-        size: file.size
-      });
-    };
-    reader.onerror = () => reject(new Error("read file failed"));
-    reader.readAsDataURL(file);
-  });
-}
+import LibraryAdminImportPanel from "./_components/LibraryAdminImportPanel";
+import LibraryAiGeneratePanel from "./_components/LibraryAiGeneratePanel";
+import LibraryBatchImportPanel from "./_components/LibraryBatchImportPanel";
+import LibraryFiltersPanel from "./_components/LibraryFiltersPanel";
+import LibraryListPanel from "./_components/LibraryListPanel";
+import type {
+  BatchImportSummary,
+  ClassItem,
+  LibraryAiGenerateResponse,
+  LibraryBatchImportFailedItem,
+  LibraryBatchImportResponse,
+  LibraryDeleteResponse,
+  LibraryAiFormState,
+  LibraryBatchPreview,
+  LibraryContentFilter,
+  LibraryFacets,
+  LibraryImportFormState,
+  LibraryItem,
+  LibraryMeta,
+  LibrarySubjectGroup,
+  LibrarySummary,
+  LibraryUser,
+  LibraryViewMode
+} from "./types";
+import {
+  DEFAULT_FACETS,
+  DEFAULT_META,
+  DEFAULT_SUMMARY,
+  buildBatchImportTemplate,
+  contentTypeLabel,
+  contentTypeRank,
+  toBase64
+} from "./utils";
 
 export default function LibraryPage() {
-  const [user, setUser] = useState<any>(null);
+  const [user, setUser] = useState<LibraryUser>(null);
   const [items, setItems] = useState<LibraryItem[]>([]);
   const [classes, setClasses] = useState<ClassItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [importForm, setImportForm] = useState({
+  const [importForm, setImportForm] = useState<LibraryImportFormState>({
     title: "",
     description: "",
     subject: "math",
@@ -174,20 +56,17 @@ export default function LibraryPage() {
   });
   const [importFile, setImportFile] = useState<File | null>(null);
   const [batchFile, setBatchFile] = useState<File | null>(null);
-  const [batchPreview, setBatchPreview] = useState<{
-    textbooks: number;
-    questions: number;
-  } | null>(null);
+  const [batchPreview, setBatchPreview] = useState<LibraryBatchPreview | null>(null);
   const [batchSummary, setBatchSummary] = useState<BatchImportSummary | null>(null);
   const [batchFailedPreview, setBatchFailedPreview] = useState<string[]>([]);
 
-  const [aiForm, setAiForm] = useState({
+  const [aiForm, setAiForm] = useState<LibraryAiFormState>({
     classId: "",
     topic: "",
     contentType: "lesson_plan"
   });
   const [subjectFilter, setSubjectFilter] = useState("all");
-  const [contentFilter, setContentFilter] = useState<"all" | "textbook" | "courseware" | "lesson_plan">("all");
+  const [contentFilter, setContentFilter] = useState<LibraryContentFilter>("all");
   const [keyword, setKeyword] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(16);
@@ -197,7 +76,7 @@ export default function LibraryPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [expandedSubjects, setExpandedSubjects] = useState<string[]>([]);
   const [expandedTypeKeys, setExpandedTypeKeys] = useState<string[]>([]);
-  const [libraryViewMode, setLibraryViewMode] = useState<"compact" | "detailed">("compact");
+  const [libraryViewMode, setLibraryViewMode] = useState<LibraryViewMode>("compact");
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -294,23 +173,24 @@ export default function LibraryPage() {
     });
   }, [facets.subjects]);
 
-  const groupedBySubject = useMemo(() => {
+  const groupedBySubject = useMemo<LibrarySubjectGroup[]>(() => {
     const bucket = new Map<string, LibraryItem[]>();
     items.forEach((item) => {
       const list = bucket.get(item.subject) ?? [];
       list.push(item);
       bucket.set(item.subject, list);
     });
+
     return Array.from(bucket.entries())
       .map(([subject, list]) => ({
         subject,
         label: SUBJECT_LABELS[subject] ?? subject,
         list: list.sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         contentGroups: (["textbook", "courseware", "lesson_plan"] as LibraryItem["contentType"][])
-          .map((contentType) => ({
-            contentType,
-            label: contentTypeLabel(contentType),
-            list: list.filter((item) => item.contentType === contentType)
+          .map((itemContentType) => ({
+            contentType: itemContentType,
+            label: contentTypeLabel(itemContentType),
+            list: list.filter((item) => item.contentType === itemContentType)
           }))
           .filter((group) => group.list.length)
           .sort((a, b) => contentTypeRank(a.contentType) - contentTypeRank(b.contentType))
@@ -328,24 +208,18 @@ export default function LibraryPage() {
   useEffect(() => {
     setExpandedTypeKeys((prev) => {
       const visibleKeys = new Set(
-        groupedBySubject.flatMap((group) =>
-          group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`)
-        )
+        groupedBySubject.flatMap((group) => group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`))
       );
       return prev.filter((item) => visibleKeys.has(item));
     });
   }, [groupedBySubject]);
 
   function toggleExpandedSubject(subject: string) {
-    setExpandedSubjects((prev) =>
-      prev.includes(subject) ? prev.filter((item) => item !== subject) : [...prev, subject]
-    );
+    setExpandedSubjects((prev) => (prev.includes(subject) ? prev.filter((item) => item !== subject) : [...prev, subject]));
   }
 
   function toggleExpandedType(typeKey: string) {
-    setExpandedTypeKeys((prev) =>
-      prev.includes(typeKey) ? prev.filter((item) => item !== typeKey) : [...prev, typeKey]
-    );
+    setExpandedTypeKeys((prev) => (prev.includes(typeKey) ? prev.filter((item) => item !== typeKey) : [...prev, typeKey]));
   }
 
   function setAllSubjectsExpanded(expanded: boolean) {
@@ -361,11 +235,7 @@ export default function LibraryPage() {
       setExpandedTypeKeys([]);
       return;
     }
-    setExpandedTypeKeys(
-      groupedBySubject.flatMap((group) =>
-        group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`)
-      )
-    );
+    setExpandedTypeKeys(groupedBySubject.flatMap((group) => group.contentGroups.map((contentGroup) => `${group.subject}:${contentGroup.contentType}`)));
   }
 
   async function submitImport(event: React.FormEvent) {
@@ -379,9 +249,7 @@ export default function LibraryPage() {
       return;
     }
 
-    const payload: any = {
-      ...importForm
-    };
+    const payload: Record<string, unknown> = { ...importForm };
 
     if (importForm.sourceType === "file") {
       if (!importFile) {
@@ -430,12 +298,12 @@ export default function LibraryPage() {
       type: "application/json;charset=utf-8"
     });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "full-curriculum-batch-template.json";
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "full-curriculum-batch-template.json";
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   }
 
@@ -472,7 +340,7 @@ export default function LibraryPage() {
       return;
     }
 
-    let payload: any = null;
+    let payload: unknown = null;
     try {
       payload = JSON.parse(await batchFile.text());
     } catch {
@@ -485,20 +353,19 @@ export default function LibraryPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     });
-    const data = await res.json();
+    const data = (await res.json()) as LibraryBatchImportResponse;
     if (!res.ok) {
-      setError(data?.error ?? "批量导入失败");
+      setError(data.error ?? "批量导入失败");
       return;
     }
 
-    const summary = data?.data?.summary ?? null;
-    const textbookFailed = (data?.data?.textbooks?.failed ?? []).map(
-      (item: any) => `教材#${Number(item.index) + 1}: ${item.reason}`
-    );
-    const questionFailed = (data?.data?.questions?.failed ?? []).map(
-      (item: any) => `习题#${Number(item.index) + 1}: ${item.reason}`
-    );
-    setBatchSummary(summary);
+    const toFailedPreview = (items: LibraryBatchImportFailedItem[], label: string) =>
+      items.map((item) => `${label}#${Number(item.index) + 1}: ${item.reason}`);
+
+    const nextSummary = data.data?.summary ?? null;
+    const textbookFailed = toFailedPreview(data.data?.textbooks?.failed ?? [], "教材");
+    const questionFailed = toFailedPreview(data.data?.questions?.failed ?? [], "习题");
+    setBatchSummary(nextSummary);
     setBatchFailedPreview([...textbookFailed, ...questionFailed].slice(0, 20));
     setMessage("批量导入完成");
     await loadItems();
@@ -519,31 +386,25 @@ export default function LibraryPage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(aiForm)
     });
-    const data = await res.json();
+    const data = (await res.json()) as LibraryAiGenerateResponse;
     if (!res.ok) {
-      setError(data?.error ?? "生成失败");
+      setError(data.error ?? "生成失败");
       return;
     }
-    const citationCount = Array.isArray(data?.data?.citations) ? data.data.citations.length : 0;
-    const governance = data?.data?.citationGovernance;
+    const citationCount = Array.isArray(data.data?.citations) ? data.data.citations.length : 0;
+    const governance = data.data?.citationGovernance;
     const needsManualReview = Boolean(governance?.needsManualReview);
-    const reviewHint = needsManualReview
-      ? `，建议复核（${String(governance?.manualReviewReason ?? "引用可信度风险")}）`
-      : "";
-    setMessage(
-      citationCount
-        ? `AI 资料已生成并发布（引用教材片段 ${citationCount} 条${reviewHint}）`
-        : `AI 资料已生成并发布${reviewHint}`
-    );
+    const reviewHint = needsManualReview ? `，建议复核（${String(governance?.manualReviewReason ?? "引用可信度风险")}）` : "";
+    setMessage(citationCount ? `AI 资料已生成并发布（引用教材片段 ${citationCount} 条${reviewHint}）` : `AI 资料已生成并发布${reviewHint}`);
     setAiForm((prev) => ({ ...prev, topic: "" }));
     await loadItems();
   }
 
   async function fetchLibraryItemDetail(id: string) {
     const res = await fetch(`/api/library/${id}`, { cache: "no-store" });
-    let data: any = null;
+    let data: { data?: LibraryItem; error?: string } | null = null;
     try {
-      data = await res.json();
+      data = (await res.json()) as { data?: LibraryItem; error?: string };
     } catch {
       data = null;
     }
@@ -551,19 +412,19 @@ export default function LibraryPage() {
       setError(data?.error ?? "获取资料详情失败");
       return null;
     }
-    return (data?.data as LibraryItem | null) ?? null;
+    return data?.data ?? null;
   }
 
   function downloadText(item: LibraryItem) {
     const text = item.textContent ?? "";
     const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${item.title || "资料"}.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${item.title || "资料"}.txt`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
     URL.revokeObjectURL(url);
   }
 
@@ -596,12 +457,12 @@ export default function LibraryPage() {
         return;
       }
       const href = `data:${detail.mimeType || "application/octet-stream"};base64,${detail.contentBase64}`;
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = detail.fileName || detail.title || "资料";
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+      const anchor = document.createElement("a");
+      anchor.href = href;
+      anchor.download = detail.fileName || detail.title || "资料";
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
       return;
     }
 
@@ -623,9 +484,9 @@ export default function LibraryPage() {
     setDeletingId(item.id);
     try {
       const res = await fetch(`/api/library/${item.id}`, { method: "DELETE" });
-      let data: any = null;
+      let data: LibraryDeleteResponse | null = null;
       try {
-        data = await res.json();
+        data = (await res.json()) as LibraryDeleteResponse;
       } catch {
         data = null;
       }
@@ -658,570 +519,61 @@ export default function LibraryPage() {
       </div>
 
       {user?.role === "admin" ? (
-        <Card title="管理端导入教材" tag="管理">
-          <form onSubmit={submitImport} style={{ display: "grid", gap: 12 }}>
-            <label>
-              <div className="section-title">标题</div>
-              <input
-                value={importForm.title}
-                onChange={(event) => setImportForm((prev) => ({ ...prev, title: event.target.value }))}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              />
-            </label>
-            <label>
-              <div className="section-title">简介</div>
-              <textarea
-                rows={2}
-                value={importForm.description}
-                onChange={(event) => setImportForm((prev) => ({ ...prev, description: event.target.value }))}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              />
-            </label>
-            <div className="grid grid-3">
-              <label>
-                <div className="section-title">学科</div>
-                <select
-                  value={importForm.subject}
-                  onChange={(event) => setImportForm((prev) => ({ ...prev, subject: event.target.value }))}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                >
-                  {Object.entries(SUBJECT_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                <div className="section-title">年级</div>
-                <input
-                  value={importForm.grade}
-                  onChange={(event) => setImportForm((prev) => ({ ...prev, grade: event.target.value }))}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                />
-              </label>
-              <label>
-                <div className="section-title">类型</div>
-                <select
-                  value={importForm.contentType}
-                  onChange={(event) =>
-                    setImportForm((prev) => {
-                      const nextContentType = event.target.value;
-                      if (nextContentType === "textbook") {
-                        return {
-                          ...prev,
-                          contentType: nextContentType,
-                          sourceType: "file",
-                          textContent: "",
-                          linkUrl: ""
-                        };
-                      }
-                      return { ...prev, contentType: nextContentType };
-                    })
-                  }
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                >
-                  <option value="textbook">教材</option>
-                  <option value="courseware">课件</option>
-                  <option value="lesson_plan">教案</option>
-                </select>
-              </label>
-            </div>
-            <label>
-              <div className="section-title">导入方式</div>
-              <select
-                value={importForm.contentType === "textbook" ? "file" : importForm.sourceType}
-                onChange={(event) => setImportForm((prev) => ({ ...prev, sourceType: event.target.value }))}
-                disabled={importForm.contentType === "textbook"}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              >
-                {importForm.contentType === "textbook" ? (
-                  <option value="file">上传文件（教材必选）</option>
-                ) : (
-                  <>
-                    <option value="text">粘贴文本</option>
-                    <option value="file">上传文件</option>
-                    <option value="link">外部链接</option>
-                  </>
-                )}
-              </select>
-            </label>
-            {importForm.contentType === "textbook" ? (
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>教材仅支持文件导入，已禁用外链和文本录入。</div>
-            ) : null}
-            {importForm.sourceType === "text" && importForm.contentType !== "textbook" ? (
-              <label>
-                <div className="section-title">教材文本</div>
-                <textarea
-                  rows={6}
-                  value={importForm.textContent}
-                  onChange={(event) => setImportForm((prev) => ({ ...prev, textContent: event.target.value }))}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                />
-              </label>
-            ) : null}
-            {importForm.sourceType === "file" ? (
-              <label>
-                <div className="section-title">上传文件</div>
-                <input type="file" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} />
-              </label>
-            ) : null}
-            {importForm.sourceType === "link" && importForm.contentType !== "textbook" ? (
-              <label>
-                <div className="section-title">链接地址</div>
-                <input
-                  value={importForm.linkUrl}
-                  onChange={(event) => setImportForm((prev) => ({ ...prev, linkUrl: event.target.value }))}
-                  style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-                />
-              </label>
-            ) : null}
-            <button className="button primary" type="submit">
-              导入资料
-            </button>
-          </form>
-        </Card>
+        <LibraryAdminImportPanel importForm={importForm} setImportForm={setImportForm} setImportFile={setImportFile} onSubmit={submitImport} />
       ) : null}
 
       {user?.role === "admin" ? (
-        <Card title="全学科批量导入（教材+习题）" tag="批量">
-          <div className="feature-card">
-            <EduIcon name="board" />
-            <p>上传 JSON 清单后，系统会批量导入教材并自动创建/质检配套习题。</p>
-          </div>
-          <div className="cta-row">
-            <button className="button ghost" type="button" onClick={downloadBatchTemplate}>
-              下载 JSON 模板
-            </button>
-          </div>
-          <form onSubmit={submitBatchImport} style={{ display: "grid", gap: 12, marginTop: 10 }}>
-            <label>
-              <div className="section-title">上传批量 JSON</div>
-              <input type="file" accept=".json,application/json" onChange={(event) => handleBatchFileChange(event.target.files?.[0] ?? null)} />
-            </label>
-            {batchPreview ? (
-              <div className="status-note info">
-                预览：教材 {batchPreview.textbooks} 条，习题 {batchPreview.questions} 条
-              </div>
-            ) : null}
-            <button className="button primary" type="submit">
-              开始批量导入
-            </button>
-          </form>
-          {batchSummary ? (
-            <div className="grid" style={{ gap: 8, marginTop: 12 }}>
-              <div className="card">
-                教材：{batchSummary.textbooksImported}/{batchSummary.textbooksTotal}，失败{" "}
-                {batchSummary.textbooksFailed}
-              </div>
-              <div className="card">
-                习题：{batchSummary.questionsImported}/{batchSummary.questionsTotal}，失败{" "}
-                {batchSummary.questionsFailed}
-              </div>
-              <div className="card">自动创建知识点：{batchSummary.knowledgePointsCreated}</div>
-              {batchFailedPreview.length ? (
-                <div className="card">
-                  <div className="section-title">失败样例（最多 20 条）</div>
-                  <div className="grid" style={{ gap: 4, marginTop: 8 }}>
-                    {batchFailedPreview.map((line, idx) => (
-                      <div key={`${line}-${idx}`} style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                        {line}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </Card>
+        <LibraryBatchImportPanel
+          batchPreview={batchPreview}
+          batchSummary={batchSummary}
+          batchFailedPreview={batchFailedPreview}
+          onDownloadBatchTemplate={downloadBatchTemplate}
+          onBatchFileChange={handleBatchFileChange}
+          onSubmit={submitBatchImport}
+        />
       ) : null}
 
-      {user?.role === "teacher" ? (
-        <Card title="AI 生成课件/教案" tag="AI">
-          <div className="feature-card">
-            <EduIcon name="brain" />
-            <p>输入主题后自动生成，可直接给老师和学生查看。</p>
-          </div>
-          <form onSubmit={submitAiGenerate} style={{ display: "grid", gap: 12 }}>
-            <label>
-              <div className="section-title">班级</div>
-              <select
-                value={aiForm.classId}
-                onChange={(event) => setAiForm((prev) => ({ ...prev, classId: event.target.value }))}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              >
-                {classes.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.name} · {SUBJECT_LABELS[item.subject] ?? item.subject} · {item.grade} 年级
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <div className="section-title">主题</div>
-              <input
-                value={aiForm.topic}
-                onChange={(event) => setAiForm((prev) => ({ ...prev, topic: event.target.value }))}
-                placeholder="例如：分数加减法综合复习"
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              />
-            </label>
-            <label>
-              <div className="section-title">生成类型</div>
-              <select
-                value={aiForm.contentType}
-                onChange={(event) => setAiForm((prev) => ({ ...prev, contentType: event.target.value }))}
-                style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-              >
-                <option value="lesson_plan">教案</option>
-                <option value="courseware">课件</option>
-              </select>
-            </label>
-            <button className="button primary" type="submit">
-              AI 生成并发布
-            </button>
-          </form>
-        </Card>
-      ) : null}
+      {user?.role === "teacher" ? <LibraryAiGeneratePanel classes={classes} aiForm={aiForm} setAiForm={setAiForm} onSubmit={submitAiGenerate} /> : null}
 
       {error ? <div className="status-note error">{error}</div> : null}
       {message ? <div className="status-note success">{message}</div> : null}
 
-      <Card title="分学科管理" tag="筛选">
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 8 }}>
-          <button
-            className={subjectFilter === "all" ? "button secondary" : "button ghost"}
-            type="button"
-            onClick={() => setSubjectFilter("all")}
-          >
-            全部学科
-          </button>
-          {subjectList.map((subject) => (
-            <button
-              key={subject}
-              className={subjectFilter === subject ? "button secondary" : "button ghost"}
-              type="button"
-              onClick={() => setSubjectFilter(subject)}
-            >
-              {SUBJECT_LABELS[subject] ?? subject}
-            </button>
-          ))}
-        </div>
-        <div className="grid grid-3">
-          <label>
-            <div className="section-title">学科</div>
-            <select
-              value={subjectFilter}
-              onChange={(event) => setSubjectFilter(event.target.value)}
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value="all">全部学科</option>
-              {subjectList.map((subject) => (
-                <option key={subject} value={subject}>
-                  {SUBJECT_LABELS[subject] ?? subject}（
-                  {facets.subjects.find((item) => item.value === subject)?.count ?? 0}）
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <div className="section-title">类型</div>
-            <select
-              value={contentFilter}
-              onChange={(event) =>
-                setContentFilter(event.target.value as "all" | "textbook" | "courseware" | "lesson_plan")
-              }
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value="all">全部类型</option>
-              <option value="textbook">教材</option>
-              <option value="courseware">课件</option>
-              <option value="lesson_plan">教案</option>
-            </select>
-          </label>
-          <label>
-            <div className="section-title">关键词</div>
-            <input
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              placeholder="按标题或简介搜索"
-              style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            />
-          </label>
-        </div>
-        <div className="cta-row" style={{ marginTop: 10 }}>
-          <label style={{ display: "grid", gap: 4 }}>
-            <span className="section-title">每页数量</span>
-            <select
-              value={pageSize}
-              onChange={(event) => setPageSize(Number(event.target.value))}
-              style={{ padding: 8, borderRadius: 10, border: "1px solid var(--stroke)" }}
-            >
-              <option value={16}>16</option>
-              <option value={12}>12</option>
-              <option value={24}>24</option>
-              <option value={48}>48</option>
-            </select>
-          </label>
-          <div style={{ marginLeft: "auto", display: "flex", gap: 8, alignItems: "flex-end" }}>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setPage((prev) => Math.max(1, prev - 1))}
-              disabled={!meta.hasPrev || loading}
-            >
-              上一页
-            </button>
-            <button
-              className="button ghost"
-              type="button"
-              onClick={() => setPage((prev) => prev + 1)}
-              disabled={!meta.hasNext || loading}
-            >
-              下一页
-            </button>
-          </div>
-        </div>
-        <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 10 }}>
-          当前筛选结果：共 {meta.total} 条（教材 {summary.textbookCount}，课件 {summary.coursewareCount}，教案{" "}
-          {summary.lessonPlanCount}）· 第 {meta.page} / {Math.max(meta.totalPages, 1)} 页
-        </div>
-      </Card>
+      <LibraryFiltersPanel
+        subjectList={subjectList}
+        facets={facets}
+        subjectFilter={subjectFilter}
+        setSubjectFilter={setSubjectFilter}
+        contentFilter={contentFilter}
+        setContentFilter={setContentFilter}
+        keyword={keyword}
+        setKeyword={setKeyword}
+        pageSize={pageSize}
+        setPageSize={setPageSize}
+        meta={meta}
+        summary={summary}
+        loading={loading}
+        onPrevPage={() => setPage((prev) => Math.max(1, prev - 1))}
+        onNextPage={() => setPage((prev) => prev + 1)}
+      />
 
-      <Card title="资料管理列表" tag="管理">
-        <div className="cta-row" style={{ marginTop: 0 }}>
-          <span className="badge">视图模式</span>
-          <button
-            className={libraryViewMode === "compact" ? "button secondary" : "button ghost"}
-            type="button"
-            onClick={() => setLibraryViewMode("compact")}
-          >
-            紧凑模式
-          </button>
-          <button
-            className={libraryViewMode === "detailed" ? "button secondary" : "button ghost"}
-            type="button"
-            onClick={() => setLibraryViewMode("detailed")}
-          >
-            详细模式
-          </button>
-          <button className="button ghost" type="button" onClick={() => setAllSubjectsExpanded(true)}>
-            展开全部学科
-          </button>
-          <button className="button ghost" type="button" onClick={() => setAllSubjectsExpanded(false)}>
-            收起全部学科
-          </button>
-          <button className="button ghost" type="button" onClick={() => setAllTypesExpanded(true)}>
-            展开全部类型
-          </button>
-          <button className="button ghost" type="button" onClick={() => setAllTypesExpanded(false)}>
-            收起全部类型
-          </button>
-        </div>
-
-        {loading ? (
-          <div className="empty-state" style={{ marginTop: 10 }}>
-            <p className="empty-state-title">加载中</p>
-            <p style={{ margin: 0 }}>正在读取教材与课件列表。</p>
-          </div>
-        ) : null}
-        {!loading ? (
-          <div className="grid" style={{ gap: 12, marginTop: 10 }}>
-            {groupedBySubject.map((group) => (
-              <details key={group.subject} className="card full-span" open={expandedSubjects.includes(group.subject)}>
-                <summary
-                  onClick={(event) => {
-                    event.preventDefault();
-                    toggleExpandedSubject(group.subject);
-                  }}
-                  style={{
-                    cursor: "pointer",
-                    listStyle: "none",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 8
-                  }}
-                >
-                  <span className="section-title" style={{ margin: 0 }}>
-                    {group.label}
-                  </span>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    <span className="badge">{group.list.length} 条</span>
-                    <span className="badge">{group.contentGroups.length} 类</span>
-                  </div>
-                </summary>
-
-                <div className="grid" style={{ gap: 10, marginTop: 10 }}>
-                  {group.contentGroups.map((contentGroup) => {
-                    const typeKey = `${group.subject}:${contentGroup.contentType}`;
-                    return (
-                      <details key={typeKey} className="card" open={expandedTypeKeys.includes(typeKey)}>
-                        <summary
-                          onClick={(event) => {
-                            event.preventDefault();
-                            toggleExpandedType(typeKey);
-                          }}
-                          style={{
-                            cursor: "pointer",
-                            listStyle: "none",
-                            display: "flex",
-                            justifyContent: "space-between",
-                            alignItems: "center",
-                            gap: 8
-                          }}
-                        >
-                          <span className="section-title" style={{ margin: 0 }}>
-                            {contentGroup.label}
-                          </span>
-                          <span className="badge">{contentGroup.list.length} 条</span>
-                        </summary>
-
-                        {libraryViewMode === "compact" ? (
-                          <div className="grid" style={{ gap: 8, marginTop: 10 }}>
-                            {contentGroup.list.map((item) => {
-                              const textbookLinkBlocked =
-                                item.contentType === "textbook" && item.sourceType === "link";
-                              return (
-                                <div
-                                  key={item.id}
-                                  style={{
-                                    border: "1px solid var(--stroke)",
-                                    borderRadius: 12,
-                                    background: "rgba(255,255,255,0.72)",
-                                    padding: 10
-                                  }}
-                                >
-                                  <div
-                                    style={{
-                                      display: "flex",
-                                      justifyContent: "space-between",
-                                      gap: 10,
-                                      alignItems: "center"
-                                    }}
-                                  >
-                                    <div style={{ minWidth: 0 }}>
-                                      <div
-                                        style={{
-                                          fontSize: 14,
-                                          fontWeight: 700,
-                                          display: "-webkit-box",
-                                          WebkitLineClamp: 1,
-                                          WebkitBoxOrient: "vertical",
-                                          overflow: "hidden"
-                                        }}
-                                      >
-                                        {item.title}
-                                      </div>
-                                      <div style={{ marginTop: 4, fontSize: 12, color: "var(--ink-1)" }}>
-                                        {item.grade} 年级 · {contentTypeLabel(item.contentType)} ·
-                                        {item.sourceType === "file"
-                                          ? " 文件上传"
-                                          : item.sourceType === "link"
-                                            ? textbookLinkBlocked
-                                              ? " 外部链接（教材禁用）"
-                                              : " 外部链接"
-                                            : " 文本录入"}{" "}
-                                        · {item.generatedByAi ? "AI生成" : "人工上传"}
-                                      </div>
-                                    </div>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                      <Link className="button ghost" href={`/library/${item.id}`}>
-                                        查看
-                                      </Link>
-                                      <button
-                                        className="button secondary"
-                                        type="button"
-                                        onClick={() => downloadItem(item)}
-                                        disabled={textbookLinkBlocked}
-                                      >
-                                        {textbookLinkBlocked ? "外链禁用" : item.sourceType === "link" ? "打开链接" : "下载"}
-                                      </button>
-                                      {user?.role === "admin" ? (
-                                        <button
-                                          className="button danger"
-                                          type="button"
-                                          onClick={() => removeItem(item)}
-                                          disabled={deletingId === item.id}
-                                        >
-                                          {deletingId === item.id ? "删除中..." : "删除"}
-                                        </button>
-                                      ) : null}
-                                    </div>
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <div className="grid" style={{ gap: 10, marginTop: 10 }}>
-                            {contentGroup.list.map((item) => {
-                              const textbookLinkBlocked =
-                                item.contentType === "textbook" && item.sourceType === "link";
-                              return (
-                                <div className="card" key={item.id}>
-                                  <div className="section-title">
-                                    {item.title} <span className="badge">{contentTypeLabel(item.contentType)}</span>
-                                  </div>
-                                  <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 6 }}>
-                                    {item.grade} 年级 · 来源：
-                                    {item.sourceType === "file"
-                                      ? "文件上传"
-                                      : item.sourceType === "link"
-                                        ? textbookLinkBlocked
-                                          ? "外部链接（教材禁用）"
-                                          : "外部链接"
-                                        : "文本录入"}{" "}
-                                    · {item.generatedByAi ? "AI生成" : "人工上传"}
-                                  </div>
-                                  <div className="cta-row" style={{ marginTop: 10 }}>
-                                    <Link className="button ghost" href={`/library/${item.id}`}>
-                                      查看
-                                    </Link>
-                                    <button
-                                      className="button secondary"
-                                      type="button"
-                                      onClick={() => downloadItem(item)}
-                                      disabled={textbookLinkBlocked}
-                                    >
-                                      {textbookLinkBlocked ? "外链禁用" : item.sourceType === "link" ? "打开链接" : "下载"}
-                                    </button>
-                                    {user?.role === "admin" ? (
-                                      <button
-                                        className="button danger"
-                                        type="button"
-                                        onClick={() => removeItem(item)}
-                                        disabled={deletingId === item.id}
-                                      >
-                                        {deletingId === item.id ? "删除中..." : "删除"}
-                                      </button>
-                                    ) : null}
-                                  </div>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        )}
-                      </details>
-                    );
-                  })}
-                </div>
-              </details>
-            ))}
-            {!groupedBySubject.length ? (
-              <div className="empty-state">
-                <p className="empty-state-title">暂无资料</p>
-                <p style={{ margin: 0 }}>当前筛选条件下没有可展示内容，请调整学科或关键词。</p>
-              </div>
-            ) : null}
-            {groupedBySubject.length ? (
-              <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                当前页展示 {items.length} 条，筛选总量 {meta.total} 条。
-              </div>
-            ) : null}
-          </div>
-        ) : null}
-      </Card>
+      <LibraryListPanel
+        loading={loading}
+        groupedBySubject={groupedBySubject}
+        expandedSubjects={expandedSubjects}
+        expandedTypeKeys={expandedTypeKeys}
+        libraryViewMode={libraryViewMode}
+        userRole={user?.role}
+        deletingId={deletingId}
+        itemsCount={items.length}
+        totalCount={meta.total}
+        onSetLibraryViewMode={setLibraryViewMode}
+        onSetAllSubjectsExpanded={setAllSubjectsExpanded}
+        onSetAllTypesExpanded={setAllTypesExpanded}
+        onToggleExpandedSubject={toggleExpandedSubject}
+        onToggleExpandedType={toggleExpandedType}
+        onDownloadItem={downloadItem}
+        onRemoveItem={removeItem}
+      />
     </div>
   );
 }

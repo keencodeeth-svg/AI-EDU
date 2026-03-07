@@ -83,3 +83,52 @@ export type KnowledgePointFacets = {
   units: FacetItem[];
   chapters: FacetItem[];
 };
+
+
+export type KnowledgePointProcessFailedItem = {
+  index: number;
+  reason: string;
+};
+
+export type KnowledgePointBatchPreviewFailedItem = {
+  subject: string;
+  grade: string;
+  reason: string;
+};
+
+export type KnowledgePointTreePreviewPoint = {
+  title: string;
+};
+
+export type KnowledgePointTreePreviewChapter = {
+  title: string;
+  points: KnowledgePointTreePreviewPoint[];
+};
+
+export type KnowledgePointTreePreviewUnit = {
+  title: string;
+  chapters: KnowledgePointTreePreviewChapter[];
+};
+
+export type KnowledgePointBatchPreviewItem = {
+  subject: string;
+  grade: string;
+  units: KnowledgePointTreePreviewUnit[];
+};
+
+export type KnowledgePointMutationResponse = {
+  created?: Array<{ id: string }>;
+  skipped?: KnowledgePointProcessFailedItem[];
+  error?: string;
+};
+
+export type KnowledgePointBatchPreviewResponse = {
+  items?: KnowledgePointBatchPreviewItem[];
+  failed?: KnowledgePointBatchPreviewFailedItem[];
+  summary?: {
+    requested: number;
+    generated: number;
+    failed: number;
+  };
+  error?: string;
+};

@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import StatePanel from "@/components/StatePanel";
+import { RECENT_LINKS_KEY, emitOpenCommandPalette } from "@/lib/navigation-command";
 
 type NavLink = { href: string; label: string };
 type NavGroup = { title: string; links: NavLink[] };
-const RECENT_LINKS_KEY = "hk_aiedu_recent_links_v1";
 const GROUP_STATE_KEY = "hk_aiedu_nav_group_state_v1";
 const SIDEBAR_COLLAPSE_KEY = "hk_aiedu_sidebar_collapsed_v1";
 
@@ -211,8 +212,13 @@ export default function RoleSidebarNav({
               清空
             </button>
           ) : null}
-          <div className="role-side-search-meta">
-            已显示 {visibleLinkCount} / {allLinks.length} 个功能
+          <div className="role-side-search-row">
+            <div className="role-side-search-meta">
+              已显示 {visibleLinkCount} / {allLinks.length} 个功能
+            </div>
+            <button type="button" className="role-side-search-launch" onClick={emitOpenCommandPalette}>
+              全局搜索⌘K
+            </button>
           </div>
         </div>
       ) : null}
@@ -268,7 +274,19 @@ export default function RoleSidebarNav({
         </div>
       ))}
 
-      {visibleLinkCount === 0 ? <div className="role-side-empty">未找到匹配功能，请更换关键词。</div> : null}
+      {visibleLinkCount === 0 ? (
+        <StatePanel
+          compact
+          tone="empty"
+          title="没找到匹配功能"
+          description="换个关键词，或者直接打开全局搜索。"
+          action={
+            <button type="button" className="button secondary" onClick={emitOpenCommandPalette}>
+              打开全局搜索
+            </button>
+          }
+        />
+      ) : null}
     </nav>
   );
 }

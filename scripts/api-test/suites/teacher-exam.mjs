@@ -28,6 +28,11 @@ export async function runTeacherExamSuite(context) {
   }
   assert.equal(teacherLogin?.status, 200, "Teacher login failed for both primary and fallback accounts");
 
+  const teacherDashboardOverview = await apiFetch("/api/dashboard/overview");
+  assert.equal(teacherDashboardOverview.status, 200, `Teacher GET /api/dashboard/overview failed: ${teacherDashboardOverview.raw}`);
+  assert.equal(teacherDashboardOverview.body?.data?.role, "teacher", "Teacher dashboard overview should detect teacher role");
+  assert.ok(Array.isArray(teacherDashboardOverview.body?.data?.alerts), "Teacher dashboard overview should include alerts");
+
   const teacherInsights = await apiFetch("/api/teacher/insights");
   assert.equal(teacherInsights.status, 200, `GET /api/teacher/insights failed: ${teacherInsights.raw}`);
   assert.equal(
@@ -113,6 +118,166 @@ export async function runTeacherExamSuite(context) {
   const targetStudent = (classStudents.body?.data ?? []).find((item) => item.email === email);
   assert.ok(targetStudent?.id, "Target student should exist in class roster");
 
+  const submissionAssignment = await apiFetch("/api/teacher/assignments", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      title: `API_TEST_SUBMISSION_${Date.now().toString(36)}`,
+      description: "API 测试上传作业",
+      dueDate: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString(),
+      submissionType: "upload",
+      maxUploads: 2
+    }
+  });
+  assert.equal(
+    submissionAssignment.status,
+    200,
+    `POST /api/teacher/assignments upload failed: ${submissionAssignment.raw}`
+  );
+  const submissionAssignmentId = submissionAssignment.body?.data?.id;
+  assert.ok(submissionAssignmentId, "Teacher upload assignment should return data.id");
+
+  const teacherInboxThreadSubject = `API_TEST_THREAD_${Date.now().toString(36)}`;
+  const teacherInboxThread = await apiFetch("/api/inbox/threads", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      subject: teacherInboxThreadSubject,
+      content: "这是一条给班级学生的 API 测试站内信。"
+    }
+  });
+  assert.equal(teacherInboxThread.status, 200, `POST /api/inbox/threads failed: ${teacherInboxThread.raw}`);
+  const teacherInboxThreadId = teacherInboxThread.body?.data?.threadId;
+  assert.ok(teacherInboxThreadId, "Teacher inbox thread should return threadId");
+
+  const teacherInboxThreads = await apiFetch("/api/inbox/threads");
+  assert.equal(teacherInboxThreads.status, 200, `Teacher GET /api/inbox/threads failed: ${teacherInboxThreads.raw}`);
+  const createdTeacherThread = (teacherInboxThreads.body?.data ?? []).find((item) => item.id === teacherInboxThreadId);
+  assert.ok(createdTeacherThread, "Teacher inbox thread should appear in thread list");
+  assert.equal(createdTeacherThread?.subject, teacherInboxThreadSubject);
+
+  const savedNotificationRule = await apiFetch("/api/teacher/notifications/rules", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      enabled: true,
+      dueDays: 3,
+      overdueDays: 1,
+      includeParents: false
+    }
+  });
+  assert.equal(
+    savedNotificationRule.status,
+    200,
+    `POST /api/teacher/notifications/rules failed: ${savedNotificationRule.raw}`
+  );
+  assert.equal(savedNotificationRule.body?.data?.classId, examClass.id);
+  assert.equal(savedNotificationRule.body?.data?.dueDays, 3);
+  assert.equal(savedNotificationRule.body?.data?.includeParents, false);
+
+  const teacherNotificationRules = await apiFetch("/api/teacher/notifications/rules");
+  assert.equal(
+    teacherNotificationRules.status,
+    200,
+    `GET /api/teacher/notifications/rules failed: ${teacherNotificationRules.raw}`
+  );
+  const fetchedNotificationRule = (teacherNotificationRules.body?.rules ?? []).find((item) => item.classId === examClass.id);
+  assert.ok(fetchedNotificationRule, "Teacher notification rules should include saved class rule");
+  assert.equal(fetchedNotificationRule?.dueDays, 3);
+  assert.equal(fetchedNotificationRule?.includeParents, false);
+
+  const teacherNotificationPreview = await apiFetch("/api/teacher/notifications/preview", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      enabled: true,
+      dueDays: 3,
+      overdueDays: 1,
+      includeParents: false
+    }
+  });
+  assert.equal(
+    teacherNotificationPreview.status,
+    200,
+    `POST /api/teacher/notifications/preview failed: ${teacherNotificationPreview.raw}`
+  );
+  assert.equal(teacherNotificationPreview.body?.data?.class?.id, examClass.id);
+  assert.equal(teacherNotificationPreview.body?.data?.rule?.includeParents, false);
+  assert.ok(
+    (teacherNotificationPreview.body?.data?.summary?.studentTargets ?? 0) >= 1,
+    "Teacher notification preview should target at least one student"
+  );
+  assert.equal(
+    teacherNotificationPreview.body?.data?.summary?.parentTargets,
+    0,
+    "Teacher notification preview should suppress parent targets when includeParents is false"
+  );
+  assert.ok(
+    (teacherNotificationPreview.body?.data?.sampleAssignments ?? []).some((item) => item.assignmentId === submissionAssignmentId),
+    "Teacher notification preview should include the created upload assignment"
+  );
+
+  const teacherNotificationRun = await apiFetch("/api/teacher/notifications/run", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      enabled: true,
+      dueDays: 3,
+      overdueDays: 1,
+      includeParents: false
+    }
+  });
+  assert.equal(
+    teacherNotificationRun.status,
+    200,
+    `POST /api/teacher/notifications/run failed: ${teacherNotificationRun.raw}`
+  );
+  assert.ok(
+    (teacherNotificationRun.body?.data?.students ?? 0) >= 1,
+    "Teacher notification run should send at least one student reminder"
+  );
+  assert.equal(
+    teacherNotificationRun.body?.data?.parents,
+    0,
+    "Teacher notification run should not send parent reminders when includeParents is false"
+  );
+
+  const teacherNotificationHistory = await apiFetch(`/api/teacher/notifications/history?classId=${examClass.id}&limit=5`);
+  assert.equal(
+    teacherNotificationHistory.status,
+    200,
+    `GET /api/teacher/notifications/history failed: ${teacherNotificationHistory.raw}`
+  );
+  assert.ok(Array.isArray(teacherNotificationHistory.body?.data), "Teacher notification history should include data array");
+  assert.ok(
+    (teacherNotificationHistory.body?.summary?.totalRuns ?? 0) >= 1,
+    "Teacher notification history should report at least one run"
+  );
+  const latestNotificationHistory = teacherNotificationHistory.body?.data?.[0];
+  assert.ok(latestNotificationHistory?.id, "Teacher notification history should include run id");
+  const latestHistoryClassResult = (latestNotificationHistory?.classResults ?? []).find((item) => item.classId === examClass.id);
+  assert.ok(latestHistoryClassResult, "Teacher notification history should include selected class result");
+  assert.equal(latestHistoryClassResult?.rule?.includeParents, false);
+  assert.ok(
+    (latestHistoryClassResult?.sampleAssignments ?? []).some((item) => item.assignmentId === submissionAssignmentId),
+    "Teacher notification history should include the created upload assignment sample"
+  );
+
+  const teacherSubmissions = await apiFetch(`/api/teacher/submissions?classId=${examClass.id}&status=pending`);
+  assert.equal(teacherSubmissions.status, 200, `GET /api/teacher/submissions failed: ${teacherSubmissions.raw}`);
+  assert.ok(Array.isArray(teacherSubmissions.body?.data), "Teacher submissions should include data array");
+  assert.ok(Array.isArray(teacherSubmissions.body?.classes), "Teacher submissions should include classes array");
+  const targetSubmission = (teacherSubmissions.body?.data ?? []).find(
+    (item) => item.assignmentId === submissionAssignmentId && item.studentId === targetStudent.id
+  );
+  assert.ok(targetSubmission, "Teacher submissions should include the created upload assignment row");
+  assert.equal(targetSubmission?.status, "pending", "Created upload assignment should be pending for target student");
+  assert.equal(
+    targetSubmission?.submissionType,
+    "upload",
+    "Teacher submissions should expose upload submissionType"
+  );
+
   const examSuffix = Date.now().toString(36);
   const createExam = await apiFetch("/api/teacher/exams", {
     method: "POST",
@@ -171,6 +336,124 @@ export async function runTeacherExamSuite(context) {
   });
   assert.equal(reloginStudent.status, 200, `Student relogin failed: ${reloginStudent.raw}`);
 
+  const studentNotifications = await apiFetch("/api/notifications");
+  assert.equal(studentNotifications.status, 200, `Student GET /api/notifications failed: ${studentNotifications.raw}`);
+  assert.ok(Array.isArray(studentNotifications.body?.data), "Student notifications should include data array");
+  const assignmentNotification = (studentNotifications.body?.data ?? []).find(
+    (item) => item.type === "assignment" && item.content?.includes(submissionAssignment.body?.data?.title ?? "")
+  );
+  assert.ok(assignmentNotification, "Student notifications should include the created assignment notification");
+  const reminderNotification = (studentNotifications.body?.data ?? []).find(
+    (item) => item.type === "assignment_due" && item.content?.includes(submissionAssignment.body?.data?.title ?? "")
+  );
+  assert.ok(reminderNotification, "Student notifications should include due reminder after manual notification run");
+
+  const studentInboxThreads = await apiFetch("/api/inbox/threads");
+  assert.equal(studentInboxThreads.status, 200, `Student GET /api/inbox/threads failed: ${studentInboxThreads.raw}`);
+  assert.ok(Array.isArray(studentInboxThreads.body?.data), "Student inbox threads should include data array");
+  const studentInboxThread = (studentInboxThreads.body?.data ?? []).find((item) => item.id === teacherInboxThreadId);
+  assert.ok(studentInboxThread, "Student inbox should include teacher-created thread");
+  assert.equal(studentInboxThread?.subject, teacherInboxThreadSubject);
+  assert.ok((studentInboxThread?.unreadCount ?? 0) >= 1, "Student should see unread count for teacher-created thread");
+
+  const studentInboxDetail = await apiFetch(`/api/inbox/threads/${teacherInboxThreadId}`);
+  assert.equal(studentInboxDetail.status, 200, `Student GET /api/inbox/threads/[id] failed: ${studentInboxDetail.raw}`);
+  assert.equal(studentInboxDetail.body?.data?.thread?.subject, teacherInboxThreadSubject);
+  assert.ok(Array.isArray(studentInboxDetail.body?.data?.messages), "Student inbox detail should include messages array");
+  assert.ok((studentInboxDetail.body?.data?.messages?.length ?? 0) >= 1, "Student inbox detail should include at least one message");
+
+  const studentInboxThreadsAfterRead = await apiFetch("/api/inbox/threads");
+  assert.equal(
+    studentInboxThreadsAfterRead.status,
+    200,
+    `Student GET /api/inbox/threads after read failed: ${studentInboxThreadsAfterRead.raw}`
+  );
+  const studentThreadAfterRead = (studentInboxThreadsAfterRead.body?.data ?? []).find((item) => item.id === teacherInboxThreadId);
+  assert.equal(studentThreadAfterRead?.unreadCount, 0, "Opening thread detail should clear student unread count");
+
+  const studentReplyContent = `API_TEST_REPLY_${Date.now().toString(36)}`;
+  const studentInboxReply = await apiFetch(`/api/inbox/threads/${teacherInboxThreadId}/messages`, {
+    method: "POST",
+    json: { content: studentReplyContent }
+  });
+  assert.equal(studentInboxReply.status, 200, `Student POST /api/inbox/threads/[id]/messages failed: ${studentInboxReply.raw}`);
+  assert.ok(studentInboxReply.body?.data?.id, "Student inbox reply should return message id");
+
+  const studentInboxDetailAfterReply = await apiFetch(`/api/inbox/threads/${teacherInboxThreadId}`);
+  assert.equal(
+    studentInboxDetailAfterReply.status,
+    200,
+    `Student GET /api/inbox/threads/[id] after reply failed: ${studentInboxDetailAfterReply.raw}`
+  );
+  assert.ok(
+    (studentInboxDetailAfterReply.body?.data?.messages ?? []).some((item) => item.content === studentReplyContent),
+    "Student inbox detail should include the new reply"
+  );
+
+  const tutorShareTargets = await apiFetch("/api/ai/share-targets");
+  assert.equal(tutorShareTargets.status, 200, `Student GET /api/ai/share-targets failed: ${tutorShareTargets.raw}`);
+  const teacherShareTarget =
+    (tutorShareTargets.body?.data ?? []).find((item) => item.kind === "teacher" && item.id === examClass.teacherId) ??
+    (tutorShareTargets.body?.data ?? []).find((item) => item.kind === "teacher");
+  assert.ok(teacherShareTarget, "Student tutor-share targets should include current teacher");
+
+  const tutorShareTeacherQuestion = "老师您好，我拍题后确认 5/8 + 1/8 等于多少？";
+  const tutorShareTeacherAnswer = "3/4";
+  const tutorShareToTeacher = await apiFetch("/api/ai/share-result", {
+    method: "POST",
+    json: {
+      targetId: teacherShareTarget.id,
+      question: tutorShareTeacherQuestion,
+      recognizedQuestion: "5/8 + 1/8 等于多少？",
+      answer: tutorShareTeacherAnswer,
+      origin: "image",
+      subject: "math",
+      grade: "4",
+      answerMode: "step_by_step",
+      provider: "mock",
+      steps: ["分母相同，分子相加。", "5 + 1 = 6，得到 6/8。", "6/8 约分后等于 3/4。"],
+      hints: ["先判断能否约分。"],
+      quality: {
+        confidenceScore: 92,
+        riskLevel: "low",
+        needsHumanReview: false,
+        fallbackAction: "请老师继续帮忙确认讲解是否适合课堂进度。",
+        reasons: ["同分母分数加法样例稳定"]
+      }
+    }
+  });
+  assert.equal(tutorShareToTeacher.status, 200, `POST /api/ai/share-result teacher failed: ${tutorShareToTeacher.raw}`);
+  const tutorShareTeacherThreadId = tutorShareToTeacher.body?.data?.threadId;
+  assert.ok(tutorShareTeacherThreadId, "Tutor share to teacher should return threadId");
+
+  const tutorShareToTeacherAgain = await apiFetch("/api/ai/share-result", {
+    method: "POST",
+    json: {
+      targetId: teacherShareTarget.id,
+      question: tutorShareTeacherQuestion,
+      recognizedQuestion: "5/8 + 1/8 等于多少？",
+      answer: tutorShareTeacherAnswer,
+      origin: "refine",
+      subject: "math",
+      grade: "4",
+      answerMode: "step_by_step",
+      provider: "mock",
+      steps: ["先相加，再约分复核。"],
+      hints: ["关注分子是否还能约。"]
+    }
+  });
+  assert.equal(
+    tutorShareToTeacherAgain.status,
+    200,
+    `POST /api/ai/share-result teacher second send failed: ${tutorShareToTeacherAgain.raw}`
+  );
+  assert.equal(tutorShareToTeacherAgain.body?.data?.reused, true, "Second tutor share to teacher should reuse thread");
+  assert.equal(
+    tutorShareToTeacherAgain.body?.data?.threadId,
+    tutorShareTeacherThreadId,
+    "Second tutor share to teacher should reuse the same threadId"
+  );
+
   const studentExams = await apiFetch("/api/student/exams");
   assert.equal(studentExams.status, 200, `GET /api/student/exams failed: ${studentExams.raw}`);
   assert.ok(Array.isArray(studentExams.body?.data), "Student exams should include data array");
@@ -213,6 +496,28 @@ export async function runTeacherExamSuite(context) {
     });
     assert.equal(fallbackTeacherLogin.status, 200, `Teacher relogin failed: ${fallbackTeacherLogin.raw}`);
   }
+
+  const teacherTutorShareThreads = await apiFetch("/api/inbox/threads");
+  assert.equal(teacherTutorShareThreads.status, 200, `Teacher GET /api/inbox/threads for tutor-share failed: ${teacherTutorShareThreads.raw}`);
+  const teacherTutorShareThread = (teacherTutorShareThreads.body?.data ?? []).find((item) => item.id === tutorShareTeacherThreadId);
+  assert.ok(teacherTutorShareThread, "Teacher inbox should include tutor-share thread from student");
+  assert.ok((teacherTutorShareThread?.unreadCount ?? 0) >= 1, "Teacher should see tutor-share thread as unread before opening");
+
+  const teacherTutorShareDetail = await apiFetch(`/api/inbox/threads/${tutorShareTeacherThreadId}`);
+  assert.equal(
+    teacherTutorShareDetail.status,
+    200,
+    `Teacher GET /api/inbox/threads/[id] for tutor-share failed: ${teacherTutorShareDetail.raw}`
+  );
+  assert.ok(
+    (teacherTutorShareDetail.body?.data?.messages ?? []).some(
+      (item) =>
+        item.content?.includes("AI 解题结果分享") &&
+        item.content?.includes("5/8 + 1/8") &&
+        item.content?.includes(tutorShareTeacherAnswer)
+    ),
+    "Teacher tutor-share thread should include the shared tutor result"
+  );
 
   const closeExam = await apiFetch(`/api/teacher/exams/${createdExamId}`, {
     method: "PATCH",

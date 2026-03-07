@@ -3,6 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
+import type {
+  ReadingSubject,
+  ReadingWindow,
+  SpeechRecognitionConstructor,
+  SpeechRecognitionEventLike,
+  SpeechRecognitionLike
+} from "./types";
 
 function normalizeText(text: string) {
   return text
@@ -38,18 +45,21 @@ function calcScore(target: string, spoken: string) {
   return Math.max(0, Math.round((1 - distance / maxLen) * 100));
 }
 
+function getSpeechRecognitionConstructor(currentWindow: ReadingWindow): SpeechRecognitionConstructor | null {
+  return currentWindow.SpeechRecognition ?? currentWindow.webkitSpeechRecognition ?? null;
+}
+
 export default function ReadingPage() {
-  const [subject, setSubject] = useState("chinese");
+  const [subject, setSubject] = useState<ReadingSubject>("chinese");
   const [targetText, setTargetText] = useState("春眠不觉晓，处处闻啼鸟。");
   const [transcript, setTranscript] = useState("");
   const [score, setScore] = useState<number | null>(null);
   const [supported, setSupported] = useState(true);
   const [listening, setListening] = useState(false);
-  const recognitionRef = useRef<any>(null);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   useEffect(() => {
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+    const SpeechRecognition = getSpeechRecognitionConstructor(window as ReadingWindow);
     if (!SpeechRecognition) {
       setSupported(false);
       return;
@@ -57,8 +67,8 @@ export default function ReadingPage() {
     const recognition = new SpeechRecognition();
     recognition.interimResults = false;
     recognition.maxAlternatives = 1;
-    recognition.onresult = (event: any) => {
-      const text = event?.results?.[0]?.[0]?.transcript ?? "";
+    recognition.onresult = (event: SpeechRecognitionEventLike) => {
+      const text = event.results?.[0]?.[0]?.transcript ?? "";
       setTranscript(text);
       setScore(calcScore(targetText, text));
     };
@@ -114,7 +124,7 @@ export default function ReadingPage() {
             <div className="section-title">科目</div>
             <select
               value={subject}
-              onChange={(event) => setSubject(event.target.value)}
+              onChange={(event) => setSubject(event.target.value as ReadingSubject)}
               style={{ width: "100%", padding: 10, borderRadius: 10, border: "1px solid var(--stroke)" }}
             >
               <option value="chinese">语文</option>

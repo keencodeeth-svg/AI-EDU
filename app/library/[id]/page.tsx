@@ -1,45 +1,26 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import Card from "@/components/Card";
 import LibraryReader from "@/components/LibraryReader";
 import { SUBJECT_LABELS } from "@/lib/constants";
-
-type LibraryItem = {
-  id: string;
-  title: string;
-  description?: string;
-  contentType: "textbook" | "courseware" | "lesson_plan";
-  subject: string;
-  grade: string;
-  sourceType: "file" | "link" | "text";
-  fileName?: string;
-  mimeType?: string;
-  contentBase64?: string;
-  linkUrl?: string;
-  textContent?: string;
-  knowledgePointIds: string[];
-  extractedKnowledgePoints: string[];
-  accessScope: "global" | "class";
-  createdAt: string;
-};
-
-type Annotation = {
-  id: string;
-  userId: string;
-  quote: string;
-  startOffset?: number;
-  endOffset?: number;
-  color?: string;
-  note?: string;
-  createdAt: string;
-};
+import type {
+  LibraryAnnotation,
+  LibraryAnnotationListResponse,
+  LibraryAuthResponse,
+  LibraryDetailAuthUser,
+  LibraryDetailItem,
+  LibraryDetailResponse,
+  LibraryKnowledgePoint,
+  LibraryKnowledgePointListResponse,
+  LibraryShareResponse
+} from "../types";
 
 export default function LibraryDetailPage({ params }: { params: { id: string } }) {
-  const [item, setItem] = useState<LibraryItem | null>(null);
-  const [annotations, setAnnotations] = useState<Annotation[]>([]);
-  const [user, setUser] = useState<any>(null);
-  const [knowledgePoints, setKnowledgePoints] = useState<any[]>([]);
+  const [item, setItem] = useState<LibraryDetailItem | null>(null);
+  const [annotations, setAnnotations] = useState<LibraryAnnotation[]>([]);
+  const [user, setUser] = useState<LibraryDetailAuthUser>(null);
+  const [knowledgePoints, setKnowledgePoints] = useState<LibraryKnowledgePoint[]>([]);
   const [selectedKpIds, setSelectedKpIds] = useState<string[]>([]);
   const [quote, setQuote] = useState("");
   const [note, setNote] = useState("");
@@ -55,10 +36,10 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
       fetch("/api/auth/me"),
       fetch("/api/knowledge-points")
     ]);
-    const itemPayload = await itemRes.json();
-    const annoPayload = await annoRes.json();
-    const mePayload = await meRes.json();
-    const kpPayload = await kpRes.json();
+    const itemPayload = (await itemRes.json()) as LibraryDetailResponse;
+    const annoPayload = (await annoRes.json()) as LibraryAnnotationListResponse;
+    const mePayload = (await meRes.json()) as LibraryAuthResponse;
+    const kpPayload = (await kpRes.json()) as LibraryKnowledgePointListResponse;
 
     if (!itemRes.ok) {
       setError(itemPayload?.error ?? "加载失败");
@@ -68,9 +49,9 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
     const nextItem = itemPayload?.data ?? null;
     setItem(nextItem);
     setSelectedKpIds(nextItem?.knowledgePointIds ?? []);
-    setAnnotations(annoPayload?.data ?? []);
-    setUser(mePayload?.data ?? null);
-    setKnowledgePoints(kpPayload?.data ?? []);
+    setAnnotations(annoPayload.data ?? []);
+    setUser(mePayload.user ?? mePayload.data ?? null);
+    setKnowledgePoints(kpPayload.data ?? []);
   }, [params.id]);
 
   useEffect(() => {
@@ -90,7 +71,7 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
     setMessage(offset >= 0 ? `已捕获选中片段（${offset}-${offset + selected.length}）` : "已捕获选中片段");
   }
 
-  async function submitAnnotation(event: React.FormEvent) {
+  async function submitAnnotation(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage(null);
     setError(null);
@@ -110,7 +91,7 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
         note: note.trim() || undefined
       })
     });
-    const data = await res.json();
+    const data = (await res.json()) as LibraryAnnotationListResponse;
     if (!res.ok) {
       setError(data?.error ?? "保存标注失败");
       return;
@@ -125,7 +106,7 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
     setMessage(null);
     setError(null);
     const res = await fetch(`/api/library/${params.id}/share`, { method: "POST" });
-    const data = await res.json();
+    const data = (await res.json()) as LibraryShareResponse;
     if (!res.ok) {
       setError(data?.error ?? "生成分享链接失败");
       return;
@@ -144,7 +125,7 @@ export default function LibraryDetailPage({ params }: { params: { id: string } }
         knowledgePointIds: selectedKpIds
       })
     });
-    const data = await res.json();
+    const data = (await res.json()) as LibraryDetailResponse;
     if (!res.ok) {
       setError(data?.error ?? "更新知识点失败");
       return;

@@ -341,7 +341,7 @@ export const POST = createAdminRoute({
 
       if (!knowledgePointId && autoCreateKnowledgePoint) {
         const kp = await createKnowledgePoint({
-          subject: subject as any,
+          subject,
           grade,
           title: knowledgePointTitle,
           chapter,
@@ -379,7 +379,7 @@ export const POST = createAdminRoute({
 
     const difficulty = normalizeDifficulty(item.difficulty);
     const next = await createQuestion({
-      subject: subject as any,
+      subject,
       grade,
       knowledgePointId,
       stem,

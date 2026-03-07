@@ -8,14 +8,40 @@ export type AiQualityMeta = {
   policyViolated?: boolean;
 };
 
+export type AssistAnswerMode = "answer_only" | "step_by_step" | "hints_first";
+
 export type AssistPayload = {
   question: string;
   subject?: string;
   grade?: string;
   memoryContext?: string;
+  answerMode?: AssistAnswerMode;
+};
+
+export type ImageAssistImage = {
+  mimeType: string;
+  base64: string;
+};
+
+export type ImageAssistPayload = {
+  question?: string;
+  subject?: string;
+  grade?: string;
+  answerMode?: AssistAnswerMode;
+  images: ImageAssistImage[];
 };
 
 export type AssistResponse = {
+  answer: string;
+  steps: string[];
+  hints: string[];
+  sources: string[];
+  provider: string;
+  quality?: AiQualityMeta;
+};
+
+export type ImageAssistResponse = {
+  recognizedQuestion?: string;
   answer: string;
   steps: string[];
   hints: string[];

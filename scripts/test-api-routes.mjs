@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { createRuntime } from "./api-test/runtime.mjs";
 import { runAdminContentSuite } from "./api-test/suites/admin-content.mjs";
 import { runCoreAuthSuite } from "./api-test/suites/core-auth.mjs";
@@ -6,8 +9,34 @@ import { runTeacherExamSuite } from "./api-test/suites/teacher-exam.mjs";
 
 const port = Number(process.env.API_TEST_PORT || 3210);
 const runtime = createRuntime(port);
+const SNAPSHOT_DIRS = ["data", ".runtime-data"];
+
+function createMutableStateSnapshot() {
+  const snapshotRoot = fs.mkdtempSync(path.join(os.tmpdir(), "hk-ai-edu-api-test-"));
+
+  for (const directory of SNAPSHOT_DIRS) {
+    const sourcePath = path.join(process.cwd(), directory);
+    const targetPath = path.join(snapshotRoot, directory);
+    if (fs.existsSync(sourcePath)) {
+      fs.cpSync(sourcePath, targetPath, { recursive: true });
+    }
+  }
+
+  return () => {
+    for (const directory of SNAPSHOT_DIRS) {
+      const sourcePath = path.join(snapshotRoot, directory);
+      const targetPath = path.join(process.cwd(), directory);
+      fs.rmSync(targetPath, { recursive: true, force: true });
+      if (fs.existsSync(sourcePath)) {
+        fs.cpSync(sourcePath, targetPath, { recursive: true });
+      }
+    }
+    fs.rmSync(snapshotRoot, { recursive: true, force: true });
+  };
+}
 
 async function run() {
+  const restoreMutableState = createMutableStateSnapshot();
   const { server, getServerLog } = runtime.startServer();
   const scope = (process.env.API_TEST_SCOPE ?? "full").toLowerCase();
 
@@ -74,6 +103,7 @@ async function run() {
     }
 
     await runtime.stopServer(server);
+    restoreMutableState();
   }
 }
 

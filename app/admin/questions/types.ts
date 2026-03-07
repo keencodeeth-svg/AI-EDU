@@ -123,6 +123,51 @@ export type QuestionFacets = {
   questionTypes: FacetItem[];
 };
 
+
+export type QuestionImportItemPayload = {
+  subject: string;
+  grade: string;
+  knowledgePointId: string;
+  stem: string;
+  options: string[];
+  answer: string;
+  explanation?: string;
+  difficulty?: string;
+  questionType?: string;
+  tags: string[];
+  abilities: string[];
+};
+
+export type QuestionProcessFailedItem = {
+  index: number;
+  reason: string;
+};
+
+export type QuestionQualityResultItem = {
+  id: string;
+  qualityScore: number | null;
+  duplicateRisk: Question["duplicateRisk"];
+  ambiguityRisk: Question["ambiguityRisk"];
+  answerConsistency: Question["answerConsistency"];
+  duplicateClusterId: Question["duplicateClusterId"];
+  answerConflict: boolean;
+  riskLevel: Question["riskLevel"];
+  isolated: boolean;
+};
+
+export type QuestionImportResponse = {
+  created?: number;
+  failed?: QuestionProcessFailedItem[];
+  items?: QuestionQualityResultItem[];
+  error?: string;
+};
+
+export type QuestionGenerateResponse = {
+  created?: QuestionQualityResultItem[];
+  failed?: QuestionProcessFailedItem[];
+  error?: string;
+};
+
 export const difficultyLabel: Record<string, string> = {
   easy: "简单",
   medium: "适中",
