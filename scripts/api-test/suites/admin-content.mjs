@@ -19,6 +19,13 @@ export async function runAdminContentSuite(context) {
   assert.ok(Array.isArray(schoolSchedulesBefore.body?.data?.classes), "School schedules should include classes array");
   const scheduleClasses = (schoolSchedulesBefore.body?.data?.classes ?? []).slice(0, 3);
   assert.ok(scheduleClasses.length >= 3, "School schedules should expose at least 3 classes for scheduling regression");
+  assert.ok(scheduleClasses[0]?.teacherId, "The primary regression class should be teacher-bound");
+  const teacherRuleClasses = (schoolSchedulesBefore.body?.data?.classes ?? []).filter(
+    (item) => item.teacherId && item.id !== scheduleClasses[0].id && item.teacherId !== scheduleClasses[0].teacherId
+  );
+  assert.ok(teacherRuleClasses.length >= 2, "School schedules should expose at least 2 additional teacher-bound classes for teacher rule regression");
+  const consecutiveRuleClass = teacherRuleClasses[0];
+  const campusRuleClass = teacherRuleClasses.find((item) => item.teacherId !== consecutiveRuleClass.teacherId) ?? teacherRuleClasses[1];
   const initialTargetClassCount = (schoolSchedulesBefore.body?.data?.sessions ?? []).filter((session) => session.classId === scheduleClasses[0].id).length;
 
   const templateSave = await apiFetch("/api/school/schedules/templates", {
@@ -191,6 +198,167 @@ export async function runAdminContentSuite(context) {
   });
   assert.equal(roomConflictCreate.status, 409, "Creating a schedule in the same room and time should be rejected");
   assert.equal(roomConflictCreate.body?.error, "教室时间冲突");
+
+  const schedulesBeforeTeacherRules = await apiFetch("/api/school/schedules?schoolId=school-default");
+  assert.equal(schedulesBeforeTeacherRules.status, 200, `GET /api/school/schedules before teacher rules failed: ${schedulesBeforeTeacherRules.raw}`);
+  const weeklyTeacherCurrentCount = (schedulesBeforeTeacherRules.body?.data?.sessions ?? []).filter(
+    (session) => session.teacherId === scheduleClasses[0].teacherId
+  ).length;
+  const weeklyClassCurrentCount = (schedulesBeforeTeacherRules.body?.data?.sessions ?? []).filter(
+    (session) => session.classId === scheduleClasses[0].id
+  ).length;
+  assert.ok(weeklyTeacherCurrentCount >= 1, "Weekly rule regression teacher should already have scheduled lessons");
+
+  const weeklyRuleSave = await apiFetch("/api/school/schedules/teacher-rules", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      teacherId: scheduleClasses[0].teacherId,
+      weeklyMaxLessons: weeklyTeacherCurrentCount
+    }
+  });
+  assert.equal(weeklyRuleSave.status, 200, `POST /api/school/schedules/teacher-rules failed: ${weeklyRuleSave.raw}`);
+  assert.equal(weeklyRuleSave.body?.data?.weeklyMaxLessons, weeklyTeacherCurrentCount, "Teacher rule save should persist weeklyMaxLessons");
+
+  const teacherRuleList = await apiFetch("/api/school/schedules/teacher-rules?schoolId=school-default");
+  assert.equal(teacherRuleList.status, 200, `GET /api/school/schedules/teacher-rules failed: ${teacherRuleList.raw}`);
+  const savedWeeklyRule = (teacherRuleList.body?.data ?? []).find((item) => item.id === weeklyRuleSave.body?.data?.id);
+  assert.ok(savedWeeklyRule, "Saved teacher rule should be queryable");
+
+  const weeklyLimitCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: scheduleClasses[0].id,
+      weekday: 6,
+      startTime: "18:00",
+      endTime: "18:40",
+      room: "周上限教室",
+      campus: "主校区",
+      slotLabel: "周上限测试"
+    }
+  });
+  assert.equal(weeklyLimitCreate.status, 409, "Teacher weekly lesson cap should reject extra manual lessons");
+  assert.equal(weeklyLimitCreate.body?.error, `教师周课时上限冲突：最多 ${weeklyTeacherCurrentCount} 节/周`);
+
+  const templateRaiseForWeeklyRule = await apiFetch("/api/school/schedules/templates", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      grade: scheduleClasses[0].grade,
+      subject: scheduleClasses[0].subject,
+      weeklyLessonsPerClass: weeklyClassCurrentCount + 1,
+      lessonDurationMinutes: 40,
+      periodsPerDay: 2,
+      weekdays: [1, 2],
+      dayStartTime: "08:00",
+      shortBreakMinutes: 10,
+      lunchBreakAfterPeriod: 1,
+      lunchBreakMinutes: 0,
+      campus: "模板校区"
+    }
+  });
+  assert.equal(templateRaiseForWeeklyRule.status, 200, `POST /api/school/schedules/templates for weekly rule failed: ${templateRaiseForWeeklyRule.raw}`);
+
+  const weeklyRuleAiPreview = await apiFetch("/api/school/schedules/ai-preview", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      classIds: [scheduleClasses[0].id],
+      weeklyLessonsPerClass: weeklyClassCurrentCount + 1,
+      lessonDurationMinutes: 40,
+      periodsPerDay: 2,
+      weekdays: [1, 2],
+      dayStartTime: "08:00",
+      shortBreakMinutes: 10,
+      lunchBreakAfterPeriod: 1,
+      lunchBreakMinutes: 0,
+      mode: "fill_missing",
+      campus: "模板校区"
+    }
+  });
+  assert.equal(weeklyRuleAiPreview.status, 200, `POST /api/school/schedules/ai-preview for teacher weekly rule failed: ${weeklyRuleAiPreview.raw}`);
+  assert.equal(weeklyRuleAiPreview.body?.data?.summary?.createdSessions, 0, "Teacher weekly lesson cap should block AI from adding extra lessons");
+  assert.equal(weeklyRuleAiPreview.body?.data?.impactedClasses?.[0]?.status, "skipped", "Blocked AI target class should be marked as skipped");
+
+  const consecutiveFirstCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: consecutiveRuleClass.id,
+      weekday: 6,
+      startTime: "21:00",
+      endTime: "21:40",
+      room: "连堂测试教室1",
+      campus: "主校区",
+      slotLabel: "连堂测试一"
+    }
+  });
+  assert.equal(consecutiveFirstCreate.status, 200, `POST /api/school/schedules for consecutive seed failed: ${consecutiveFirstCreate.raw}`);
+
+  const consecutiveRuleSave = await apiFetch("/api/school/schedules/teacher-rules", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      teacherId: consecutiveRuleClass.teacherId,
+      maxConsecutiveLessons: 1
+    }
+  });
+  assert.equal(consecutiveRuleSave.status, 200, `POST /api/school/schedules/teacher-rules for consecutive rule failed: ${consecutiveRuleSave.raw}`);
+  assert.equal(consecutiveRuleSave.body?.data?.maxConsecutiveLessons, 1, "Teacher rule save should persist maxConsecutiveLessons");
+
+  const consecutiveBlockedCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: consecutiveRuleClass.id,
+      weekday: 6,
+      startTime: "21:45",
+      endTime: "22:25",
+      room: "连堂测试教室2",
+      campus: "主校区",
+      slotLabel: "连堂测试二"
+    }
+  });
+  assert.equal(consecutiveBlockedCreate.status, 409, "Teacher consecutive lesson cap should reject adjacent lessons");
+  assert.equal(consecutiveBlockedCreate.body?.error, "教师连堂上限冲突：最多连续 1 节");
+
+  const campusFirstCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: campusRuleClass.id,
+      weekday: 7,
+      startTime: "21:00",
+      endTime: "21:40",
+      room: "跨校区测试教室1",
+      campus: "南校区",
+      slotLabel: "跨校区测试一"
+    }
+  });
+  assert.equal(campusFirstCreate.status, 200, `POST /api/school/schedules for campus seed failed: ${campusFirstCreate.raw}`);
+
+  const campusRuleSave = await apiFetch("/api/school/schedules/teacher-rules", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      teacherId: campusRuleClass.teacherId,
+      minCampusGapMinutes: 20
+    }
+  });
+  assert.equal(campusRuleSave.status, 200, `POST /api/school/schedules/teacher-rules for campus gap failed: ${campusRuleSave.raw}`);
+  assert.equal(campusRuleSave.body?.data?.minCampusGapMinutes, 20, "Teacher rule save should persist minCampusGapMinutes");
+
+  const campusBlockedCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: campusRuleClass.id,
+      weekday: 7,
+      startTime: "21:50",
+      endTime: "22:30",
+      room: "跨校区测试教室2",
+      campus: "北校区",
+      slotLabel: "跨校区测试二"
+    }
+  });
+  assert.equal(campusBlockedCreate.status, 409, "Teacher cross-campus gap should reject too-tight travel windows");
+  assert.equal(campusBlockedCreate.body?.error, "教师跨校区时间冲突：需至少间隔 20 分钟");
 
   const adminLogs = await apiFetch("/api/admin/logs?limit=5");
   assert.equal(adminLogs.status, 200, `GET /api/admin/logs failed: ${adminLogs.raw}`);

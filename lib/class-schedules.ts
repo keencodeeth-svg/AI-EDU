@@ -5,6 +5,7 @@ import { getClassById } from "./classes";
 import { badRequest, conflict, notFound } from "./api/http";
 import { DEFAULT_SCHOOL_ID } from "./schools";
 import { listTeacherUnavailableSlots } from "./teacher-unavailability";
+import { findTeacherScheduleRuleViolation, getTeacherScheduleRule, type TeacherRuleSession } from "./teacher-schedule-rules";
 
 export type Weekday = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 export type LessonStatus = "finished" | "upcoming" | "in_progress";
@@ -221,7 +222,12 @@ function createTeacherResolver() {
 async function assertScheduleConstraints(
   items: ClassScheduleSession[],
   candidate: ClassScheduleSession,
-  options?: { ignoreId?: string; teacherId?: string | null; ignoreTeacherUnavailable?: boolean }
+  options?: {
+    ignoreId?: string;
+    teacherId?: string | null;
+    ignoreTeacherUnavailable?: boolean;
+    ignoreTeacherRules?: boolean;
+  }
 ) {
   assertClassScheduleOverlap(items, candidate, options?.ignoreId);
 
@@ -247,13 +253,35 @@ async function assertScheduleConstraints(
   }
 
   const resolveTeacherId = createTeacherResolver();
+  const teacherSessions: TeacherRuleSession[] = [];
   for (const item of items) {
     if (item.id === options.ignoreId) continue;
-    if (item.weekday !== candidate.weekday) continue;
-    if (!overlapsTimeRange(item, candidate)) continue;
     const itemTeacherId = await resolveTeacherId(item.classId);
-    if (itemTeacherId && itemTeacherId === options.teacherId) {
+    if (!itemTeacherId || itemTeacherId !== options.teacherId) continue;
+    if (item.schoolId === candidate.schoolId) {
+      teacherSessions.push({
+        id: item.id,
+        weekday: item.weekday,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        campus: item.campus
+      });
+    }
+    if (item.weekday === candidate.weekday && overlapsTimeRange(item, candidate)) {
       conflict("教师时间冲突");
+    }
+  }
+
+  if (!options?.ignoreTeacherRules) {
+    const teacherRule = await getTeacherScheduleRule({ schoolId: candidate.schoolId, teacherId: options.teacherId });
+    const teacherRuleViolation = findTeacherScheduleRuleViolation(teacherRule, teacherSessions, {
+      weekday: candidate.weekday,
+      startTime: candidate.startTime,
+      endTime: candidate.endTime,
+      campus: candidate.campus
+    });
+    if (teacherRuleViolation) {
+      conflict(teacherRuleViolation);
     }
   }
 
@@ -538,6 +566,7 @@ export async function replaceClassScheduleSessions(input: {
   sessions: ClassScheduleSession[];
   schoolId?: string | null;
   ignoreTeacherUnavailable?: boolean;
+  ignoreTeacherRules?: boolean;
 }) {
   const classIdSet = new Set(input.classIds.filter(Boolean));
   const nextList = readStore().filter((item) => {
@@ -569,7 +598,8 @@ export async function replaceClassScheduleSessions(input: {
 
     await assertScheduleConstraints([...nextList, ...restored], next, {
       teacherId: klass.teacherId ?? null,
-      ignoreTeacherUnavailable: input.ignoreTeacherUnavailable
+      ignoreTeacherUnavailable: input.ignoreTeacherUnavailable,
+      ignoreTeacherRules: input.ignoreTeacherRules
     });
     restored.push(next);
   }

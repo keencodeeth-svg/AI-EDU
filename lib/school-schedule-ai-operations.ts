@@ -287,7 +287,8 @@ export async function rollbackSchoolAiScheduleOperation(input: {
     schoolId: record.schoolId,
     classIds: record.targetClassIds,
     sessions: record.baseSessions,
-    ignoreTeacherUnavailable: true
+    ignoreTeacherUnavailable: true,
+    ignoreTeacherRules: true
   });
 
   const now = new Date().toISOString();

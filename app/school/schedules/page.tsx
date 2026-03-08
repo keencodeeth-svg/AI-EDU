@@ -9,6 +9,7 @@ import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } fr
 import type { ClassScheduleSession } from "@/lib/class-schedules";
 import type { SchoolClassRecord, SchoolUserRecord } from "@/lib/school-admin-types";
 import type { SchoolScheduleTemplate } from "@/lib/school-schedule-templates";
+import type { TeacherScheduleRule } from "@/lib/teacher-schedule-rules";
 import type { TeacherUnavailableSlot } from "@/lib/teacher-unavailability";
 
 const WEEKDAY_OPTIONS = [
@@ -107,6 +108,8 @@ type AiOperationSummary = {
 };
 
 type ScheduleTemplateResponse = { data?: SchoolScheduleTemplate[] };
+type TeacherRuleListResponse = { data?: TeacherScheduleRule[] };
+type TeacherRuleMutationResponse = { data?: TeacherScheduleRule | null };
 type TeacherUnavailableResponse = { data?: TeacherUnavailableSlot[] };
 type SchoolUsersResponse = { data?: SchoolUserRecord[] };
 type LatestAiOperationResponse = { data?: AiOperationSummary | null };
@@ -125,6 +128,14 @@ type TemplateFormState = {
   lunchBreakMinutes: string;
   campus: string;
   weekdays: string[];
+};
+
+type TeacherRuleFormState = {
+  id?: string;
+  teacherId: string;
+  weeklyMaxLessons: string;
+  maxConsecutiveLessons: string;
+  minCampusGapMinutes: string;
 };
 
 type TeacherUnavailableFormState = {
@@ -199,6 +210,13 @@ const DEFAULT_TEMPLATE_FORM: TemplateFormState = {
   weekdays: ["1", "2", "3", "4", "5"]
 };
 
+const DEFAULT_TEACHER_RULE_FORM: TeacherRuleFormState = {
+  teacherId: "",
+  weeklyMaxLessons: "",
+  maxConsecutiveLessons: "",
+  minCampusGapMinutes: ""
+};
+
 const DEFAULT_TEACHER_UNAVAILABLE_FORM: TeacherUnavailableFormState = {
   teacherId: "",
   weekday: "1",
@@ -209,6 +227,19 @@ const DEFAULT_TEACHER_UNAVAILABLE_FORM: TeacherUnavailableFormState = {
 
 function formatSubjectLine(item: Pick<ScheduleViewItem, "subject" | "grade" | "teacherName" | "teacherId">) {
   return `${item.subject} · ${item.grade} 年级 · ${item.teacherName ?? item.teacherId ?? "未绑定教师"}`;
+}
+
+function toOptionalNumber(value: string) {
+  const next = value.trim();
+  return next ? Number(next) : undefined;
+}
+
+function formatTeacherRuleSummary(rule: TeacherScheduleRule) {
+  const parts: string[] = [];
+  if (rule.weeklyMaxLessons) parts.push(`周上限 ${rule.weeklyMaxLessons} 节`);
+  if (rule.maxConsecutiveLessons) parts.push(`最多连堂 ${rule.maxConsecutiveLessons} 节`);
+  if (rule.minCampusGapMinutes) parts.push(`跨校区缓冲 ${rule.minCampusGapMinutes} 分钟`);
+  return parts.join(" · ");
 }
 
 function applyTemplateToAiForm(template: SchoolScheduleTemplate): AiScheduleFormState {
@@ -253,6 +284,7 @@ export default function SchoolSchedulesPage() {
   const [latestAiOperation, setLatestAiOperation] = useState<AiOperationSummary | null>(null);
   const [lockingId, setLockingId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<SchoolScheduleTemplate[]>([]);
+  const [teacherRules, setTeacherRules] = useState<TeacherScheduleRule[]>([]);
   const [teacherUnavailableSlots, setTeacherUnavailableSlots] = useState<TeacherUnavailableSlot[]>([]);
   const [teachers, setTeachers] = useState<SchoolUserRecord[]>([]);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(DEFAULT_TEMPLATE_FORM);
@@ -260,6 +292,11 @@ export default function SchoolSchedulesPage() {
   const [templateDeletingId, setTemplateDeletingId] = useState<string | null>(null);
   const [templateMessage, setTemplateMessage] = useState<string | null>(null);
   const [templateError, setTemplateError] = useState<string | null>(null);
+  const [teacherRuleForm, setTeacherRuleForm] = useState<TeacherRuleFormState>(DEFAULT_TEACHER_RULE_FORM);
+  const [teacherRuleSaving, setTeacherRuleSaving] = useState(false);
+  const [teacherRuleDeletingId, setTeacherRuleDeletingId] = useState<string | null>(null);
+  const [teacherRuleMessage, setTeacherRuleMessage] = useState<string | null>(null);
+  const [teacherRuleError, setTeacherRuleError] = useState<string | null>(null);
   const [teacherUnavailableForm, setTeacherUnavailableForm] = useState<TeacherUnavailableFormState>(DEFAULT_TEACHER_UNAVAILABLE_FORM);
   const [teacherUnavailableSaving, setTeacherUnavailableSaving] = useState(false);
   const [teacherUnavailableDeletingId, setTeacherUnavailableDeletingId] = useState<string | null>(null);
@@ -275,9 +312,10 @@ export default function SchoolSchedulesPage() {
     setPageError(null);
 
     try {
-      const [payload, templatesPayload, teacherUnavailablePayload, teachersPayload, latestAiOperationPayload] = await Promise.all([
+      const [payload, templatesPayload, teacherRulesPayload, teacherUnavailablePayload, teachersPayload, latestAiOperationPayload] = await Promise.all([
         requestJson<SchoolSchedulesResponse>("/api/school/schedules"),
         requestJson<ScheduleTemplateResponse>("/api/school/schedules/templates"),
+        requestJson<TeacherRuleListResponse>("/api/school/schedules/teacher-rules"),
         requestJson<TeacherUnavailableResponse>("/api/school/schedules/teacher-unavailability"),
         requestJson<SchoolUsersResponse>("/api/school/users?role=teacher"),
         requestJson<LatestAiOperationResponse>("/api/school/schedules/ai-operations/latest")
@@ -286,6 +324,7 @@ export default function SchoolSchedulesPage() {
       setSessions(payload.data?.sessions ?? []);
       setSummary(payload.data?.summary ?? null);
       setTemplates(templatesPayload.data ?? []);
+      setTeacherRules(teacherRulesPayload.data ?? []);
       setTeacherUnavailableSlots(teacherUnavailablePayload.data ?? []);
       setTeachers(teachersPayload.data ?? []);
       setLatestAiOperation(latestAiOperationPayload.data ?? null);
@@ -295,6 +334,7 @@ export default function SchoolSchedulesPage() {
         const firstClass = payload.data.classes[0];
         setForm((prev) => (prev.classId ? prev : { ...prev, classId: firstClass.id }));
         setTemplateForm((prev) => prev.grade && prev.subject ? prev : { ...DEFAULT_TEMPLATE_FORM, grade: firstClass.grade, subject: firstClass.subject });
+        setTeacherRuleForm((prev) => prev.teacherId ? prev : { ...DEFAULT_TEACHER_RULE_FORM, teacherId: firstClass.teacherId ?? "" });
         setTeacherUnavailableForm((prev) => prev.teacherId ? prev : { ...DEFAULT_TEACHER_UNAVAILABLE_FORM, teacherId: firstClass.teacherId ?? "" });
       }
     } catch (error) {
@@ -304,6 +344,7 @@ export default function SchoolSchedulesPage() {
         setSessions([]);
         setSummary(null);
         setTemplates([]);
+        setTeacherRules([]);
         setTeacherUnavailableSlots([]);
         setTeachers([]);
         setLatestAiOperation(null);
@@ -343,6 +384,10 @@ export default function SchoolSchedulesPage() {
     });
     return Array.from(map.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
   }, [classes, teachers]);
+
+  const teacherRuleByTeacherId = useMemo(() => new Map(teacherRules.map((item) => [item.teacherId, item])), [teacherRules]);
+  const teacherRuleCoverageCount = useMemo(() => classes.filter((item) => item.teacherId && teacherRuleByTeacherId.has(item.teacherId)).length, [classes, teacherRuleByTeacherId]);
+  const crossCampusRuleCount = useMemo(() => teacherRules.filter((item) => item.minCampusGapMinutes).length, [teacherRules]);
 
   const gradeOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.grade))).sort((left, right) => Number(left) - Number(right)), [classes]);
   const subjectOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.subject))).sort((left, right) => left.localeCompare(right, "zh-CN")), [classes]);
@@ -690,6 +735,24 @@ export default function SchoolSchedulesPage() {
     setTemplateMessage(null);
   }, [gradeOptions, subjectOptions]);
 
+  const resetTeacherRuleForm = useCallback(() => {
+    setTeacherRuleForm((prev) => ({ ...DEFAULT_TEACHER_RULE_FORM, teacherId: prev.teacherId || teacherOptions[0]?.id || "" }));
+    setTeacherRuleError(null);
+    setTeacherRuleMessage(null);
+  }, [teacherOptions]);
+
+  const startEditTeacherRule = useCallback((rule: TeacherScheduleRule) => {
+    setTeacherRuleError(null);
+    setTeacherRuleMessage(null);
+    setTeacherRuleForm({
+      id: rule.id,
+      teacherId: rule.teacherId,
+      weeklyMaxLessons: rule.weeklyMaxLessons ? String(rule.weeklyMaxLessons) : "",
+      maxConsecutiveLessons: rule.maxConsecutiveLessons ? String(rule.maxConsecutiveLessons) : "",
+      minCampusGapMinutes: rule.minCampusGapMinutes ? String(rule.minCampusGapMinutes) : ""
+    });
+  }, []);
+
   const startEditTemplate = useCallback((template: SchoolScheduleTemplate) => {
     setTemplateError(null);
     setTemplateMessage(null);
@@ -804,6 +867,68 @@ export default function SchoolSchedulesPage() {
       setTemplateDeletingId(null);
     }
   }, [loadData, resetTemplateForm, templateForm.id]);
+
+  const handleSaveTeacherRule = useCallback(async () => {
+    const weeklyMaxLessons = toOptionalNumber(teacherRuleForm.weeklyMaxLessons);
+    const maxConsecutiveLessons = toOptionalNumber(teacherRuleForm.maxConsecutiveLessons);
+    const minCampusGapMinutes = toOptionalNumber(teacherRuleForm.minCampusGapMinutes);
+    if (!teacherRuleForm.teacherId) {
+      setTeacherRuleError("请选择教师。");
+      return;
+    }
+    if (
+      weeklyMaxLessons === undefined &&
+      maxConsecutiveLessons === undefined &&
+      minCampusGapMinutes === undefined
+    ) {
+      setTeacherRuleError("请至少填写一项教师排课规则。");
+      return;
+    }
+    setTeacherRuleSaving(true);
+    setTeacherRuleError(null);
+    setTeacherRuleMessage(null);
+    try {
+      await requestJson<TeacherRuleMutationResponse>("/api/school/schedules/teacher-rules", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: teacherRuleForm.id,
+          teacherId: teacherRuleForm.teacherId,
+          weeklyMaxLessons,
+          maxConsecutiveLessons,
+          minCampusGapMinutes
+        })
+      });
+      await loadData("refresh");
+      setTeacherRuleMessage(teacherRuleForm.id ? "教师排课规则已更新" : "教师排课规则已保存");
+      setTeacherRuleForm((prev) => ({ ...DEFAULT_TEACHER_RULE_FORM, teacherId: prev.teacherId }));
+    } catch (error) {
+      setTeacherRuleError(getRequestErrorMessage(error, "保存教师排课规则失败"));
+    } finally {
+      setTeacherRuleSaving(false);
+    }
+  }, [loadData, teacherRuleForm]);
+
+  const handleDeleteTeacherRule = useCallback(async (id: string) => {
+    if (typeof window !== "undefined" && !window.confirm("确定删除这个教师排课规则吗？")) {
+      return;
+    }
+    setTeacherRuleDeletingId(id);
+    setTeacherRuleError(null);
+    setTeacherRuleMessage(null);
+    try {
+      await requestJson(`/api/school/schedules/teacher-rules/${id}`, { method: "DELETE" });
+      await loadData("refresh");
+      if (teacherRuleForm.id === id) {
+        resetTeacherRuleForm();
+      }
+      setTeacherRuleMessage("教师排课规则已删除");
+    } catch (error) {
+      setTeacherRuleError(getRequestErrorMessage(error, "删除教师排课规则失败"));
+    } finally {
+      setTeacherRuleDeletingId(null);
+    }
+  }, [loadData, resetTeacherRuleForm, teacherRuleForm.id]);
 
   const handleSaveTeacherUnavailable = useCallback(async () => {
     if (!teacherUnavailableForm.teacherId) {
@@ -1250,6 +1375,69 @@ export default function SchoolSchedulesPage() {
         </Card>
       </div>
 
+      <Card title="教师排课规则" tag="规则">
+        <div className="grid" style={{ gap: 12 }}>
+          <div className="section-sub">用于限制教师周课时、连续连堂和跨校区缓冲时间；AI 预演、正式写入和手动新建节次都会同步校验。</div>
+          <div className="grid grid-3">
+            <Stat label="已配置教师" value={String(teacherRules.length)} helper="逐教师精细约束" />
+            <Stat label="覆盖班级" value={String(teacherRuleCoverageCount)} helper="命中已绑定教师班级" />
+            <Stat label="跨校区规则" value={String(crossCampusRuleCount)} helper="含跨校区缓冲" />
+          </div>
+          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="section-sub">教师</span>
+              <select value={teacherRuleForm.teacherId} onChange={(event) => setTeacherRuleForm((prev) => ({ ...prev, teacherId: event.target.value }))} style={fieldStyle}>
+                <option value="">请选择教师</option>
+                {teacherOptions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+              </select>
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="section-sub">周课时上限</span>
+              <input type="number" min={1} max={60} value={teacherRuleForm.weeklyMaxLessons} onChange={(event) => setTeacherRuleForm((prev) => ({ ...prev, weeklyMaxLessons: event.target.value }))} placeholder="如：18" style={fieldStyle} />
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="section-sub">最多连续节数</span>
+              <input type="number" min={1} max={12} value={teacherRuleForm.maxConsecutiveLessons} onChange={(event) => setTeacherRuleForm((prev) => ({ ...prev, maxConsecutiveLessons: event.target.value }))} placeholder="如：2" style={fieldStyle} />
+            </label>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span className="section-sub">跨校区最小间隔</span>
+              <input type="number" min={1} max={240} value={teacherRuleForm.minCampusGapMinutes} onChange={(event) => setTeacherRuleForm((prev) => ({ ...prev, minCampusGapMinutes: event.target.value }))} placeholder="如：20 分钟" style={fieldStyle} />
+            </label>
+          </div>
+          {teacherRuleError ? <StatePanel compact tone="error" title="教师规则保存失败" description={teacherRuleError} /> : null}
+          {teacherRuleMessage ? <StatePanel compact tone="success" title="教师规则已更新" description={teacherRuleMessage} /> : null}
+          <div className="cta-row">
+            <button className="button primary" type="button" onClick={() => void handleSaveTeacherRule()} disabled={teacherRuleSaving}>
+              {teacherRuleSaving ? "保存中..." : teacherRuleForm.id ? "更新规则" : "保存规则"}
+            </button>
+            <button className="button ghost" type="button" onClick={resetTeacherRuleForm} disabled={teacherRuleSaving}>重置</button>
+          </div>
+          <div className="grid" style={{ gap: 8 }}>
+            {teacherRules.map((item) => {
+              const teacherName = teacherOptions.find((option) => option.id === item.teacherId)?.name ?? item.teacherId;
+              return (
+                <div key={item.id} className="card">
+                  <div className="cta-row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+                    <div>
+                      <div className="section-title">{teacherName}</div>
+                      <div className="meta-text" style={{ marginTop: 6 }}>{formatTeacherRuleSummary(item)}</div>
+                    </div>
+                    <span className="pill">教师规则</span>
+                  </div>
+                  <div className="cta-row cta-row-tight" style={{ marginTop: 10 }}>
+                    <button className="button secondary" type="button" onClick={() => startEditTeacherRule(item)} disabled={teacherRuleDeletingId === item.id}>编辑</button>
+                    <button className="button ghost" type="button" onClick={() => void handleDeleteTeacherRule(item.id)} disabled={teacherRuleDeletingId === item.id}>
+                      {teacherRuleDeletingId === item.id ? "删除中..." : "删除"}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            {!teacherRules.length ? <div className="section-sub">当前未配置教师排课规则，建议优先为满课教师、跨校区教师配置约束。</div> : null}
+          </div>
+        </div>
+      </Card>
+
       <Card title="筛选与检索" tag="筛选">
         <div className="grid grid-3" style={{ alignItems: "end" }}>
           <label style={{ display: "grid", gap: 6 }}>
@@ -1409,6 +1597,11 @@ export default function SchoolSchedulesPage() {
                     <div className="meta-text" style={{ marginTop: 6 }}>
                       当前已排 {scheduleCount} 节/周{(lockedCountByClass.get(item.id) ?? 0) ? `（锁定 ${(lockedCountByClass.get(item.id) ?? 0)} 节）` : ""} · 作业 {item.assignmentCount} 份 · 学生 {item.studentCount} 人
                     </div>
+                    {item.teacherId && teacherRuleByTeacherId.get(item.teacherId) ? (
+                      <div className="meta-text" style={{ marginTop: 6 }}>
+                        教师规则：{formatTeacherRuleSummary(teacherRuleByTeacherId.get(item.teacherId)!)}
+                      </div>
+                    ) : null}
                   </div>
                   <span className="pill">{hasSchedule ? `${scheduleCount} 节/周` : "待排课"}</span>
                 </div>

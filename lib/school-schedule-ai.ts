@@ -9,6 +9,7 @@ import {
 import { listSchoolClasses } from "./school-admin";
 import { getScheduleTemplateByGradeSubject, listSchoolScheduleTemplates } from "./school-schedule-templates";
 import { listTeacherUnavailableSlots } from "./teacher-unavailability";
+import { findTeacherScheduleRuleViolation, listTeacherScheduleRules, type TeacherRuleSession } from "./teacher-schedule-rules";
 
 const SUBJECT_FOCUS_LIBRARY: Record<string, string[]> = {
   math: ["概念梳理", "例题拆解", "计算巩固", "综合应用"],
@@ -374,6 +375,8 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
   const templates = await listSchoolScheduleTemplates({ schoolId: input.schoolId });
   const templateMap = new Map(templates.map((item) => [`${item.grade}:${item.subject}`, item]));
   const unavailableSlots = await listTeacherUnavailableSlots({ schoolId: input.schoolId });
+  const teacherRules = await listTeacherScheduleRules({ schoolId: input.schoolId });
+  const teacherRuleMap = new Map(teacherRules.map((item) => [item.teacherId, item]));
 
   const selectedClassList = selectedClasses.sort((left, right) => {
     const teacherLoadLeft = left.teacherId ? teacherClassLoad.get(left.teacherId) ?? 0 : 0;
@@ -394,6 +397,7 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
 
   const classBlocks = new Map<string, TimeBlock[]>();
   const teacherBlocks = new Map<string, TimeBlock[]>();
+  const teacherSessions = new Map<string, TeacherRuleSession[]>();
   const classDayLoad = new Map<string, number>();
   const teacherDayLoad = new Map<string, number>();
   const currentCountByClass = new Map<string, number>();
@@ -418,6 +422,15 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
     incrementDayLoad(classDayLoad, `${item.classId}:${item.weekday}`);
     if (klass?.teacherId) {
       pushBlock(teacherBlocks, klass.teacherId, block);
+      const teacherSessionList = teacherSessions.get(klass.teacherId) ?? [];
+      teacherSessionList.push({
+        id: item.id,
+        weekday: item.weekday,
+        startTime: item.startTime,
+        endTime: item.endTime,
+        campus: item.campus
+      });
+      teacherSessions.set(klass.teacherId, teacherSessionList);
       incrementDayLoad(teacherDayLoad, `${klass.teacherId}:${item.weekday}`);
     }
   });
@@ -513,14 +526,28 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
     }
 
     const createdForClass: ClassScheduleSessionInput[] = [];
+    const teacherRule = teacherRuleMap.get(klass.teacherId);
+    const classCampus = resolvedConfig.campus?.trim() || "主校区";
 
     for (let lessonIndex = 0; lessonIndex < requestedForClass; lessonIndex += 1) {
       const nextClassBlocks = classBlocks.get(klass.id) ?? [];
       const nextTeacherBlocks = teacherBlocks.get(klass.teacherId) ?? [];
+      const nextTeacherSessions = teacherSessions.get(klass.teacherId) ?? [];
 
       const buildCandidates = (respectDailyCap: boolean) =>
         slots.filter((slot) => {
           if (hasOverlap(nextClassBlocks, slot) || hasOverlap(nextTeacherBlocks, slot)) {
+            return false;
+          }
+          if (
+            teacherRule &&
+            findTeacherScheduleRuleViolation(teacherRule, nextTeacherSessions, {
+              weekday: slot.weekday,
+              startTime: slot.startTime,
+              endTime: slot.endTime,
+              campus: classCampus
+            })
+          ) {
             return false;
           }
           if (!respectDailyCap) {
@@ -573,7 +600,7 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
         endTime: chosen.endTime,
         slotLabel: chosen.slotLabel,
         room: buildRoomLabel(klass),
-        campus: resolvedConfig.campus?.trim() || "主校区",
+        campus: classCampus,
         focusSummary: buildFocusSummary(klass.subject, lessonIndex),
         note: resolvedConfig.templateApplied
           ? `AI辅助排课 · 应用 ${klass.grade}年级 ${SUBJECT_LABELS[klass.subject] ?? klass.subject} 模板`
@@ -584,6 +611,14 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
       createdForClass.push(draft);
       pushBlock(classBlocks, klass.id, block);
       pushBlock(teacherBlocks, klass.teacherId, block);
+      const teacherSessionList = teacherSessions.get(klass.teacherId) ?? [];
+      teacherSessionList.push({
+        weekday: chosen.weekday,
+        startTime: chosen.startTime,
+        endTime: chosen.endTime,
+        campus: classCampus
+      });
+      teacherSessions.set(klass.teacherId, teacherSessionList);
       incrementDayLoad(classDayLoad, `${klass.id}:${chosen.weekday}`);
       incrementDayLoad(teacherDayLoad, `${klass.teacherId}:${chosen.weekday}`);
     }
@@ -591,7 +626,7 @@ export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): P
     if (createdForClass.length < requestedForClass) {
       unresolvedLessons += requestedForClass - createdForClass.length;
       warnings.push(
-        `班级 ${klass.name} 仅成功生成 ${createdForClass.length}/${requestedForClass} 节，剩余时段受教师占用、禁排规则或可用课时限制。`
+        `班级 ${klass.name} 仅成功生成 ${createdForClass.length}/${requestedForClass} 节，剩余时段受教师占用、禁排规则、教师排课规则或可用课时限制。`
       );
     }
     if (createdForClass.length === 0) {
