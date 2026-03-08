@@ -246,6 +246,7 @@ export default function TutorPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const questionInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const answerSectionRef = useRef<HTMLDivElement | null>(null);
   const launchSignatureRef = useRef("");
   const [launchMessage, setLaunchMessage] = useState<string | null>(null);
   const [launchIntent, setLaunchIntent] = useState<TutorLaunchIntent | null>(null);
@@ -262,6 +263,7 @@ export default function TutorPage() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [historyKeyword, setHistoryKeyword] = useState("");
   const [historyOriginFilter, setHistoryOriginFilter] = useState<TutorHistoryOriginFilter>("all");
+  const [actionMessage, setActionMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedImages, setSelectedImages] = useState<File[]>([]);
   const [cropSelections, setCropSelections] = useState<Array<CropSelection | null>>([]);
@@ -427,6 +429,13 @@ export default function TutorPage() {
     }
   }, [searchParams]);
 
+  useEffect(() => {
+    if (!answer) return;
+    requestAnimationFrame(() => {
+      answerSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [answer]);
+
   async function saveHistory(payload: TutorHistoryCreatePayload) {
     const historyRes = await fetch("/api/ai/history", {
       method: "POST",
@@ -443,6 +452,34 @@ export default function TutorPage() {
     setShareError(null);
     setShareSuccess(null);
     setShareSubmittingTargetId("");
+  }
+
+  function focusComposerInput() {
+    requestAnimationFrame(() => {
+      document.getElementById("tutor-composer-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      questionInputRef.current?.focus();
+    });
+  }
+
+  function handleStartOver() {
+    resetShareFeedback();
+    setLaunchIntent("text");
+    setLaunchMessage(null);
+    setActionMessage(null);
+    setAnswer(null);
+    setEditableQuestion("");
+    setQuestion("");
+    setResultOrigin(null);
+    clearSelectedImages();
+    setError(null);
+    focusComposerInput();
+    pushAppToast("已清空当前结果，可以开始新一轮提问");
+  }
+
+  function clearHistoryFilters() {
+    setHistoryKeyword("");
+    setHistoryOriginFilter("all");
+    setShowFavorites(false);
   }
 
   async function handleCopy(value: string, message: string) {
@@ -505,6 +542,9 @@ export default function TutorPage() {
     if (!trimmedQuestion) return;
 
     resetShareFeedback();
+    setLaunchIntent("text");
+    setLaunchMessage(null);
+    setActionMessage(null);
     setActiveAction("text");
     setError(null);
     setAnswer(null);
@@ -523,6 +563,7 @@ export default function TutorPage() {
 
       const data = payload.data ?? payload;
       setAnswer(data);
+      setActionMessage("文字求解完成，可继续看下方讲解、复制答案，或修改题干后重新求解。");
       setResultAnswerMode(answerMode);
       setEditableQuestion(trimmedQuestion);
       setResultOrigin("text");
@@ -572,6 +613,8 @@ export default function TutorPage() {
       return;
     }
 
+    setLaunchIntent("image");
+    setActionMessage(`已添加 ${acceptedFiles.length} 张题图，可直接开始识题${question.trim() ? "，当前文字会作为补充说明。" : "。"}`);
     setSelectedImages((prev) => [...prev, ...acceptedFiles]);
     setCropSelections((prev) => [...prev, ...acceptedFiles.map(() => null)]);
 
@@ -604,6 +647,9 @@ export default function TutorPage() {
     if (!selectedImages.length) return;
 
     resetShareFeedback();
+    setLaunchIntent("image");
+    setLaunchMessage(null);
+    setActionMessage(null);
     setActiveAction("image");
     setError(null);
     setAnswer(null);
@@ -637,6 +683,7 @@ export default function TutorPage() {
       const data = payload.data ?? payload;
       const recognizedQuestion = data.recognizedQuestion?.trim() || question.trim();
       setAnswer(data);
+      setActionMessage("识题完成，先核对下方识别题干；如果有误，直接编辑后重新求解会更稳。");
       setResultAnswerMode(answerMode);
       setEditableQuestion(recognizedQuestion);
       setResultOrigin("image");
@@ -671,6 +718,7 @@ export default function TutorPage() {
     if (!trimmedQuestion) return;
 
     resetShareFeedback();
+    setActionMessage(null);
     setActiveAction("refine");
     setError(null);
 
@@ -688,6 +736,7 @@ export default function TutorPage() {
 
       const data = payload.data ?? payload;
       setAnswer({ ...data, recognizedQuestion: trimmedQuestion });
+      setActionMessage("已按编辑后的题目重新求解，可直接对比下方新结果。");
       setResultAnswerMode(answerMode);
       setEditableQuestion(trimmedQuestion);
       setResultOrigin("refine");
@@ -833,12 +882,15 @@ export default function TutorPage() {
       setAnswerMode(item.meta.answerMode);
     }
     resetShareFeedback();
+    setLaunchIntent((item.meta?.origin ?? "text") === "image" ? "image" : "text");
+    setActionMessage("已从历史记录回填到提问区，可继续追问或重新求解。");
+    clearSelectedImages();
     setQuestion(nextQuestion);
     setEditableQuestion(nextQuestion);
     setAnswer(null);
     setResultOrigin(null);
     setError(null);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    focusComposerInput();
     pushAppToast("已回填到提问区，可继续追问或重新求解");
   }
 
@@ -891,6 +943,95 @@ export default function TutorPage() {
   const answerSections = answer ? getAnswerSections(answer, resultAnswerMode) : [];
   const selectedAnswerMode = ANSWER_MODE_OPTIONS.find((item) => item.value === answerMode) ?? ANSWER_MODE_OPTIONS[1];
   const resolvedAnswerMode = ANSWER_MODE_OPTIONS.find((item) => item.value === resultAnswerMode) ?? selectedAnswerMode;
+  const selectedCropCount = useMemo(() => cropSelections.filter((selection) => hasCrop(selection)).length, [cropSelections]);
+  const hasActiveHistoryFilters = showFavorites || historyOriginFilter !== "all" || historyKeyword.trim().length > 0;
+  const stageCopy = (() => {
+    if (loading && activeAction === "image") {
+      return {
+        title: "正在识题与生成讲解",
+        description: "系统正在处理你上传的题图，稍等片刻就会自动滚动到下方结果区。"
+      };
+    }
+
+    if (loading && activeAction === "text") {
+      return {
+        title: "正在分析题目",
+        description: "系统正在根据你的文字问题生成答案与讲解，请稍等。"
+      };
+    }
+
+    if (loading && activeAction === "refine") {
+      return {
+        title: "正在按编辑后的题目重新求解",
+        description: "新结果生成后会自动滚动到下方讲解区，方便直接对比。"
+      };
+    }
+
+    if (answer) {
+      if (shareSuccess) {
+        return {
+          title: `结果已发送给 ${shareSuccess.targetName}`,
+          description: "你可以继续留在当前页修改题目、再次求解，或前往站内信继续沟通。"
+        };
+      }
+
+      if (resultOrigin === "image") {
+        return {
+          title: "识题完成，先核对题干再决定下一步",
+          description: editableQuestion.trim()
+            ? "下方已展示识别后的题目和讲解；如果识别有误，直接改题干再重新求解会更稳。"
+            : "下方已生成讲解，建议先核对识别结果，再决定是否重算或分享给老师 / 家长。"
+        };
+      }
+
+      if (resultOrigin === "refine") {
+        return {
+          title: "已按编辑后的题目重算",
+          description: "现在可以直接对比新旧理解差异，再决定是否复制、分享或继续追问。"
+        };
+      }
+
+      return {
+        title: "文字求解完成",
+        description: "下方已生成答案与讲解；如果题目变化了，可以继续改题后重算。"
+      };
+    }
+
+    if (selectedImages.length > 0) {
+      return {
+        title: question.trim() ? "图片已准备好，可以开始识题" : "题图已准备好，建议补充一句说明",
+        description: question.trim()
+          ? `当前已选择 ${selectedImages.length} 张题图${selectedCropCount ? `，其中 ${selectedCropCount} 张已框选题目区域` : ""}，可直接开始识题。`
+          : `当前已选择 ${selectedImages.length} 张题图${selectedCropCount ? `，其中 ${selectedCropCount} 张已框选题目区域` : ""}；补充一句文字说明，通常能提升准确性。`
+      };
+    }
+
+    if (question.trim()) {
+      return {
+        title: "文字问题已准备好，可以直接求解",
+        description: "如果题干已经足够完整，直接文字提问最快；如果是图形题，也可以补上传图片。"
+      };
+    }
+
+    if (launchIntent === "image") {
+      return {
+        title: "先上传题目图片",
+        description: "支持一题多图，适合长题干、图形题和题干选项分开拍摄的场景。"
+      };
+    }
+
+    return {
+      title: "先输入题目或上传图片",
+      description: "文字提问适合直接求解，拍照识题更适合图形题、手写题和长题干。"
+    };
+  })();
+  const resultSummary = answer
+    ? resultOrigin === "image"
+      ? "图片题目已识别完成，建议先核对题干，再根据讲解决定是否需要重新求解或分享给老师。"
+      : resultOrigin === "refine"
+        ? "这是按你编辑后的题目重新生成的结果，可以直接对比并判断是否更贴合原题。"
+        : "文字问题已经讲解完成，适合直接复制答案、继续追问或发给老师 / 家长。"
+    : null;
 
   return (
     <div className="grid" style={{ gap: 18 }}>
@@ -907,6 +1048,19 @@ export default function TutorPage() {
           {launchMessage}
         </div>
       ) : null}
+
+      <div className="tutor-stage-banner">
+        <div className="tutor-stage-kicker">当前阶段</div>
+        <div className="tutor-stage-title">{stageCopy.title}</div>
+        <p className="tutor-stage-description">{stageCopy.description}</p>
+        <div className="pill-list">
+          <span className="pill">{SUBJECT_LABELS[subject] ?? subject}</span>
+          <span className="pill">{getGradeLabel(grade)}</span>
+          <span className="pill">{answer ? resolvedAnswerMode.label : selectedAnswerMode.label}</span>
+          <span className="pill">题图 {selectedImages.length}/{MAX_IMAGE_COUNT} 张</span>
+          {selectedCropCount ? <span className="pill">已框选 {selectedCropCount} 张</span> : null}
+        </div>
+      </div>
 
       <div className="grid grid-3">
         <div className="card">
@@ -955,12 +1109,18 @@ export default function TutorPage() {
                 ))}
               </select>
             </label>
-            <div className="card" style={{ minHeight: 84, display: "grid", alignContent: "center" }}>
+            <div className="card tutor-image-status-card" style={{ minHeight: 84, display: "grid", alignContent: "center" }}>
               <div className="section-title">题图状态</div>
               <div style={{ fontSize: 12, color: "var(--ink-1)" }}>
-                已选 {selectedImages.length} / {MAX_IMAGE_COUNT} 张题图
+                已选 {selectedImages.length} / {MAX_IMAGE_COUNT} 张题图{selectedCropCount ? ` · 已框选 ${selectedCropCount} 张` : ""}
               </div>
-              <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>{selectedAnswerMode.description}</div>
+              <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
+                {selectedImages.length
+                  ? question.trim()
+                    ? "可直接开始识题，当前文字会作为补充说明。"
+                    : "可直接开始识题，也可以先补充一句文字说明。"
+                  : selectedAnswerMode.description}
+              </div>
             </div>
           </div>
 
@@ -1142,12 +1302,19 @@ export default function TutorPage() {
 
           <div className="cta-row">
             <button className={launchIntent === "image" ? "button secondary" : "button primary"} onClick={handleAsk} disabled={loading || !question.trim()}>
-              {activeAction === "text" ? "思考中..." : "文字提问"}
+              {activeAction === "text" ? "思考中..." : question.trim() ? "按文字求解" : "文字提问"}
             </button>
             <button className={launchIntent === "image" ? "button primary" : "button secondary"} onClick={handleImageAsk} disabled={loading || !selectedImages.length}>
-              {activeAction === "image" ? "识题中..." : `拍照识题（${selectedImages.length}）`}
+              {activeAction === "image" ? "识题中..." : selectedImages.length ? `拍照识题（${selectedImages.length}）` : "拍照识题"}
             </button>
+            <a className="button ghost" href="#tutor-history-anchor">看历史</a>
           </div>
+
+          {actionMessage && !answer ? (
+            <div className="status-note success" style={{ marginTop: 4 }}>
+              {actionMessage}
+            </div>
+          ) : null}
 
           {error ? (
             <div className="status-note error" style={{ marginTop: 4 }}>
@@ -1157,6 +1324,7 @@ export default function TutorPage() {
         </div>
       </Card>
 
+      <div id="tutor-answer-anchor" ref={answerSectionRef} />
       {answer ? (
         <Card title="AI 讲解" tag="讲解">
           <div className="cta-row" style={{ marginBottom: 10 }}>
@@ -1165,6 +1333,20 @@ export default function TutorPage() {
             <span className="pill">{resolvedAnswerMode.label}</span>
             <span className="pill">{getOriginLabel(resultOrigin)}</span>
             {answer.provider ? <span className="pill">模型：{answer.provider}</span> : null}
+          </div>
+
+          {actionMessage && answer ? <div className="status-note success" style={{ marginBottom: 10 }}>{actionMessage}</div> : null}
+          {resultSummary ? <div className="tutor-result-summary">{resultSummary}</div> : null}
+          <div className="cta-row tutor-result-next-actions" style={{ marginBottom: 12 }}>
+            <button className="button secondary" type="button" onClick={handleStartOver}>
+              再问一题
+            </button>
+            <button className="button ghost" type="button" onClick={focusComposerInput}>
+              回到提问区
+            </button>
+            <a className="button ghost" href="#tutor-history-anchor">
+              看历史记录
+            </a>
           </div>
 
           {answer.quality ? (
@@ -1382,16 +1564,40 @@ export default function TutorPage() {
           </div>
         </div>
 
-        <div className="cta-row" style={{ marginBottom: 12 }}>
+        <div className="cta-row tutor-history-toolbar" style={{ marginBottom: 12 }}>
           <button className="button secondary" onClick={() => setShowFavorites((prev) => !prev)}>
             {showFavorites ? "查看全部" : "只看收藏"}
           </button>
+          {hasActiveHistoryFilters ? (
+            <button className="button ghost" type="button" onClick={clearHistoryFilters}>
+              清空筛选
+            </button>
+          ) : null}
+          <a className="button ghost" href="#tutor-composer-anchor">回到提问区</a>
           <span className="chip">当前结果 {filteredHistory.length} 条</span>
           {historyKeyword.trim() ? <span className="chip">关键词：{historyKeyword.trim()}</span> : null}
         </div>
 
         <div className="grid" style={{ gap: 10 }}>
-          {filteredHistory.length === 0 ? <p>暂无匹配记录，换个关键词或调整筛选试试。</p> : null}
+          {filteredHistory.length === 0 ? (
+            <StatePanel
+              compact
+              tone="empty"
+              title={hasActiveHistoryFilters ? "当前筛选条件下暂无记录" : "还没有 AI 辅导历史"}
+              description={hasActiveHistoryFilters ? "可以清空筛选后再试试。" : "先完成一次文字提问或拍照识题，这里会自动保留历史。"}
+              action={
+                hasActiveHistoryFilters ? (
+                  <button className="button secondary" type="button" onClick={clearHistoryFilters}>
+                    清空筛选
+                  </button>
+                ) : (
+                  <a className="button secondary" href="#tutor-composer-anchor">
+                    去提问区
+                  </a>
+                )
+              }
+            />
+          ) : null}
           {filteredHistory.map((item) => {
             const meta = item.meta;
             return (
