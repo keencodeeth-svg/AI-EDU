@@ -199,6 +199,59 @@ export async function runCoreAuthSuite(context) {
   );
   assert.equal(lockedEvenWithCorrectPassword.body?.details?.remainingAttempts, 0, "Locked account should remain at zero remaining attempts");
 
+  const invalidRecoveryRequest = await apiFetch("/api/auth/recovery-request", {
+    method: "POST",
+    useCookies: false,
+    json: {
+      role: "student",
+      email: "   ",
+      issueType: "forgot_password"
+    }
+  });
+  assert.equal(invalidRecoveryRequest.status, 400, `Blank recovery email should be rejected: ${invalidRecoveryRequest.raw}`);
+  assert.equal(invalidRecoveryRequest.body?.error, "email required");
+
+  const recoveryEmail = createLocalTestEmail("api-test-recovery");
+  const firstRecoveryRequest = await apiFetch("/api/auth/recovery-request", {
+    method: "POST",
+    useCookies: false,
+    json: {
+      role: "student",
+      email: recoveryEmail,
+      issueType: "forgot_password",
+      name: "Recovery Student",
+      note: "忘记密码，无法登录"
+    }
+  });
+  assert.equal(firstRecoveryRequest.status, 200, `Recovery request should be accepted: ${firstRecoveryRequest.raw}`);
+  assert.equal(firstRecoveryRequest.body?.code, 0, "Recovery request should use standard envelope");
+  assert.ok(firstRecoveryRequest.body?.data?.ticketId, "Recovery request should return a ticketId");
+  assert.equal(firstRecoveryRequest.body?.data?.duplicate, false, "First recovery request should not be marked duplicate");
+  assert.match(String(firstRecoveryRequest.body?.message ?? ""), /已受理恢复请求/, "Recovery request should return generic acceptance copy");
+  assert.ok(Array.isArray(firstRecoveryRequest.body?.data?.nextSteps), "Recovery request should return next steps");
+  assert.ok(firstRecoveryRequest.body?.data?.nextSteps.length >= 2, "Recovery request should provide actionable next steps");
+
+  const duplicateRecoveryRequest = await apiFetch("/api/auth/recovery-request", {
+    method: "POST",
+    useCookies: false,
+    json: {
+      role: "student",
+      email: recoveryEmail,
+      issueType: "forgot_password",
+      name: "Recovery Student",
+      note: "忘记密码，无法登录"
+    }
+  });
+  assert.equal(duplicateRecoveryRequest.status, 200, `Duplicate recovery request should still be accepted: ${duplicateRecoveryRequest.raw}`);
+  assert.equal(duplicateRecoveryRequest.body?.code, 0, "Duplicate recovery request should still use standard envelope");
+  assert.equal(duplicateRecoveryRequest.body?.data?.duplicate, true, "Second identical recovery request should be marked duplicate");
+  assert.equal(
+    duplicateRecoveryRequest.body?.data?.ticketId,
+    firstRecoveryRequest.body?.data?.ticketId,
+    "Duplicate recovery request should reuse the original ticketId"
+  );
+  assert.match(String(duplicateRecoveryRequest.body?.message ?? ""), /相同恢复请求/, "Duplicate recovery request should acknowledge prior submission");
+
   const email = process.env.API_TEST_EMAIL || createLocalTestEmail("api-test-student");
   const password = process.env.API_TEST_PASSWORD || "ApiTest123!";
 

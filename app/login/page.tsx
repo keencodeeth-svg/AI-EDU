@@ -167,9 +167,14 @@ export default function LoginPage() {
             <div className="section-title">邮箱</div>
             <input
               className="form-control"
+              type="email"
+              inputMode="email"
+              autoComplete="username"
+              autoCapitalize="none"
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               placeholder={placeholderMap[role]}
+              required
             />
           </label>
           <label className="form-field">
@@ -177,9 +182,11 @@ export default function LoginPage() {
             <input
               className="form-control"
               type="password"
+              autoComplete="current-password"
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               placeholder="Student123"
+              required
             />
           </label>
           {error ? <div className="status-note error">{error}</div> : null}
@@ -189,6 +196,9 @@ export default function LoginPage() {
         </form>
         <div className="auth-footnote">
           演示账号：student@demo.com / Student123（可切换身份后登录）
+        </div>
+        <div className="form-note" style={{ marginTop: 10 }}>
+          忘记密码、忘记账号或账号被锁定？<Link href="/recover">去发起恢复请求</Link>
         </div>
         <div className="pill-list" style={{ marginTop: 12 }}>
           <span className="pill">学生注册</span>
@@ -209,6 +219,9 @@ export default function LoginPage() {
           </div>
           <div>
             学校管理员注册：<Link href="/school/register">去注册</Link>
+          </div>
+          <div>
+            账号恢复：<Link href="/recover">去申请</Link>
           </div>
         </div>
       </Card>

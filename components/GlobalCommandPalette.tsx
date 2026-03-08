@@ -75,10 +75,13 @@ export default function GlobalCommandPalette({
   const router = useRouter();
   const pathname = usePathname();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const navigationTimerRef = useRef<number | null>(null);
+  const pendingNavigationHrefRef = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [recentHrefs, setRecentHrefs] = useState<string[]>([]);
+  const [navigatingHref, setNavigatingHref] = useState<string | null>(null);
 
   const mergedLinks = useMemo(() => mergeLinks(primaryLinks, navGroups), [primaryLinks, navGroups]);
   const currentPageItem = useMemo(
@@ -112,6 +115,22 @@ export default function GlobalCommandPalette({
   }, [pathname, mergedLinks]);
 
   useEffect(() => {
+    const pendingHref = pendingNavigationHrefRef.current;
+    if (!pendingHref) return;
+    if (isSameDestination(pathname, pendingHref)) {
+      closePalette();
+    }
+  }, [pathname]);
+
+  useEffect(() => {
+    return () => {
+      if (navigationTimerRef.current !== null) {
+        window.clearTimeout(navigationTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -120,7 +139,7 @@ export default function GlobalCommandPalette({
       if (!open) return;
       if (event.key === "Escape") {
         event.preventDefault();
-        setOpen(false);
+        closePalette();
       }
     };
 
@@ -200,21 +219,49 @@ export default function GlobalCommandPalette({
   }, [currentPageItem, keyword, recentHrefs]);
 
   useEffect(() => {
+    if (!open || navigatingHref) return;
     setSelectedIndex(0);
-  }, [keyword, open]);
+  }, [keyword, open, navigatingHref]);
+
+  useEffect(() => {
+    if (!open) return;
+    visibleResults.slice(0, 6).forEach((item) => {
+      router.prefetch(item.href);
+    });
+  }, [open, router, visibleResults]);
 
   function closePalette() {
+    pendingNavigationHrefRef.current = null;
     setOpen(false);
     setKeyword("");
     setSelectedIndex(0);
+    setNavigatingHref(null);
+    if (navigationTimerRef.current !== null) {
+      window.clearTimeout(navigationTimerRef.current);
+      navigationTimerRef.current = null;
+    }
   }
 
   function navigateTo(item: SearchItem) {
-    closePalette();
+    if (navigatingHref) return;
+    if (isSameDestination(pathname, item.href)) {
+      closePalette();
+      return;
+    }
+    pendingNavigationHrefRef.current = item.href;
+    setNavigatingHref(item.href);
+    if (navigationTimerRef.current !== null) {
+      window.clearTimeout(navigationTimerRef.current);
+    }
+    navigationTimerRef.current = window.setTimeout(() => {
+      setNavigatingHref(null);
+    }, 2500);
+    router.prefetch(item.href);
     router.push(item.href);
   }
 
   function handleInputKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
+    if (navigatingHref) return;
     if (!visibleResults.length) return;
     if (event.key === "ArrowDown") {
       event.preventDefault();
@@ -234,20 +281,26 @@ export default function GlobalCommandPalette({
 
   return (
     <>
-      <button type="button" className="command-palette-trigger" onClick={() => setOpen(true)}>
+      <button type="button" className="command-palette-trigger" onClick={() => setOpen(true)} disabled={Boolean(navigatingHref)}>
         <span className="command-palette-trigger-label">快速跳转</span>
         <span className="command-palette-trigger-shortcut">⌘K / Ctrl+K</span>
       </button>
 
       <div className={`command-palette-shell${open ? " open" : ""}`} aria-hidden={!open}>
-        <button type="button" className="command-palette-backdrop" aria-label="关闭全局搜索" onClick={closePalette} />
-        <section className="command-palette-panel" role="dialog" aria-modal="true" aria-label="全局搜索与快速跳转">
+        <button
+          type="button"
+          className="command-palette-backdrop"
+          aria-label="关闭全局搜索"
+          onClick={closePalette}
+          disabled={Boolean(navigatingHref)}
+        />
+        <section className="command-palette-panel" role="dialog" aria-modal="true" aria-label="全局搜索与快速跳转" aria-busy={Boolean(navigatingHref)}>
           <div className="command-palette-header">
             <div>
               <div className="command-palette-title">全局搜索与快速跳转</div>
               <div className="command-palette-subtitle">{roleLabel} · 搜索页面、工具和最近访问入口</div>
             </div>
-            <button type="button" className="command-palette-close" onClick={closePalette}>
+            <button type="button" className="command-palette-close" onClick={closePalette} disabled={Boolean(navigatingHref)}>
               Esc
             </button>
           </div>
@@ -261,8 +314,11 @@ export default function GlobalCommandPalette({
               className="command-palette-input"
               placeholder="搜索功能、页面或关键词，例如：考试、错题、报告"
               aria-label="全局搜索"
+              disabled={Boolean(navigatingHref)}
             />
-            <div className="command-palette-hint">支持键盘上下选择，回车直达</div>
+            <div className="command-palette-hint">
+              {navigatingHref ? `正在跳转到 ${navigatingHref} ...` : "支持键盘上下选择，回车直达"}
+            </div>
           </div>
 
           {!keyword.trim() ? (
@@ -275,6 +331,7 @@ export default function GlobalCommandPalette({
             <div className="command-palette-summary">
               <span className="pill">搜索结果 {visibleResults.length}</span>
               <span className="pill">关键词：{keyword.trim()}</span>
+              {navigatingHref ? <span className="pill">跳转中</span> : null}
             </div>
           )}
 
@@ -287,29 +344,35 @@ export default function GlobalCommandPalette({
                   role="option"
                   aria-selected={index === selectedIndex}
                   className={`command-palette-result${index === selectedIndex ? " active" : ""}`}
-                  onMouseEnter={() => setSelectedIndex(index)}
                   onClick={() => navigateTo(item)}
+                  disabled={Boolean(navigatingHref)}
                 >
-                  <div className="command-palette-result-main">
-                    <div className="command-palette-result-title">{item.label}</div>
-                    <div className="command-palette-result-meta">{item.href}</div>
+                  <div>
+                    <div className="command-palette-result-label">{item.label}</div>
+                    <div className="command-palette-result-meta">
+                      <span>{item.group}</span>
+                      <span>{item.href}</span>
+                    </div>
                   </div>
-                  <div className="command-palette-result-side">
-                    <span className="pill">{item.group}</span>
-                  </div>
+                  <span className="pill">
+                    {item.groupType === "recent" ? "最近访问" : item.groupType === "primary" ? "常用" : "功能"}
+                  </span>
                 </button>
               ))}
             </div>
+          ) : currentPageMatchesKeyword ? (
+            <StatePanel
+              title="你已经在目标页面"
+              description="当前页已经匹配这个关键词，可以直接继续操作。"
+              tone="info"
+              compact
+            />
           ) : (
             <StatePanel
-              compact
+              title="没有找到匹配页面"
+              description="试试更短的关键词，或从下方返回常用入口。"
               tone="empty"
-              title={currentPageMatchesKeyword ? "你已经在这个页面" : "没有找到匹配功能"}
-              description={
-                currentPageMatchesKeyword
-                  ? "当前关键词命中的入口就是你正在访问的页面，试试更具体的关键词继续跳转。"
-                  : "换个关键词试试，或者清空后查看最近访问与常用入口。"
-              }
+              compact
               action={
                 keyword.trim() ? (
                   <button type="button" className="button secondary" onClick={() => setKeyword("")}>
