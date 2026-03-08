@@ -299,12 +299,39 @@ export async function runLearningSuite(context) {
     Array.isArray(todayTasks.body?.data?.groups?.mustDo),
     "Today tasks should include groups.mustDo array"
   );
+  assert.equal(
+    typeof todayTasks.body?.data?.summary?.bySource?.lesson,
+    "number",
+    "Today tasks should include lesson source count"
+  );
   const firstTodayTask = todayTasks.body?.data?.tasks?.[0];
   if (firstTodayTask) {
     assert.equal(typeof firstTodayTask.id, "string");
     assert.equal(typeof firstTodayTask.source, "string");
     assert.equal(typeof firstTodayTask.href, "string");
     assert.equal(typeof firstTodayTask.priority, "number");
+  }
+
+  const studentSchedule = await apiFetch("/api/schedule");
+  assert.equal(studentSchedule.status, 200, `GET /api/schedule failed: ${studentSchedule.raw}`);
+  assert.equal(studentSchedule.body?.data?.role, "student", "Schedule API should detect student role");
+  assert.ok(Array.isArray(studentSchedule.body?.data?.weekly), "Schedule API should include weekly lessons");
+  assert.ok(Array.isArray(studentSchedule.body?.data?.todayLessons), "Schedule API should include todayLessons");
+  assert.equal(
+    typeof studentSchedule.body?.data?.summary?.totalLessonsToday,
+    "number",
+    "Schedule API should include totalLessonsToday"
+  );
+
+  const studentCalendar = await apiFetch("/api/calendar");
+  assert.equal(studentCalendar.status, 200, `GET /api/calendar failed: ${studentCalendar.raw}`);
+  assert.ok(Array.isArray(studentCalendar.body?.data), "Calendar API should include data array");
+  const hasScheduledLessons = (studentSchedule.body?.data?.weekly ?? []).some((day) => (day.lessons ?? []).length > 0);
+  if (hasScheduledLessons) {
+    assert.ok(
+      (studentCalendar.body?.data ?? []).some((item) => item.type === "lesson"),
+      "Calendar API should include lesson timeline item when weekly schedule exists"
+    );
   }
 
   const libraryPaged = await apiFetch("/api/library?page=1&pageSize=5");

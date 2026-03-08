@@ -12,6 +12,7 @@ import StudentMotivationCard from "./_components/StudentMotivationCard";
 import StudentNextActionCard from "./_components/StudentNextActionCard";
 import StudentPriorityTasksCard from "./_components/StudentPriorityTasksCard";
 import StudentQuickTutorCard from "./_components/StudentQuickTutorCard";
+import StudentScheduleCard from "./_components/StudentScheduleCard";
 import StudentTaskOverviewCard from "./_components/StudentTaskOverviewCard";
 import StudentUnifiedTaskQueueCard from "./_components/StudentUnifiedTaskQueueCard";
 import type {
@@ -380,6 +381,8 @@ export default function StudentPage() {
       </div>
 
       {pageError ? <StatePanel title="本次刷新存在异常" description={pageError} tone="error" compact /> : null}
+
+      <StudentScheduleCard />
 
       <StudentDashboardGuideCard
         showDashboardGuide={showDashboardGuide}

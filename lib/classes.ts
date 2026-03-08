@@ -2,6 +2,7 @@ import crypto from "crypto";
 import { readJson, writeJson } from "./storage";
 import { isDbEnabled, query, queryOne } from "./db";
 import { getUsers } from "./auth";
+import { DEFAULT_SCHOOL_ID } from "./schools";
 import type { Subject } from "./types";
 
 export type ClassItem = {
@@ -99,7 +100,7 @@ type ClassScope = {
 function matchesClassScope(item: ClassItem, scope?: ClassScope) {
   // Centralized tenant filter for JSON mode to match DB-mode WHERE school_id semantics.
   if (!scope?.schoolId) return true;
-  return (item.schoolId ?? null) === scope.schoolId;
+  return (item.schoolId ?? DEFAULT_SCHOOL_ID) === (scope.schoolId ?? DEFAULT_SCHOOL_ID);
 }
 
 function mapClassStudent(row: DbClassStudent): ClassStudent {

@@ -5,6 +5,17 @@ export const STUDENT_DASHBOARD_GUIDE_KEY = "guide:student-dashboard:v1";
 
 export const ENTRY_ITEMS: EntryItem[] = [
   {
+    id: "calendar",
+    title: "课程表",
+    tag: "上课",
+    description: "查看今天课程、下一节提醒和学习日程。",
+    href: "/calendar",
+    cta: "打开课程表",
+    icon: "board",
+    category: "priority",
+    order: 1
+  },
+  {
     id: "assignments",
     title: "作业中心",
     tag: "作业",
@@ -13,7 +24,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "进入作业",
     icon: "pencil",
     category: "priority",
-    order: 1
+    order: 2
   },
   {
     id: "exams",
@@ -24,7 +35,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "进入考试",
     icon: "chart",
     category: "priority",
-    order: 2
+    order: 3
   },
   {
     id: "wrong-book",
@@ -35,7 +46,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "进入错题本",
     icon: "puzzle",
     category: "priority",
-    order: 3
+    order: 4
   },
   {
     id: "review",
@@ -46,7 +57,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "开始复习",
     icon: "chart",
     category: "priority",
-    order: 4
+    order: 5
   },
   {
     id: "notifications",
@@ -57,7 +68,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "查看通知",
     icon: "rocket",
     category: "priority",
-    order: 5
+    order: 6
   },
   {
     id: "join-class",
@@ -67,7 +78,7 @@ export const ENTRY_ITEMS: EntryItem[] = [
     cta: "提交申请",
     icon: "board",
     category: "priority",
-    order: 6,
+    order: 7,
     kind: "join"
   },
   {
@@ -221,10 +232,11 @@ export function getTodayTaskStatusLabel(status: TodayTaskStatus) {
   return "待完成";
 }
 
-export function getTodayTaskSourceLabel(source: "assignment" | "exam" | "wrong_review" | "plan" | "challenge") {
+export function getTodayTaskSourceLabel(source: "assignment" | "exam" | "wrong_review" | "plan" | "challenge" | "lesson") {
   if (source === "assignment") return "作业";
   if (source === "exam") return "考试";
   if (source === "wrong_review") return "复练";
   if (source === "plan") return "计划";
+  if (source === "lesson") return "课程提醒";
   return "挑战";
 }

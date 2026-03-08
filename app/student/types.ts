@@ -13,7 +13,7 @@ export type TodayTaskStatus = "overdue" | "due_today" | "in_progress" | "pending
 
 export type TodayTask = {
   id: string;
-  source: "assignment" | "exam" | "wrong_review" | "plan" | "challenge";
+  source: "assignment" | "exam" | "wrong_review" | "plan" | "challenge" | "lesson";
   sourceId: string;
   title: string;
   description: string;
@@ -47,6 +47,7 @@ export type TodayTaskPayload = {
       wrongReview: number;
       plan: number;
       challenge: number;
+      lesson: number;
     };
   };
   groups: {

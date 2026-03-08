@@ -20,6 +20,7 @@ export type SchoolAttentionClass = {
   teacherName?: string;
   studentCount: number;
   assignmentCount: number;
+  scheduleCount: number;
   issueTags: string[];
 };
 
@@ -33,11 +34,14 @@ export type SchoolOverview = {
   classesWithoutTeacherCount: number;
   classesWithoutStudentsCount: number;
   classesWithoutAssignmentsCount: number;
+  classesWithoutSchedulesCount: number;
   overloadedClassCount: number;
   averageStudentsPerClass: number;
   averageAssignmentsPerClass: number;
+  averageLessonsPerWeek: number;
   teacherCoverageRate: number;
   assignmentCoverageRate: number;
+  scheduleCoverageRate: number;
   actionItems: SchoolActionItem[];
   attentionClasses: SchoolAttentionClass[];
 };
@@ -60,5 +64,6 @@ export type SchoolClassRecord = {
   teacherName?: string;
   studentCount: number;
   assignmentCount: number;
+  scheduleCount: number;
   createdAt: string;
 };

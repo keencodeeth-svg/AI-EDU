@@ -1,7 +1,9 @@
 import { getUsers } from "./auth";
 import { getAssignments } from "./assignments";
+import { listClassScheduleSessions } from "./class-schedules";
 import { getClassStudentIds, getClasses } from "./classes";
 import { isDbEnabled, query } from "./db";
+import { DEFAULT_SCHOOL_ID } from "./schools";
 import type {
   SchoolActionItem,
   SchoolAttentionClass,
@@ -27,6 +29,7 @@ type DbSchoolUser = {
   role: "teacher" | "student" | "parent" | "school_admin";
   grade: string | null;
   created_at: string | null;
+  school_id?: string | null;
 };
 
 type DbSchoolClass = {
@@ -51,6 +54,14 @@ function toRate(count: number, total: number) {
   return Math.round((count / total) * 100);
 }
 
+function normalizeSchoolId(value?: string | null) {
+  return value ?? DEFAULT_SCHOOL_ID;
+}
+
+function belongsToSchool(value: string | null | undefined, schoolId: string) {
+  return normalizeSchoolId(value) === normalizeSchoolId(schoolId);
+}
+
 function issueTagBundle(item: SchoolClassRecord) {
   const issueTags: string[] = [];
   let severity = 0;
@@ -61,6 +72,10 @@ function issueTagBundle(item: SchoolClassRecord) {
   }
   if (item.studentCount === 0) {
     issueTags.push("暂无学生");
+    severity += 3;
+  }
+  if (item.scheduleCount === 0) {
+    issueTags.push("未排课程表");
     severity += 3;
   }
   if (item.assignmentCount === 0) {
@@ -88,6 +103,7 @@ function buildAttentionClasses(classes: SchoolClassRecord[]): SchoolAttentionCla
     .filter((item) => item.issueTags.length > 0)
     .sort((left, right) => {
       if (right.severity !== left.severity) return right.severity - left.severity;
+      if (right.scheduleCount !== left.scheduleCount) return left.scheduleCount - right.scheduleCount;
       if (right.studentCount !== left.studentCount) return right.studentCount - left.studentCount;
       return left.name.localeCompare(right.name, "zh-CN");
     })
@@ -95,15 +111,11 @@ function buildAttentionClasses(classes: SchoolClassRecord[]): SchoolAttentionCla
     .map(({ severity: _severity, ...item }) => item);
 }
 
-function buildActionItems(
-  schoolId: string,
-  classes: SchoolClassRecord[],
-  classCount: number,
-  assignmentCount: number
-): SchoolActionItem[] {
+function buildActionItems(schoolId: string, classes: SchoolClassRecord[], classCount: number): SchoolActionItem[] {
   const classesWithoutTeacherCount = classes.filter((item) => !item.teacherId).length;
   const classesWithoutStudentsCount = classes.filter((item) => item.studentCount === 0).length;
   const classesWithoutAssignmentsCount = classes.filter((item) => item.assignmentCount === 0).length;
+  const classesWithoutSchedulesCount = classes.filter((item) => item.scheduleCount === 0).length;
   const overloadedClassCount = classes.filter((item) => item.studentCount >= OVERLOADED_CLASS_THRESHOLD).length;
 
   const items: SchoolActionItem[] = [];
@@ -113,7 +125,7 @@ function buildActionItems(
       id: `school-${schoolId}-create-first-class`,
       tone: "critical",
       title: "先完成首个班级建档",
-      description: "当前学校还没有班级，学校端无法形成排课、作业和成员协同闭环。",
+      description: "当前学校还没有班级，学校端无法形成排课、课程表、作业和成员协同闭环。",
       href: "/school/classes",
       ctaLabel: "查看班级页"
     });
@@ -124,10 +136,22 @@ function buildActionItems(
       id: `school-${schoolId}-bind-teachers`,
       tone: "critical",
       title: `${classesWithoutTeacherCount} 个班级待绑定教师`,
-      description: "先补齐教师负责人，避免班级失管或后续作业下发断档。",
+      description: "先补齐教师负责人，避免班级失管或后续课程表、作业下发断档。",
       href: "/school/teachers",
       ctaLabel: "分配教师",
       count: classesWithoutTeacherCount
+    });
+  }
+
+  if (classesWithoutSchedulesCount > 0) {
+    items.push({
+      id: `school-${schoolId}-cover-schedules`,
+      tone: "warning",
+      title: `${classesWithoutSchedulesCount} 个班级尚未配置课程表`,
+      description: "课程节次未配置会直接影响学生首页、日程提醒和课前准备联动。",
+      href: "/school/schedules",
+      ctaLabel: "配置课程表",
+      count: classesWithoutSchedulesCount
     });
   }
 
@@ -172,13 +196,13 @@ function buildActionItems(
       id: `school-${schoolId}-healthy`,
       tone: "success",
       title: "学校运营状态稳定",
-      description: "班级编排、教师绑定和作业覆盖目前均处于健康范围，可继续优化质量细节。",
+      description: "班级排课、教师绑定和作业覆盖目前均处于健康范围，可继续优化质量细节。",
       href: "/school",
       ctaLabel: "保持巡检"
     });
   }
 
-  return items.slice(0, 4);
+  return items.slice(0, 5);
 }
 
 function buildOverviewFromCounts(input: {
@@ -193,11 +217,14 @@ function buildOverviewFromCounts(input: {
   const classesWithoutTeacherCount = input.classes.filter((item) => !item.teacherId).length;
   const classesWithoutStudentsCount = input.classes.filter((item) => item.studentCount === 0).length;
   const classesWithoutAssignmentsCount = input.classes.filter((item) => item.assignmentCount === 0).length;
+  const classesWithoutSchedulesCount = input.classes.filter((item) => item.scheduleCount === 0).length;
   const overloadedClassCount = input.classes.filter((item) => item.studentCount >= OVERLOADED_CLASS_THRESHOLD).length;
   const classesWithTeacherCount = input.classes.filter((item) => item.teacherId).length;
   const classesWithAssignmentsCount = input.classes.filter((item) => item.assignmentCount > 0).length;
+  const classesWithSchedulesCount = input.classes.filter((item) => item.scheduleCount > 0).length;
   const totalStudentsInClasses = input.classes.reduce((sum, item) => sum + item.studentCount, 0);
   const totalAssignmentsInClasses = input.classes.reduce((sum, item) => sum + item.assignmentCount, 0);
+  const totalLessonsInClasses = input.classes.reduce((sum, item) => sum + item.scheduleCount, 0);
 
   return {
     schoolId: input.schoolId,
@@ -209,12 +236,15 @@ function buildOverviewFromCounts(input: {
     classesWithoutTeacherCount,
     classesWithoutStudentsCount,
     classesWithoutAssignmentsCount,
+    classesWithoutSchedulesCount,
     overloadedClassCount,
     averageStudentsPerClass: input.classCount ? roundNumber(totalStudentsInClasses / input.classCount) : 0,
     averageAssignmentsPerClass: input.classCount ? roundNumber(totalAssignmentsInClasses / input.classCount) : 0,
+    averageLessonsPerWeek: input.classCount ? roundNumber(totalLessonsInClasses / input.classCount) : 0,
     teacherCoverageRate: toRate(classesWithTeacherCount, input.classCount),
     assignmentCoverageRate: toRate(classesWithAssignmentsCount, input.classCount),
-    actionItems: buildActionItems(input.schoolId, input.classes, input.classCount, input.assignmentCount),
+    scheduleCoverageRate: toRate(classesWithSchedulesCount, input.classCount),
+    actionItems: buildActionItems(input.schoolId, input.classes, input.classCount),
     attentionClasses: buildAttentionClasses(input.classes)
   };
 }
@@ -223,7 +253,7 @@ export async function getSchoolOverview(schoolId: string): Promise<SchoolOvervie
   if (!isDbEnabled()) {
     const [users, classes, assignments] = await Promise.all([getUsers(), listSchoolClasses(schoolId), getAssignments()]);
     const classIds = new Set(classes.map((item) => item.id));
-    const schoolUsers = users.filter((item) => item.schoolId === schoolId);
+    const schoolUsers = users.filter((item) => belongsToSchool(item.schoolId, schoolId));
     return buildOverviewFromCounts({
       schoolId,
       teacherCount: schoolUsers.filter((item) => item.role === "teacher").length,
@@ -268,7 +298,7 @@ export async function listSchoolUsers(
   if (!isDbEnabled()) {
     const users = await getUsers();
     return users
-      .filter((item) => item.schoolId === schoolId)
+      .filter((item) => belongsToSchool(item.schoolId, schoolId))
       .filter((item) => (role ? item.role === role : ["teacher", "student", "parent", "school_admin"].includes(item.role)))
       .map((item) => ({
         id: item.id,
@@ -304,10 +334,18 @@ export async function listSchoolUsers(
 }
 
 export async function listSchoolClasses(schoolId: string): Promise<SchoolClassRecord[]> {
+  const scheduleSessions = await listClassScheduleSessions({ schoolId });
+  const scheduleCountByClass = new Map<string, number>();
+  scheduleSessions.forEach((item) => {
+    scheduleCountByClass.set(item.classId, (scheduleCountByClass.get(item.classId) ?? 0) + 1);
+  });
+
   if (!isDbEnabled()) {
     const [classes, assignments, users] = await Promise.all([getClasses({ schoolId }), getAssignments(), getUsers()]);
     const teacherNameById = new Map(
-      users.filter((item) => item.schoolId === schoolId && item.role === "teacher").map((item) => [item.id, item.name])
+      users
+        .filter((item) => belongsToSchool(item.schoolId, schoolId) && item.role === "teacher")
+        .map((item) => [item.id, item.name])
     );
 
     return Promise.all(
@@ -322,6 +360,7 @@ export async function listSchoolClasses(schoolId: string): Promise<SchoolClassRe
           teacherName: klass.teacherId ? teacherNameById.get(klass.teacherId) : undefined,
           studentCount: studentIds.length,
           assignmentCount: assignments.filter((item) => item.classId === klass.id).length,
+          scheduleCount: scheduleCountByClass.get(klass.id) ?? 0,
           createdAt: klass.createdAt
         };
       })
@@ -358,6 +397,7 @@ export async function listSchoolClasses(schoolId: string): Promise<SchoolClassRe
     teacherName: row.teacher_name ?? undefined,
     studentCount: Number(row.student_count ?? 0),
     assignmentCount: Number(row.assignment_count ?? 0),
+    scheduleCount: scheduleCountByClass.get(row.id) ?? 0,
     createdAt: row.created_at
   }));
 }

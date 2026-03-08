@@ -1,4 +1,4 @@
-export type CalendarItemType = "assignment" | "announcement" | "correction";
+export type CalendarItemType = "assignment" | "announcement" | "correction" | "lesson";
 
 export type CalendarItem = {
   id: string;

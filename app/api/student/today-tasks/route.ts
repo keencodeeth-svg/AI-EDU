@@ -1,4 +1,5 @@
 import { getCurrentUser } from "@/lib/auth";
+import { combineDateAndTime, getDateKey, getWeekdayFromDate, listClassScheduleSessions } from "@/lib/class-schedules";
 import { getClassesByStudent } from "@/lib/classes";
 import { getAssignmentProgressByStudent, getAssignmentsByClassIds } from "@/lib/assignments";
 import { getChallengeState } from "@/lib/challenges";
@@ -11,7 +12,7 @@ import { getUnifiedReviewQueue } from "@/lib/review-scheduler";
 import { unauthorized } from "@/lib/api/http";
 import { createLearningRoute } from "@/lib/api/domains";
 
-type TodayTaskSource = "assignment" | "exam" | "wrong_review" | "plan" | "challenge";
+type TodayTaskSource = "assignment" | "exam" | "wrong_review" | "plan" | "challenge" | "lesson";
 type TodayTaskStatus = "overdue" | "due_today" | "in_progress" | "pending" | "upcoming" | "optional";
 type TodayTaskGroup = "must_do" | "continue_learning" | "growth";
 
@@ -39,7 +40,8 @@ const SOURCE_IMPACT: Record<TodayTaskSource, number> = {
   exam: 90,
   wrong_review: 94,
   plan: 82,
-  challenge: 62
+  challenge: 62,
+  lesson: 76
 };
 
 const SOURCE_EFFORT_MINUTES: Record<TodayTaskSource, number> = {
@@ -47,7 +49,8 @@ const SOURCE_EFFORT_MINUTES: Record<TodayTaskSource, number> = {
   exam: 35,
   wrong_review: 12,
   plan: 18,
-  challenge: 10
+  challenge: 10,
+  lesson: 8
 };
 
 const STATUS_URGENCY_BASE: Record<TodayTaskStatus, number> = {
@@ -86,6 +89,14 @@ function resolveDueStatus(value: string | null, nowTs: number, todayEndTs: numbe
   if (ts < nowTs) return "overdue";
   if (ts <= todayEndTs) return "due_today";
   return "pending";
+}
+
+function resolveLessonTaskStatus(startAt: string, endAt: string, nowTs: number, todayEndTs: number): TodayTaskStatus {
+  const startTs = toTimestamp(startAt);
+  const endTs = toTimestamp(endAt);
+  if (startTs !== null && endTs !== null && startTs <= nowTs && nowTs < endTs) return "in_progress";
+  if (startTs !== null && startTs <= todayEndTs) return "due_today";
+  return "upcoming";
 }
 
 function resolveTaskGroup(source: TodayTaskSource, status: TodayTaskStatus): TodayTaskGroup {
@@ -209,7 +220,8 @@ export const GET = createLearningRoute({
   const knowledgePoints = await getKnowledgePoints();
   const kpMap = new Map(knowledgePoints.map((item) => [item.id, item]));
 
-  const [assignments, assignmentProgress, papers, reviewQueue, challengeState, profile] = await Promise.all([
+  const [scheduleSessions, assignments, assignmentProgress, papers, reviewQueue, challengeState, profile] = await Promise.all([
+    listClassScheduleSessions({ classIds }),
     getAssignmentsByClassIds(classIds),
     getAssignmentProgressByStudent(user.id),
     getExamPapersByClassIds(classIds),
@@ -219,7 +231,73 @@ export const GET = createLearningRoute({
   ]);
 
   const assignmentProgressMap = new Map(assignmentProgress.map((item) => [item.assignmentId, item]));
+  const pendingAssignmentMetaByClass = new Map<string, { count: number; nextTitle?: string; nextDueAt?: string }>();
+  [...assignments]
+    .sort((left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime())
+    .forEach((assignment) => {
+      if (assignmentProgressMap.get(assignment.id)?.status === "completed") return;
+      const current = pendingAssignmentMetaByClass.get(assignment.classId) ?? { count: 0 };
+      pendingAssignmentMetaByClass.set(assignment.classId, {
+        count: current.count + 1,
+        nextTitle: current.nextTitle ?? assignment.title,
+        nextDueAt: current.nextDueAt ?? assignment.dueDate
+      });
+    });
+
+  const todayDate = new Date();
+  const todayWeekday = getWeekdayFromDate(todayDate);
+  const todayDateKey = getDateKey(todayDate);
   const tasks: TodayTask[] = [];
+
+  scheduleSessions
+    .filter((session) => session.weekday === todayWeekday)
+    .map((session) => {
+      const startAt = combineDateAndTime(todayDateKey, session.startTime).toISOString();
+      const endAt = combineDateAndTime(todayDateKey, session.endTime).toISOString();
+      return { session, startAt, endAt };
+    })
+    .filter((item) => (toTimestamp(item.endAt) ?? 0) >= nowTs)
+    .sort((left, right) => new Date(left.startAt).getTime() - new Date(right.startAt).getTime())
+    .forEach(({ session, startAt, endAt }) => {
+      const klass = classMap.get(session.classId);
+      const subject = klass?.subject ?? "math";
+      const status = resolveLessonTaskStatus(startAt, endAt, nowTs, todayEndTs);
+      const pendingMeta = pendingAssignmentMetaByClass.get(session.classId);
+      const tags = ["课程表", SUBJECT_LABELS[subject] ?? subject];
+      if (session.slotLabel) {
+        tags.push(session.slotLabel);
+      }
+
+      const descriptionParts = [
+        `${klass?.name ?? "班级"} · ${session.startTime}-${session.endTime}`,
+        session.room ? `教室 ${session.room}` : null,
+        session.focusSummary ? `课堂焦点 ${session.focusSummary}` : null,
+        pendingMeta?.nextTitle ? `关联作业 ${pendingMeta.nextTitle}` : null
+      ].filter(Boolean);
+
+      tasks.push(
+        buildTask({
+          id: `lesson-${session.id}-${todayDateKey}`,
+          source: "lesson",
+          sourceId: session.id,
+          title: `课程提醒：${klass?.name ?? "班级课程"}`,
+          description: descriptionParts.join(" · "),
+          href: "/calendar",
+          status,
+          dueAt: startAt,
+          tags,
+          recommendedReason:
+            status === "in_progress"
+              ? "当前已进入上课时段，建议先聚焦课堂任务"
+              : pendingMeta?.count
+                ? "上课前先确认课堂焦点和关联作业，减少临时切换"
+                : "固定课程会影响今天时间分配，建议提前预习和准备物品",
+          nowTs,
+          targetCountHint: pendingMeta?.count ? 1 : undefined,
+          isInProgress: status === "in_progress"
+        })
+      );
+    });
 
   assignments.forEach((assignment) => {
     const progress = assignmentProgressMap.get(assignment.id);
@@ -442,7 +520,8 @@ export const GET = createLearningRoute({
     exam: 0,
     wrongReview: 0,
     plan: 0,
-    challenge: 0
+    challenge: 0,
+    lesson: 0
   };
 
   sortedTasks.forEach((item) => {
@@ -451,6 +530,7 @@ export const GET = createLearningRoute({
     if (item.source === "wrong_review") bySource.wrongReview += 1;
     if (item.source === "plan") bySource.plan += 1;
     if (item.source === "challenge") bySource.challenge += 1;
+    if (item.source === "lesson") bySource.lesson += 1;
   });
 
   return {

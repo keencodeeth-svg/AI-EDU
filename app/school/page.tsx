@@ -132,11 +132,14 @@ export default function SchoolPage() {
       <div className="section-head">
         <div>
           <h2>学校控制台</h2>
-          <div className="section-sub">统一查看学校组织运行、班级执行与成员状态，并给出优先整改动作。</div>
+          <div className="section-sub">统一查看学校组织运行、班级执行、课程表覆盖与成员状态，并给出优先整改动作。</div>
         </div>
         <div className="cta-row no-margin" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
           <span className="chip">School Admin</span>
+          <Link className="button ghost" href="/school/schedules">
+            课程表管理
+          </Link>
           <button className="button secondary" type="button" onClick={() => void loadAll("refresh")} disabled={loading || refreshing}>
             {refreshing ? "刷新中..." : "刷新"}
           </button>
@@ -166,9 +169,12 @@ export default function SchoolPage() {
         <div className="grid grid-3">
           <Stat label="教师覆盖率" value={`${overview.teacherCoverageRate}%`} helper={`${overview.classesWithoutTeacherCount} 个班级待绑定`} />
           <Stat label="作业覆盖率" value={`${overview.assignmentCoverageRate}%`} helper={`${overview.classesWithoutAssignmentsCount} 个班级未开始`} />
+          <Stat label="课表覆盖率" value={`${overview.scheduleCoverageRate}%`} helper={`${overview.classesWithoutSchedulesCount} 个班级待排课`} />
           <Stat label="平均班级人数" value={String(overview.averageStudentsPerClass)} helper={`${overview.classesWithoutStudentsCount} 个空班级`} />
           <Stat label="平均班级作业" value={String(overview.averageAssignmentsPerClass)} helper="按当前班级均值" />
+          <Stat label="平均每班课时" value={String(overview.averageLessonsPerWeek)} helper="按周估算" />
           <Stat label="未绑定教师班级" value={String(overview.classesWithoutTeacherCount)} helper="组织风险" />
+          <Stat label="未排课班级" value={String(overview.classesWithoutSchedulesCount)} helper="直接影响学生主页" />
           <Stat label="空班级数" value={String(overview.classesWithoutStudentsCount)} helper="需要补员" />
         </div>
       </Card>
@@ -211,7 +217,7 @@ export default function SchoolPage() {
                 <div className="card" key={item.id}>
                   <div className="section-title">{item.name}</div>
                   <div style={{ fontSize: 13, color: "var(--ink-1)", marginTop: 4 }}>
-                    {item.subject} · {item.grade} 年级 · {item.studentCount} 人 · {item.assignmentCount} 份作业
+                    {item.subject} · {item.grade} 年级 · {item.studentCount} 人 · {item.assignmentCount} 份作业 · {item.scheduleCount} 节/周 · {item.scheduleCount} 节/周
                   </div>
                   <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
                     教师：{item.teacherName ?? item.teacherId ?? "未绑定"}
@@ -254,9 +260,14 @@ export default function SchoolPage() {
             ))}
             {!classPreview.length ? <StatePanel title="暂无班级数据" description="当前学校还没有班级记录。" tone="empty" compact /> : null}
           </div>
-          <Link className="button secondary" href="/school/classes" style={{ marginTop: 12 }}>
-            查看全部班级
-          </Link>
+          <div className="cta-row" style={{ marginTop: 12 }}>
+            <Link className="button secondary" href="/school/classes">
+              查看全部班级
+            </Link>
+            <Link className="button ghost" href="/school/schedules">
+              进入课程表管理
+            </Link>
+          </div>
         </Card>
 
         <Card title="成员快照" tag="成员">

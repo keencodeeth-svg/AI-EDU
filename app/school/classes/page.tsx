@@ -9,7 +9,7 @@ import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } fr
 import type { SchoolClassRecord } from "@/lib/school-admin-types";
 
 type SchoolClassesResponse = { data?: SchoolClassRecord[] };
-type ClassStatusFilter = "all" | "teacher_gap" | "empty" | "no_assignments" | "overloaded" | "healthy";
+type ClassStatusFilter = "all" | "teacher_gap" | "empty" | "no_assignments" | "no_schedule" | "overloaded" | "healthy";
 
 const fieldStyle = {
   width: "100%",
@@ -24,6 +24,7 @@ function getClassIssueTags(item: SchoolClassRecord) {
   const tags: string[] = [];
   if (!item.teacherId) tags.push("待绑定教师");
   if (item.studentCount === 0) tags.push("暂无学生");
+  if (item.scheduleCount === 0) tags.push("未排课程表");
   if (item.assignmentCount === 0) tags.push("未布置作业");
   if (item.studentCount >= 45) tags.push("人数偏高");
   return tags;
@@ -83,6 +84,7 @@ export default function SchoolClassesPage() {
       if (statusFilter === "teacher_gap" && item.teacherId) return false;
       if (statusFilter === "empty" && item.studentCount > 0) return false;
       if (statusFilter === "no_assignments" && item.assignmentCount > 0) return false;
+      if (statusFilter === "no_schedule" && item.scheduleCount > 0) return false;
       if (statusFilter === "overloaded" && item.studentCount < 45) return false;
       if (statusFilter === "healthy" && issueTags.length > 0) return false;
       if (!keywordLower) return true;
@@ -96,6 +98,7 @@ export default function SchoolClassesPage() {
   const teacherGapCount = useMemo(() => classes.filter((item) => !item.teacherId).length, [classes]);
   const emptyCount = useMemo(() => classes.filter((item) => item.studentCount === 0).length, [classes]);
   const noAssignmentCount = useMemo(() => classes.filter((item) => item.assignmentCount === 0).length, [classes]);
+  const noScheduleCount = useMemo(() => classes.filter((item) => item.scheduleCount === 0).length, [classes]);
 
   if (loading && !classes.length && !authRequired) {
     return <StatePanel title="学校班级加载中" description="正在汇总学校班级结构与执行状态。" tone="loading" />;
@@ -136,11 +139,14 @@ export default function SchoolClassesPage() {
       <div className="section-head">
         <div>
           <h2>学校班级</h2>
-          <div className="section-sub">统一查看班级结构、教师绑定、学生规模和作业覆盖状态。</div>
+          <div className="section-sub">统一查看班级结构、教师绑定、学生规模、课程表覆盖和作业执行状态。</div>
         </div>
         <div className="cta-row no-margin" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
           <span className="chip">Classes</span>
+          <Link className="button ghost" href="/school/schedules">
+            课程表管理
+          </Link>
           <button className="button secondary" type="button" onClick={() => void loadClasses("refresh")} disabled={loading || refreshing}>
             {refreshing ? "刷新中..." : "刷新"}
           </button>
@@ -154,9 +160,11 @@ export default function SchoolClassesPage() {
           <Stat label="班级总数" value={String(classes.length)} helper={`当前筛选 ${filteredClasses.length} 个`} />
           <Stat label="待绑定教师" value={String(teacherGapCount)} helper="优先补齐负责人" />
           <Stat label="空班级" value={String(emptyCount)} helper="需要补员或清理" />
+          <Stat label="未排课程表" value={String(noScheduleCount)} helper="优先补齐首课" />
           <Stat label="未布置作业" value={String(noAssignmentCount)} helper="教学覆盖不足" />
           <Stat label="高负载班级" value={String(classes.filter((item) => item.studentCount >= 45).length)} helper="重点巡检" />
           <Stat label="平均每班作业" value={String(classes.length ? Math.round((classes.reduce((sum, item) => sum + item.assignmentCount, 0) / classes.length) * 10) / 10 : 0)} helper="按当前学校班级计算" />
+          <Stat label="平均每班课时" value={String(classes.length ? Math.round((classes.reduce((sum, item) => sum + item.scheduleCount, 0) / classes.length) * 10) / 10 : 0)} helper="按周估算" />
         </div>
       </Card>
 
@@ -190,6 +198,7 @@ export default function SchoolClassesPage() {
               <option value="teacher_gap">待绑定教师</option>
               <option value="empty">暂无学生</option>
               <option value="no_assignments">未布置作业</option>
+              <option value="no_schedule">未排课程表</option>
               <option value="overloaded">人数偏高</option>
               <option value="healthy">运行稳定</option>
             </select>
@@ -213,7 +222,7 @@ export default function SchoolClassesPage() {
                     <div>
                       <div className="section-title">{item.name}</div>
                       <div style={{ fontSize: 13, color: "var(--ink-1)", marginTop: 4 }}>
-                        {item.subject} · {item.grade} 年级 · {item.studentCount} 人 · {item.assignmentCount} 份作业
+                        {item.subject} · {item.grade} 年级 · {item.studentCount} 人 · {item.assignmentCount} 份作业 · {item.scheduleCount} 节/周
                       </div>
                       <div style={{ fontSize: 12, color: "var(--ink-1)", marginTop: 4 }}>
                         教师：{item.teacherName ?? item.teacherId ?? "未绑定"} · 创建于 {formatLoadedTime(item.createdAt)}
@@ -222,6 +231,7 @@ export default function SchoolClassesPage() {
                     <span className="pill">{issueTags.length ? `${issueTags.length} 项待跟进` : "运行稳定"}</span>
                   </div>
                   <div className="cta-row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                    <span className="pill">{item.scheduleCount ? `已排 ${item.scheduleCount} 节/周` : "待排首课"}</span>
                     {issueTags.length ? issueTags.map((tag) => <span className="pill" key={`${item.id}-${tag}`}>{tag}</span>) : <span className="pill">教师已绑定</span>}
                   </div>
                 </div>

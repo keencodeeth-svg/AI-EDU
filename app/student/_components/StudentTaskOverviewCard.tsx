@@ -31,6 +31,7 @@ export default function StudentTaskOverviewCard({
       <div className="badge-row summary-badges">
         <span className="badge">逾期 {todayTasks?.summary?.overdue ?? 0}</span>
         <span className="badge">今日到期 {todayTasks?.summary?.dueToday ?? 0}</span>
+        <span className="badge">课程提醒 {todayTasks?.summary?.bySource?.lesson ?? 0}</span>
         <span className="badge">计划题量 {totalPlanCount}</span>
         <span className="badge">薄弱知识点 {weakPlanCount}</span>
         <span className="badge">复练任务 {todayTasks?.summary?.bySource?.wrongReview ?? 0}</span>

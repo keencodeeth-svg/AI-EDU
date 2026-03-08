@@ -61,7 +61,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             { href: "/discussions", label: "讨论区" },
             { href: "/files", label: "文件中心" },
             { href: "/inbox", label: "收件箱" },
-            { href: "/calendar", label: "学习日程" },
+            { href: "/calendar", label: "课程表" },
             { href: "/announcements", label: "班级公告" },
             { href: "/notifications", label: "通知中心" }
           ]
@@ -92,7 +92,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             { href: "/course", label: "课程主页" },
             { href: "/library", label: "教材课件" },
             { href: "/files", label: "文件中心" },
-            { href: "/calendar", label: "教学日程" },
+            { href: "/calendar", label: "教学课表" },
             { href: "/announcements", label: "班级公告" }
           ]
         },
@@ -109,7 +109,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       primary: [
         { href: "/dashboard", label: "家长看板" },
         { href: "/parent", label: "家长端" },
-        { href: "/calendar", label: "学习日程" },
+        { href: "/calendar", label: "课程表" },
         { href: "/notifications", label: "通知中心" }
       ],
       groups: [
@@ -168,6 +168,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       primary: [
         { href: "/school", label: "学校控制台" },
         { href: "/school/classes", label: "学校班级" },
+        { href: "/school/schedules", label: "课程表管理" },
         { href: "/school/teachers", label: "教师管理" },
         { href: "/school/students", label: "学生管理" }
       ],
@@ -184,6 +185,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           title: "教学协同",
           links: [
             { href: "/dashboard", label: "数据看板" },
+            { href: "/school/schedules", label: "课程表管理" },
             { href: "/library", label: "教材课件" }
           ]
         }
