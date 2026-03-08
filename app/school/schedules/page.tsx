@@ -7,7 +7,7 @@ import StatePanel from "@/components/StatePanel";
 import Stat from "@/components/Stat";
 import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } from "@/lib/client-request";
 import type { ClassScheduleSession } from "@/lib/class-schedules";
-import type { SchoolClassRecord } from "@/lib/school-admin-types";
+import type { SchoolClassRecord, SchoolUserRecord } from "@/lib/school-admin-types";
 import type { SchoolScheduleTemplate } from "@/lib/school-schedule-templates";
 import type { TeacherUnavailableSlot } from "@/lib/teacher-unavailability";
 
@@ -90,6 +90,7 @@ type AiScheduleResponse = {
 
 type ScheduleTemplateResponse = { data?: SchoolScheduleTemplate[] };
 type TeacherUnavailableResponse = { data?: TeacherUnavailableSlot[] };
+type SchoolUsersResponse = { data?: SchoolUserRecord[] };
 
 type TemplateFormState = {
   id?: string;
@@ -230,6 +231,7 @@ export default function SchoolSchedulesPage() {
   const [aiResult, setAiResult] = useState<AiScheduleResponse["data"] | null>(null);
   const [templates, setTemplates] = useState<SchoolScheduleTemplate[]>([]);
   const [teacherUnavailableSlots, setTeacherUnavailableSlots] = useState<TeacherUnavailableSlot[]>([]);
+  const [teachers, setTeachers] = useState<SchoolUserRecord[]>([]);
   const [templateForm, setTemplateForm] = useState<TemplateFormState>(DEFAULT_TEMPLATE_FORM);
   const [templateSaving, setTemplateSaving] = useState(false);
   const [templateDeletingId, setTemplateDeletingId] = useState<string | null>(null);
@@ -250,16 +252,18 @@ export default function SchoolSchedulesPage() {
     setPageError(null);
 
     try {
-      const [payload, templatesPayload, teacherUnavailablePayload] = await Promise.all([
+      const [payload, templatesPayload, teacherUnavailablePayload, teachersPayload] = await Promise.all([
         requestJson<SchoolSchedulesResponse>("/api/school/schedules"),
         requestJson<ScheduleTemplateResponse>("/api/school/schedules/templates"),
-        requestJson<TeacherUnavailableResponse>("/api/school/schedules/teacher-unavailability")
+        requestJson<TeacherUnavailableResponse>("/api/school/schedules/teacher-unavailability"),
+        requestJson<SchoolUsersResponse>("/api/school/users?role=teacher")
       ]);
       setClasses(payload.data?.classes ?? []);
       setSessions(payload.data?.sessions ?? []);
       setSummary(payload.data?.summary ?? null);
       setTemplates(templatesPayload.data ?? []);
       setTeacherUnavailableSlots(teacherUnavailablePayload.data ?? []);
+      setTeachers(teachersPayload.data ?? []);
       setAuthRequired(false);
       setLastLoadedAt(new Date().toISOString());
       if (payload.data?.classes?.[0]?.id) {
@@ -276,6 +280,7 @@ export default function SchoolSchedulesPage() {
         setSummary(null);
         setTemplates([]);
         setTeacherUnavailableSlots([]);
+        setTeachers([]);
       } else {
         setPageError(getRequestErrorMessage(error, "加载课程表管理失败"));
       }
@@ -303,12 +308,15 @@ export default function SchoolSchedulesPage() {
 
   const teacherOptions = useMemo(() => {
     const map = new Map<string, { id: string; name: string }>();
+    teachers.forEach((item) => {
+      map.set(item.id, { id: item.id, name: item.name || item.email || item.id });
+    });
     classes.forEach((item) => {
-      if (!item.teacherId) return;
+      if (!item.teacherId || map.has(item.teacherId)) return;
       map.set(item.teacherId, { id: item.teacherId, name: item.teacherName ?? item.teacherId });
     });
     return Array.from(map.values()).sort((left, right) => left.name.localeCompare(right.name, "zh-CN"));
-  }, [classes]);
+  }, [classes, teachers]);
 
   const gradeOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.grade))).sort((left, right) => Number(left) - Number(right)), [classes]);
   const subjectOptions = useMemo(() => Array.from(new Set(classes.map((item) => item.subject))).sort((left, right) => left.localeCompare(right, "zh-CN")), [classes]);
@@ -1041,7 +1049,7 @@ export default function SchoolSchedulesPage() {
 
         <Card title="教师禁排时段" tag="约束">
           <div className="grid" style={{ gap: 12 }}>
-            <div className="section-sub">配置教师固定禁排窗口，AI 排课和手动新建节次都会自动避开这些时间。</div>
+            <div className="section-sub">配置教师固定禁排窗口，AI 排课和手动新建节次都会自动避开这些时间；教师列表优先取全校教师账号。</div>
             <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
               <label style={{ display: "grid", gap: 6 }}>
                 <span className="section-sub">教师</span>
