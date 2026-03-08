@@ -41,6 +41,9 @@ export async function runAdminContentSuite(context) {
   const seededRecoveryItem = (recoveryWorkbench.body?.data?.items ?? []).find((item) => item.id === recoveryTicketId);
   assert.ok(seededRecoveryItem, "Recovery workbench should include the seeded ticket");
   assert.equal(seededRecoveryItem.status, "pending", "New recovery ticket should start as pending");
+  assert.equal(seededRecoveryItem.priority, "high", "Forgot-account recovery should surface as high priority");
+  assert.equal(seededRecoveryItem.slaState, "healthy", "Fresh recovery ticket should start within SLA");
+  assert.equal(typeof seededRecoveryItem.nextActionLabel, "string", "Recovery workbench should expose nextActionLabel");
 
   const startRecovery = await apiFetch(`/api/admin/recovery-requests/${recoveryTicketId}`, {
     method: "POST",
@@ -70,6 +73,7 @@ export async function runAdminContentSuite(context) {
   assert.equal(resolveRecovery.status, 200, `Resolving recovery ticket failed: ${resolveRecovery.raw}`);
   assert.equal(resolveRecovery.body?.data?.status, "resolved", "Recovery ticket should be resolved");
   assert.ok(resolveRecovery.body?.data?.handledByAdminId, "Resolved recovery ticket should record handledByAdminId");
+  assert.equal(resolveRecovery.body?.data?.slaState, "closed", "Resolved recovery ticket should exit SLA tracking");
 
   const resolvedRecoveryList = await apiFetch(`/api/admin/recovery-requests?status=resolved&query=${encodeURIComponent(recoverySeedEmail)}`);
   assert.equal(resolvedRecoveryList.status, 200, `Resolved recovery list failed: ${resolvedRecoveryList.raw}`);

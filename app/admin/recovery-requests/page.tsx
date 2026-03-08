@@ -8,6 +8,8 @@ import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } fr
 type RecoveryRole = "student" | "teacher" | "parent" | "admin" | "school_admin";
 type RecoveryIssueType = "forgot_password" | "forgot_account" | "account_locked";
 type RecoveryStatus = "pending" | "in_progress" | "resolved" | "rejected";
+type RecoveryPriority = "urgent" | "high" | "normal";
+type RecoverySlaState = "healthy" | "at_risk" | "overdue" | "closed";
 type RecoveryFilterStatus = RecoveryStatus | "all";
 
 type RecoveryItem = {
@@ -29,6 +31,12 @@ type RecoveryItem = {
   adminNote?: string;
   isOverdue: boolean;
   waitingHours: number;
+  priority: RecoveryPriority;
+  priorityReason: string;
+  slaState: RecoverySlaState;
+  targetBy: string | null;
+  nextActionLabel: string;
+  isUnassigned: boolean;
 };
 
 type RecoverySummary = {
@@ -38,6 +46,9 @@ type RecoverySummary = {
   resolved: number;
   rejected: number;
   overdue: number;
+  urgent: number;
+  highPriority: number;
+  unassigned: number;
 };
 
 type RecoveryListResponse = {
@@ -88,6 +99,25 @@ const statusTones: Record<RecoveryStatus, "info" | "success" | "error"> = {
   rejected: "error"
 };
 
+const priorityLabels: Record<RecoveryPriority, string> = {
+  urgent: "紧急",
+  high: "高优先",
+  normal: "常规"
+};
+
+const slaLabels: Record<RecoverySlaState, string> = {
+  healthy: "SLA 充足",
+  at_risk: "SLA 临近",
+  overdue: "SLA 超时",
+  closed: "已闭环"
+};
+
+const priorityTones: Record<RecoveryPriority, "error" | "info" | "success"> = {
+  urgent: "error",
+  high: "info",
+  normal: "success"
+};
+
 function formatWaitingHours(value: number) {
   if (value < 1) {
     return `${Math.max(1, Math.round(value * 60))} 分钟`;
@@ -96,6 +126,11 @@ function formatWaitingHours(value: number) {
     return `${Math.round(value)} 小时`;
   }
   return `${value.toFixed(1)} 小时`;
+}
+
+function formatTargetBy(value: string | null) {
+  if (!value) return "--";
+  return formatLoadedTime(value);
 }
 
 export default function AdminRecoveryRequestsPage() {
@@ -213,11 +248,26 @@ export default function AdminRecoveryRequestsPage() {
           <span className="pill">总工单 {summary?.total ?? items.length}</span>
           <span className="pill">待处理 {summary?.pending ?? 0}</span>
           <span className="pill">处理中 {summary?.inProgress ?? 0}</span>
-          <span className="pill">已解决 {summary?.resolved ?? 0}</span>
-          <span className="pill">无法核验 {summary?.rejected ?? 0}</span>
+          <span className="pill">紧急 {summary?.urgent ?? 0}</span>
+          <span className="pill">高优先 {summary?.highPriority ?? 0}</span>
+          <span className="pill">未接单 {summary?.unassigned ?? 0}</span>
           <span className="pill">超 SLA {summary?.overdue ?? 0}</span>
         </div>
       </Card>
+
+      {!loading && !pageError && (summary?.overdue ?? 0) > 0 ? (
+        <StatePanel
+          tone="error"
+          title={`当前有 ${summary?.overdue ?? 0} 条恢复工单超出 SLA`}
+          description="请优先处理超时与账号锁定类工单，避免持续影响用户登录与账号找回。"
+        />
+      ) : !loading && !pageError && ((summary?.urgent ?? 0) > 0 || (summary?.highPriority ?? 0) > 0) ? (
+        <StatePanel
+          tone="info"
+          title={`优先队列：紧急 ${summary?.urgent ?? 0} 条，高优先 ${summary?.highPriority ?? 0} 条`}
+          description="列表已按优先级、状态与等待时长自动排序，建议从上往下处理。"
+        />
+      ) : null}
 
       {pageError && items.length ? <div className="status-note error">最新刷新失败：{pageError}</div> : null}
 
@@ -277,6 +327,7 @@ export default function AdminRecoveryRequestsPage() {
               </div>
 
               {appliedQuery ? <div className="status-note info">当前搜索：{appliedQuery}</div> : null}
+              <div className="status-note info">当前列表已按优先级、接单状态和等待时长自动排序。</div>
 
               {!items.length ? (
                 <StatePanel
@@ -320,18 +371,25 @@ export default function AdminRecoveryRequestsPage() {
                           <div className="section-title">{item.name || item.email}</div>
                           <div style={{ fontSize: 13, color: "var(--ink-1)" }}>{item.email}</div>
                         </div>
-                        <span className={`status-note ${statusTones[item.status]}`} style={{ margin: 0 }}>
-                          {statusLabels[item.status]}
-                        </span>
+                        <div style={{ display: "grid", gap: 6, justifyItems: "end" }}>
+                          <span className={`status-note ${statusTones[item.status]}`} style={{ margin: 0 }}>
+                            {statusLabels[item.status]}
+                          </span>
+                          <span className={`status-note ${priorityTones[item.priority]}`} style={{ margin: 0 }}>
+                            {priorityLabels[item.priority]}
+                          </span>
+                        </div>
                       </div>
                       <div className="pill-list" style={{ marginTop: 10 }}>
                         <span className="pill">{roleLabels[item.role]}</span>
                         <span className="pill">{issueLabels[item.issueType]}</span>
-                        {item.isOverdue ? <span className="pill">超 SLA</span> : null}
+                        <span className="pill">{slaLabels[item.slaState]}</span>
+                        {item.isUnassigned ? <span className="pill">待接单</span> : null}
                       </div>
                       <div style={{ marginTop: 10, fontSize: 12, color: "var(--ink-1)" }}>
                         提交于 {formatLoadedTime(item.createdAt)} · 等待 {formatWaitingHours(item.waitingHours)}
                       </div>
+                      <div style={{ marginTop: 8, color: "var(--ink-1)", fontSize: 13 }}>{item.priorityReason}</div>
                       {item.note ? <div style={{ marginTop: 8, color: "var(--ink-1)", fontSize: 13 }}>{item.note}</div> : null}
                     </button>
                   ))}
@@ -350,6 +408,8 @@ export default function AdminRecoveryRequestsPage() {
                   <span className="pill">{roleLabels[selectedItem.role]}</span>
                   <span className="pill">{issueLabels[selectedItem.issueType]}</span>
                   <span className="pill">{statusLabels[selectedItem.status]}</span>
+                  <span className="pill">{priorityLabels[selectedItem.priority]}</span>
+                  <span className="pill">{slaLabels[selectedItem.slaState]}</span>
                 </div>
 
                 <div className="grid" style={{ gap: 8 }}>
@@ -360,8 +420,11 @@ export default function AdminRecoveryRequestsPage() {
                   <div><strong>账号匹配：</strong>{selectedItem.matchedUserId ? `${selectedItem.matchedUserRole || "用户"} / ${selectedItem.matchedUserId}` : "未匹配到现有账号"}</div>
                   <div><strong>提交时间：</strong>{formatLoadedTime(selectedItem.createdAt)}</div>
                   <div><strong>最近处理：</strong>{selectedItem.handledAt ? `${formatLoadedTime(selectedItem.handledAt)} · ${selectedItem.handledByAdminId ?? "--"}` : "尚未处理"}</div>
+                  <div><strong>SLA 截止：</strong>{formatTargetBy(selectedItem.targetBy)}</div>
+                  <div><strong>下一步动作：</strong>{selectedItem.nextActionLabel}</div>
                 </div>
 
+                <div className={`status-note ${priorityTones[selectedItem.priority]}`}>优先级判断：{selectedItem.priorityReason}</div>
                 {selectedItem.note ? <div className="status-note info">用户说明：{selectedItem.note}</div> : null}
                 {selectedItem.isOverdue ? <div className="status-note error">该工单已超过 1 个工作日 SLA，建议优先处理。</div> : null}
                 {actionMessage ? <div className="status-note success">{actionMessage}</div> : null}
@@ -391,7 +454,7 @@ export default function AdminRecoveryRequestsPage() {
                     </button>
                   ) : null}
                   {selectedItem.status !== "rejected" ? (
-                    <button className="button secondary" type="button" onClick={() => void performAction("rejected")} disabled={actingStatus !== null}>
+                    <button className="button secondary" type="button" onClick={() => void performAction("rejected")} disabled={actingStatus !== null || !actionNote.trim()}>
                       {actingStatus === "rejected" ? "提交中..." : "标记无法核验"}
                     </button>
                   ) : null}

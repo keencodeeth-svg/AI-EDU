@@ -4,6 +4,8 @@ import { getUserByEmail } from "./auth";
 export type AccountRecoveryRole = "student" | "teacher" | "parent" | "admin" | "school_admin";
 export type AccountRecoveryIssueType = "forgot_password" | "forgot_account" | "account_locked";
 export type AccountRecoveryRequestStatus = "pending" | "in_progress" | "resolved" | "rejected";
+export type AccountRecoveryPriority = "urgent" | "high" | "normal";
+export type AccountRecoverySlaState = "healthy" | "at_risk" | "overdue" | "closed";
 
 export type AccountRecoveryRequestInput = {
   role: AccountRecoveryRole;
@@ -52,6 +54,12 @@ export type AccountRecoveryRecord = {
   adminNote?: string;
   isOverdue: boolean;
   waitingHours: number;
+  priority: AccountRecoveryPriority;
+  priorityReason: string;
+  slaState: AccountRecoverySlaState;
+  targetBy: string | null;
+  nextActionLabel: string;
+  isUnassigned: boolean;
 };
 
 export type AccountRecoverySummary = {
@@ -61,6 +69,9 @@ export type AccountRecoverySummary = {
   resolved: number;
   rejected: number;
   overdue: number;
+  urgent: number;
+  highPriority: number;
+  unassigned: number;
 };
 
 export type AccountRecoveryListResult = {
@@ -99,6 +110,80 @@ function getWaitingHours(createdAt: string) {
   return Math.max(0, (Date.now() - createdTs) / (60 * 60 * 1000));
 }
 
+function getTargetBy(createdAt: string) {
+  const createdTs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdTs)) return null;
+  return new Date(createdTs + RECOVERY_SLA_MS).toISOString();
+}
+
+function getPriorityMeta(input: {
+  status: AccountRecoveryRequestStatus;
+  issueType: AccountRecoveryIssueType;
+  matchedUserId?: string | null;
+  waitingHours: number;
+}) {
+  const { status, issueType, matchedUserId, waitingHours } = input;
+  const isClosed = status === "resolved" || status === "rejected";
+  if (isClosed) {
+    return {
+      priority: "normal" as const,
+      priorityReason: "工单已闭环，可用于抽查复盘。",
+      slaState: "closed" as const,
+      nextActionLabel: status === "resolved" ? "已解决，无需继续处理" : "等待用户补充资料后再开单"
+    };
+  }
+  if (waitingHours >= RECOVERY_SLA_MS / (60 * 60 * 1000)) {
+    return {
+      priority: "urgent" as const,
+      priorityReason: "已超出 1 个工作日处理时效，需要优先处理。",
+      slaState: "overdue" as const,
+      nextActionLabel: "立即接单并完成核验回访"
+    };
+  }
+  if (issueType === "account_locked") {
+    return {
+      priority: "urgent" as const,
+      priorityReason: "账号被锁定会直接阻塞登录，建议优先解封。",
+      slaState: waitingHours >= 12 ? "at_risk" as const : "healthy" as const,
+      nextActionLabel: "优先核验锁定原因并通知用户恢复登录"
+    };
+  }
+  if (waitingHours >= 12) {
+    return {
+      priority: "high" as const,
+      priorityReason: "已接近 1 个工作日 SLA，建议前置处理。",
+      slaState: "at_risk" as const,
+      nextActionLabel: "尽快接单，避免工单超时"
+    };
+  }
+  if (issueType === "forgot_account" || !matchedUserId) {
+    return {
+      priority: "high" as const,
+      priorityReason: "需要人工核验账号信息，处理复杂度更高。",
+      slaState: "healthy" as const,
+      nextActionLabel: "联系用户核验账号身份信息"
+    };
+  }
+  return {
+    priority: "normal" as const,
+    priorityReason: "按常规恢复流程处理即可。",
+    slaState: "healthy" as const,
+    nextActionLabel: status === "pending" ? "尽快开始核验并回填备注" : "完成核验并通知用户处理结果"
+  };
+}
+
+function getPriorityRank(priority: AccountRecoveryPriority) {
+  if (priority === "urgent") return 3;
+  if (priority === "high") return 2;
+  return 1;
+}
+
+function getStatusRank(status: AccountRecoveryRequestStatus) {
+  if (status === "pending") return 2;
+  if (status === "in_progress") return 1;
+  return 0;
+}
+
 function buildRecoveryRecord(log: AdminLog): AccountRecoveryRecord | null {
   const detail = parseRecoveryDetail(log.detail);
   if (!detail) return null;
@@ -106,6 +191,13 @@ function buildRecoveryRecord(log: AdminLog): AccountRecoveryRecord | null {
   const status = normalizeStatus(detail.status);
   const waitingHours = getWaitingHours(log.createdAt);
   const isClosed = status === "resolved" || status === "rejected";
+  const targetBy = getTargetBy(log.createdAt);
+  const priorityMeta = getPriorityMeta({
+    status,
+    issueType: detail.issueType,
+    matchedUserId: detail.matchedUserId ?? null,
+    waitingHours
+  });
 
   return {
     id: log.id,
@@ -125,7 +217,13 @@ function buildRecoveryRecord(log: AdminLog): AccountRecoveryRecord | null {
     handledAt: detail.handledAt ?? null,
     adminNote: detail.adminNote?.trim() || undefined,
     isOverdue: !isClosed && waitingHours >= RECOVERY_SLA_MS / (60 * 60 * 1000),
-    waitingHours: Number(waitingHours.toFixed(1))
+    waitingHours: Number(waitingHours.toFixed(1)),
+    priority: priorityMeta.priority,
+    priorityReason: priorityMeta.priorityReason,
+    slaState: priorityMeta.slaState,
+    targetBy,
+    nextActionLabel: priorityMeta.nextActionLabel,
+    isUnassigned: !isClosed && !detail.handledByAdminId
   };
 }
 
@@ -158,6 +256,9 @@ function buildSummary(items: AccountRecoveryRecord[]): AccountRecoverySummary {
       if (item.status === "resolved") summary.resolved += 1;
       if (item.status === "rejected") summary.rejected += 1;
       if (item.isOverdue) summary.overdue += 1;
+      if (item.priority === "urgent") summary.urgent += 1;
+      if (item.priority === "high") summary.highPriority += 1;
+      if (item.isUnassigned) summary.unassigned += 1;
       return summary;
     },
     {
@@ -166,7 +267,10 @@ function buildSummary(items: AccountRecoveryRecord[]): AccountRecoverySummary {
       inProgress: 0,
       resolved: 0,
       rejected: 0,
-      overdue: 0
+      overdue: 0,
+      urgent: 0,
+      highPriority: 0,
+      unassigned: 0
     }
   );
 }
@@ -242,7 +346,12 @@ export async function listAccountRecoveryRequests(options: {
     .filter((item) => item.action === "auth_recovery_request" && item.entityType === "auth_recovery")
     .map((item) => buildRecoveryRecord(item))
     .filter(Boolean)
-    .sort((a, b) => new Date(b!.createdAt).getTime() - new Date(a!.createdAt).getTime()) as AccountRecoveryRecord[];
+    .sort((a, b) =>
+      getPriorityRank(b!.priority) - getPriorityRank(a!.priority) ||
+      getStatusRank(b!.status) - getStatusRank(a!.status) ||
+      b!.waitingHours - a!.waitingHours ||
+      new Date(b!.createdAt).getTime() - new Date(a!.createdAt).getTime()
+    ) as AccountRecoveryRecord[];
 
   const filteredItems = allItems
     .filter((item) => (options.status ? item.status === options.status : true))
