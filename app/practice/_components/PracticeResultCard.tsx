@@ -8,8 +8,11 @@ type PracticeResultCardProps = {
   explainPack: ExplainPack | null;
   explainLoading: boolean;
   loadingVariants: boolean;
+  questionLoading: boolean;
+  hasVariants: boolean;
   onExplainModeChange: (value: "text" | "visual" | "analogy") => void;
   onLoadVariants: () => void;
+  onLoadNextQuestion: () => void;
 };
 
 export default function PracticeResultCard({
@@ -18,8 +21,11 @@ export default function PracticeResultCard({
   explainPack,
   explainLoading,
   loadingVariants,
+  questionLoading,
+  hasVariants,
   onExplainModeChange,
-  onLoadVariants
+  onLoadVariants,
+  onLoadNextQuestion
 }: PracticeResultCardProps) {
   return (
     <Card title="解析" tag="讲解">
@@ -27,6 +33,11 @@ export default function PracticeResultCard({
       <p className="practice-answer-line">
         正确答案：<MathText text={result.answer} />
       </p>
+      <div className="practice-result-summary">
+        {result.correct
+          ? "这题已经做对了，最好的下一步是趁着状态继续下一题，或者做一组变式巩固。"
+          : "这题先别急着跳过，先看讲解，再做一组变式训练，吸收会更快。"}
+      </div>
       <div className="pill-list practice-metrics-list">
         <span className="pill">掌握度 {result.masteryScore ?? 0}</span>
         <span className="pill">
@@ -42,13 +53,28 @@ export default function PracticeResultCard({
         {typeof result.weaknessRank === "number" ? <span className="pill">薄弱度第 {result.weaknessRank} 位</span> : null}
       </div>
       <div className="cta-row practice-explain-switch">
-        <button className="button secondary" type="button" onClick={() => onExplainModeChange("text")}>
+        <button
+          className={explainMode === "text" ? "button secondary" : "button ghost"}
+          type="button"
+          aria-pressed={explainMode === "text"}
+          onClick={() => onExplainModeChange("text")}
+        >
           文字版
         </button>
-        <button className="button secondary" type="button" onClick={() => onExplainModeChange("visual")}>
+        <button
+          className={explainMode === "visual" ? "button secondary" : "button ghost"}
+          type="button"
+          aria-pressed={explainMode === "visual"}
+          onClick={() => onExplainModeChange("visual")}
+        >
           图解版
         </button>
-        <button className="button secondary" type="button" onClick={() => onExplainModeChange("analogy")}>
+        <button
+          className={explainMode === "analogy" ? "button secondary" : "button ghost"}
+          type="button"
+          aria-pressed={explainMode === "analogy"}
+          onClick={() => onExplainModeChange("analogy")}
+        >
           类比版
         </button>
       </div>
@@ -56,7 +82,7 @@ export default function PracticeResultCard({
         <summary>AI 讲解内容</summary>
         <div className="practice-collapsible-body">
           {explainLoading ? (
-            <div className="practice-loading-text">解析生成中...</div>
+            <div className="practice-loading-text">解析增强中...</div>
           ) : (
             <MathText as="div" className="explain-content" text={explainPack ? explainPack[explainMode] : result.explanation} showCopyActions />
           )}
@@ -102,9 +128,13 @@ export default function PracticeResultCard({
           </div>
         </details>
       ) : null}
-      <div className="cta-row practice-variant-trigger">
-        <button className="button secondary" type="button" onClick={onLoadVariants}>
-          {loadingVariants ? "生成中..." : "AI 错题讲解 + 变式训练"}
+      {hasVariants ? <div className="practice-info-line">变式训练已生成，继续往下做巩固即可。</div> : null}
+      <div className="cta-row practice-result-next-actions">
+        <button className="button primary" type="button" onClick={onLoadNextQuestion} disabled={questionLoading}>
+          {questionLoading ? "获取中..." : result.correct ? "继续下一题" : "再做一题"}
+        </button>
+        <button className="button secondary" type="button" onClick={onLoadVariants} disabled={loadingVariants || hasVariants}>
+          {loadingVariants ? "生成中..." : hasVariants ? "变式已生成" : result.correct ? "做变式巩固" : "做变式训练"}
         </button>
       </div>
     </Card>

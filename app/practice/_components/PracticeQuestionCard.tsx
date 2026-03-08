@@ -8,6 +8,8 @@ type PracticeQuestionCardProps = {
   favorite: { tags: string[] } | null;
   favoriteLoading: boolean;
   canSubmit: boolean;
+  questionLoading: boolean;
+  submitting: boolean;
   onAnswerChange: (value: string) => void;
   onToggleFavorite: () => void;
   onEditFavoriteTags: () => void;
@@ -21,12 +23,16 @@ export default function PracticeQuestionCard({
   favorite,
   favoriteLoading,
   canSubmit,
+  questionLoading,
+  submitting,
   onAnswerChange,
   onToggleFavorite,
   onEditFavoriteTags,
   onLoadQuestion,
   onSubmit
 }: PracticeQuestionCardProps) {
+  const actionBusy = questionLoading || submitting;
+
   return (
     <Card title="题目" tag="作答">
       <MathText as="p" text={question.stem} showCopyActions />
@@ -37,10 +43,10 @@ export default function PracticeQuestionCard({
         </div>
       ) : null}
       <div className="cta-row practice-favorite-row">
-        <button className="button secondary" type="button" onClick={onToggleFavorite} disabled={favoriteLoading}>
-          {favorite ? "已收藏" : "收藏"}
+        <button className="button secondary" type="button" onClick={onToggleFavorite} disabled={favoriteLoading || actionBusy}>
+          {favoriteLoading ? "处理中..." : favorite ? "已收藏" : "收藏"}
         </button>
-        <button className="button secondary" type="button" onClick={onEditFavoriteTags} disabled={!favorite}>
+        <button className="button secondary" type="button" onClick={onEditFavoriteTags} disabled={!favorite || actionBusy}>
           标签
         </button>
         {favorite?.tags?.length ? <div className="practice-tags-line">标签：{favorite.tags.join("、")}</div> : null}
@@ -54,17 +60,21 @@ export default function PracticeQuestionCard({
               name={question.id}
               checked={answer === option}
               onChange={() => onAnswerChange(option)}
+              disabled={actionBusy}
             />
             <MathText text={option} />
           </label>
         ))}
       </div>
+      <div className="practice-choice-status">
+        {answer ? "已选择答案，可以直接提交。" : "先选择一个答案，再提交判题。"}
+      </div>
       <div className="cta-row practice-question-actions">
-        <button className="button secondary" type="button" onClick={onLoadQuestion}>
-          换一题
+        <button className="button secondary" type="button" onClick={onLoadQuestion} disabled={actionBusy}>
+          {questionLoading ? "获取中..." : "换一题"}
         </button>
-        <button className="button primary" type="button" onClick={onSubmit} disabled={!canSubmit}>
-          提交答案
+        <button className="button primary" type="button" onClick={onSubmit} disabled={!canSubmit || actionBusy} aria-busy={submitting}>
+          {submitting ? "判题中..." : "提交答案"}
         </button>
       </div>
     </Card>

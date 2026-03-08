@@ -16,6 +16,12 @@ type PracticeSettingsCardProps = {
   error: string | null;
   autoFixHint: string | null;
   autoFixing: boolean;
+  questionLoading: boolean;
+  submitting: boolean;
+  questionVisible: boolean;
+  resultVisible: boolean;
+  stageTitle: string;
+  stageDescription: string;
   timeLeft: number;
   challengeCount: number;
   challengeCorrect: number;
@@ -41,6 +47,12 @@ export default function PracticeSettingsCard({
   error,
   autoFixHint,
   autoFixing,
+  questionLoading,
+  submitting,
+  questionVisible,
+  resultVisible,
+  stageTitle,
+  stageDescription,
   timeLeft,
   challengeCount,
   challengeCorrect,
@@ -52,8 +64,29 @@ export default function PracticeSettingsCard({
   onLoadQuestion,
   onQuickFix
 }: PracticeSettingsCardProps) {
+  const loadDisabled = autoFixing || questionLoading || submitting;
+  const loadLabel = autoFixing
+    ? "修复中..."
+    : questionLoading
+      ? "获取中..."
+      : submitting
+        ? "判题中..."
+        : resultVisible
+          ? "再来一题"
+          : questionVisible
+            ? "换一题"
+            : mode === "timed"
+              ? "开始限时"
+              : "获取题目";
+
   return (
     <Card title="练习设置" tag="配置">
+      <div className="practice-stage-banner">
+        <div className="practice-stage-kicker">当前阶段</div>
+        <div className="practice-stage-title">{stageTitle}</div>
+        <div className="meta-text" style={{ lineHeight: 1.65 }}>{stageDescription}</div>
+      </div>
+
       <details className="practice-settings-panel">
         <summary>
           设置筛选 · {PRACTICE_MODE_LABELS[mode] ?? "练习模式"} · {selectedKnowledgeTitle}
@@ -120,8 +153,8 @@ export default function PracticeSettingsCard({
             </label>
           </div>
           <div className="meta-note practice-filter-meta">已显示 {filteredKnowledgePointsCount}/{filteredCount} 个知识点</div>
-          <button className="button primary practice-settings-load" type="button" onClick={onLoadQuestion}>
-            {mode === "timed" ? "开始限时" : "获取题目"}
+          <button className="button primary practice-settings-load" type="button" onClick={onLoadQuestion} disabled={loadDisabled} aria-busy={questionLoading || autoFixing}>
+            {loadLabel}
           </button>
         </div>
       </details>
@@ -129,13 +162,13 @@ export default function PracticeSettingsCard({
       {autoFixHint ? <div className="status-note info practice-status-inline">{autoFixHint}</div> : null}
       {error ? (
         <div className="cta-row practice-quickfix-row">
-          <button className="button secondary" type="button" disabled={autoFixing} onClick={() => onQuickFix("clear_filters")}>
+          <button className="button secondary" type="button" disabled={loadDisabled} onClick={() => onQuickFix("clear_filters")}>
             清空筛选并重试
           </button>
-          <button className="button secondary" type="button" disabled={autoFixing} onClick={() => onQuickFix("switch_normal")}>
+          <button className="button secondary" type="button" disabled={loadDisabled} onClick={() => onQuickFix("switch_normal")}>
             切到普通模式重试
           </button>
-          <button className="button ghost" type="button" disabled={autoFixing} onClick={() => onQuickFix("switch_adaptive")}>
+          <button className="button ghost" type="button" disabled={loadDisabled} onClick={() => onQuickFix("switch_adaptive")}>
             切到自适应模式重试
           </button>
         </div>

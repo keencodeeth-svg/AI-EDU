@@ -28,6 +28,8 @@ import { usePracticeGuide } from "./usePracticeGuide";
 export default function PracticePage() {
   const searchParams = useSearchParams();
   const trackedPracticePageView = useRef(false);
+  const questionCardRef = useRef<HTMLDivElement | null>(null);
+  const resultCardRef = useRef<HTMLDivElement | null>(null);
   const [subject, setSubject] = useState("math");
   const [grade, setGrade] = useState("4");
   const [knowledgePoints, setKnowledgePoints] = useState<KnowledgePoint[]>([]);
@@ -42,6 +44,8 @@ export default function PracticePage() {
   const [timeLeft, setTimeLeft] = useState(0);
   const [timerRunning, setTimerRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [questionLoading, setQuestionLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [autoFixing, setAutoFixing] = useState(false);
   const [autoFixHint, setAutoFixHint] = useState<string | null>(null);
   const [variantPack, setVariantPack] = useState<VariantPack | null>(null);
@@ -102,6 +106,7 @@ export default function PracticePage() {
     setQuestion(data.question ?? null);
     setAnswer("");
     setResult(null);
+    setFavorite(null);
     setVariantPack(null);
     setVariantAnswers({});
     setVariantResults({});
@@ -111,12 +116,18 @@ export default function PracticePage() {
   }
 
   async function loadQuestion() {
-    await requestQuestion({
-      subject,
-      grade,
-      knowledgePointId,
-      mode
-    });
+    if (questionLoading || submitting || autoFixing) return;
+    setQuestionLoading(true);
+    try {
+      await requestQuestion({
+        subject,
+        grade,
+        knowledgePointId,
+        mode
+      });
+    } finally {
+      setQuestionLoading(false);
+    }
   }
 
   async function applyPracticeQuickFix(action: PracticeQuickFixAction) {
@@ -156,8 +167,9 @@ export default function PracticePage() {
   }
 
   async function submitAnswer() {
-    if (!question) return;
+    if (!question || !answer || submitting || questionLoading) return;
     const startedAt = Date.now();
+    setSubmitting(true);
     try {
       const res = await fetch("/api/practice/submit", {
         method: "POST",
@@ -228,6 +240,8 @@ export default function PracticePage() {
           durationMs: Date.now() - startedAt
         }
       });
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -389,6 +403,16 @@ export default function PracticePage() {
     loadExplainPack(questionId);
   }, [loadExplainPack, questionId, resultAnswer]);
 
+  useEffect(() => {
+    if (!questionId || questionLoading) return;
+    questionCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [questionId, questionLoading]);
+
+  useEffect(() => {
+    if (!result) return;
+    resultCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [result]);
+
   function resetChallenge() {
     setChallengeCount(0);
     setChallengeCorrect(0);
@@ -400,7 +424,29 @@ export default function PracticePage() {
     return current?.title ?? "全部知识点";
   }, [filtered, knowledgePointId]);
 
-  const canSubmitCurrentQuestion = Boolean(question && answer && !(mode === "timed" && timeLeft === 0));
+  const canSubmitCurrentQuestion = Boolean(question && answer && !result && !(mode === "timed" && timeLeft === 0));
+
+  const stageTitle = result
+    ? result.correct
+      ? "这题已经吃透，继续下一题最省时间"
+      : "先把这题吸收掉，再继续往前推"
+    : questionLoading
+      ? "正在按你的设置准备题目"
+      : question
+        ? "题目已准备好，选答案后就能提交"
+        : "先选模式与知识点，再开始练习";
+
+  const stageDescription = result
+    ? result.correct
+      ? "建议保持答题节奏，继续下一题；如果想更稳，也可以做一组变式巩固。"
+      : "建议先看 AI 讲解，再做变式训练；错题不要急着跳过，吸收后进步更快。"
+    : questionLoading
+      ? "系统会根据当前模式、学科、年级和知识点重新生成更合适的题目。"
+      : question
+        ? "这一步只需要完成一次选择并提交，系统会自动给出解析和掌握度变化。"
+        : "最顺手的练习节奏是：选模式 → 获取题目 → 提交答案 → 看解析 → 做变式训练。";
+
+  const stageBusy = questionLoading || submitting || autoFixing;
 
   function handleModeChange(next: PracticeMode) {
     setMode(next);
@@ -435,56 +481,73 @@ export default function PracticePage() {
 
       <PracticeGuideCard visible={showPracticeGuide} onHide={hidePracticeGuide} onShow={showPracticeGuideAgain} />
 
-      <PracticeSettingsCard
-        subject={subject}
-        grade={grade}
-        mode={mode}
-        knowledgeSearch={knowledgeSearch}
-        knowledgePointId={knowledgePointId}
-        groupedKnowledgePoints={groupedKnowledgePoints}
-        filteredKnowledgePointsCount={filteredKnowledgePoints.length}
-        filteredCount={filtered.length}
-        selectedKnowledgeTitle={selectedKnowledgeTitle}
-        error={error}
-        autoFixHint={autoFixHint}
-        autoFixing={autoFixing}
-        timeLeft={timeLeft}
-        challengeCount={challengeCount}
-        challengeCorrect={challengeCorrect}
-        onSubjectChange={setSubject}
-        onGradeChange={setGrade}
-        onModeChange={handleModeChange}
-        onKnowledgeSearchChange={setKnowledgeSearch}
-        onKnowledgePointChange={setKnowledgePointId}
-        onLoadQuestion={loadQuestion}
-        onQuickFix={applyPracticeQuickFix}
-      />
+      <div id="practice-settings">
+        <PracticeSettingsCard
+          subject={subject}
+          grade={grade}
+          mode={mode}
+          knowledgeSearch={knowledgeSearch}
+          knowledgePointId={knowledgePointId}
+          groupedKnowledgePoints={groupedKnowledgePoints}
+          filteredKnowledgePointsCount={filteredKnowledgePoints.length}
+          filteredCount={filtered.length}
+          selectedKnowledgeTitle={selectedKnowledgeTitle}
+          error={error}
+          autoFixHint={autoFixHint}
+          autoFixing={autoFixing}
+          questionLoading={questionLoading}
+          submitting={submitting}
+          questionVisible={Boolean(question)}
+          resultVisible={Boolean(result)}
+          stageTitle={stageTitle}
+          stageDescription={stageDescription}
+          timeLeft={timeLeft}
+          challengeCount={challengeCount}
+          challengeCorrect={challengeCorrect}
+          onSubjectChange={setSubject}
+          onGradeChange={setGrade}
+          onModeChange={handleModeChange}
+          onKnowledgeSearchChange={setKnowledgeSearch}
+          onKnowledgePointChange={setKnowledgePointId}
+          onLoadQuestion={loadQuestion}
+          onQuickFix={applyPracticeQuickFix}
+        />
+      </div>
 
       {question ? (
-        <PracticeQuestionCard
-          question={question}
-          answer={answer}
-          favorite={favorite}
-          favoriteLoading={favoriteLoading}
-          canSubmit={canSubmitCurrentQuestion}
-          onAnswerChange={setAnswer}
-          onToggleFavorite={toggleFavorite}
-          onEditFavoriteTags={editFavoriteTags}
-          onLoadQuestion={loadQuestion}
-          onSubmit={submitAnswer}
-        />
+        <div id="practice-question" ref={questionCardRef}>
+          <PracticeQuestionCard
+            question={question}
+            answer={answer}
+            favorite={favorite}
+            favoriteLoading={favoriteLoading}
+            canSubmit={canSubmitCurrentQuestion}
+            questionLoading={questionLoading}
+            submitting={submitting}
+            onAnswerChange={setAnswer}
+            onToggleFavorite={toggleFavorite}
+            onEditFavoriteTags={editFavoriteTags}
+            onLoadQuestion={loadQuestion}
+            onSubmit={submitAnswer}
+          />
+        </div>
       ) : null}
 
       {result ? (
-        <PracticeResultCard
-          result={result}
-          explainMode={explainMode}
-          explainPack={explainPack}
-          explainLoading={explainLoading}
-          loadingVariants={loadingVariants}
-          onExplainModeChange={setExplainMode}
-          onLoadVariants={loadVariants}
-        />
+        <div id="practice-result" ref={resultCardRef}>
+          <PracticeResultCard
+            result={result}
+            explainMode={explainMode}
+            explainPack={explainPack}
+            explainLoading={explainLoading}
+            loadingVariants={loadingVariants}
+            questionLoading={questionLoading}
+            hasVariants={Boolean(variantPack?.variants?.length)}
+            onExplainModeChange={setExplainMode}
+            onLoadVariants={loadVariants}
+            onLoadNextQuestion={loadQuestion}
+          />
+        </div>
       ) : null}
 
       {variantPack ? <PracticeVariantAnalysisCard variantPack={variantPack} /> : null}
@@ -520,10 +583,15 @@ export default function PracticePage() {
 
       <PracticeMobileActionBar
         questionVisible={Boolean(question)}
+        resultVisible={Boolean(result)}
         canSubmit={canSubmitCurrentQuestion}
         timedMode={mode === "timed"}
+        busy={stageBusy}
+        loadingVariants={loadingVariants}
+        hasVariants={Boolean(variantPack?.variants?.length)}
         onLoadQuestion={loadQuestion}
         onSubmit={submitAnswer}
+        onLoadVariants={loadVariants}
       />
     </div>
   );
