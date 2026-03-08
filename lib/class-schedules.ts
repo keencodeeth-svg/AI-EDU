@@ -21,6 +21,8 @@ export type ClassScheduleSession = {
   campus?: string;
   note?: string;
   focusSummary?: string;
+  locked: boolean;
+  lockedAt?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -114,6 +116,10 @@ function normalizeText(value?: string | null) {
   return next ? next : undefined;
 }
 
+function normalizeBoolean(value: unknown) {
+  return value === true;
+}
+
 function readFileIfExists<T>(filePath: string): T | null {
   if (!fs.existsSync(filePath)) return null;
   try {
@@ -138,7 +144,9 @@ function mapSession(input: ClassScheduleSession): ClassScheduleSession {
     room: normalizeText(input.room),
     campus: normalizeText(input.campus),
     note: normalizeText(input.note),
-    focusSummary: normalizeText(input.focusSummary)
+    focusSummary: normalizeText(input.focusSummary),
+    locked: normalizeBoolean(input.locked),
+    lockedAt: input.locked ? normalizeText(input.lockedAt) : undefined
   };
 }
 
@@ -213,7 +221,7 @@ function createTeacherResolver() {
 async function assertScheduleConstraints(
   items: ClassScheduleSession[],
   candidate: ClassScheduleSession,
-  options?: { ignoreId?: string; teacherId?: string | null }
+  options?: { ignoreId?: string; teacherId?: string | null; ignoreTeacherUnavailable?: boolean }
 ) {
   assertClassScheduleOverlap(items, candidate, options?.ignoreId);
 
@@ -249,6 +257,10 @@ async function assertScheduleConstraints(
     }
   }
 
+  if (options?.ignoreTeacherUnavailable) {
+    return;
+  }
+
   const blockedSlots = await listTeacherUnavailableSlots({ schoolId: candidate.schoolId, teacherId: options.teacherId });
   const blocked = blockedSlots.find(
     (item) => item.weekday === candidate.weekday && overlapsTimeRange(item, candidate)
@@ -256,6 +268,55 @@ async function assertScheduleConstraints(
   if (blocked) {
     conflict(`教师禁排时段冲突：${blocked.startTime}-${blocked.endTime}`);
   }
+}
+
+function hasEditableScheduleMutation(input: {
+  weekday?: number;
+  startTime?: string;
+  endTime?: string;
+  slotLabel?: string;
+  room?: string;
+  campus?: string;
+  note?: string;
+  focusSummary?: string;
+  locked?: boolean;
+}) {
+  return [
+    input.weekday,
+    input.startTime,
+    input.endTime,
+    input.slotLabel,
+    input.room,
+    input.campus,
+    input.note,
+    input.focusSummary
+  ].some((item) => item !== undefined);
+}
+
+function assertSessionUnlockedForMutation(
+  current: ClassScheduleSession,
+  input: {
+    weekday?: number;
+    startTime?: string;
+    endTime?: string;
+    slotLabel?: string;
+    room?: string;
+    campus?: string;
+    note?: string;
+    focusSummary?: string;
+    locked?: boolean;
+  }
+) {
+  if (!current.locked) {
+    return;
+  }
+  if (input.locked === false) {
+    return;
+  }
+  if (input.locked === true && !hasEditableScheduleMutation(input)) {
+    return;
+  }
+  conflict("节次已锁定，请先解锁后再修改");
 }
 
 export function getWeekdayLabel(weekday: Weekday) {
@@ -348,6 +409,8 @@ export async function createClassScheduleSession(input: ClassScheduleSessionInpu
     campus: normalizeText(input.campus),
     note: normalizeText(input.note),
     focusSummary: normalizeText(input.focusSummary),
+    locked: false,
+    lockedAt: undefined,
     createdAt: now,
     updatedAt: now
   };
@@ -370,6 +433,7 @@ export async function updateClassScheduleSession(
     campus?: string;
     note?: string;
     focusSummary?: string;
+    locked?: boolean;
   }
 ) {
   const list = readStore();
@@ -379,6 +443,8 @@ export async function updateClassScheduleSession(
   }
 
   const current = list[index];
+  assertSessionUnlockedForMutation(current, input);
+
   const weekday = input.weekday === undefined ? current.weekday : (input.weekday as Weekday);
   assertWeekdayValue(weekday);
 
@@ -386,6 +452,8 @@ export async function updateClassScheduleSession(
   const endTime = input.endTime ?? current.endTime;
   assertTimeRange(startTime, endTime);
 
+  const now = new Date().toISOString();
+  const locked = input.locked === undefined ? current.locked : input.locked === true;
   const next: ClassScheduleSession = {
     ...current,
     weekday,
@@ -396,7 +464,9 @@ export async function updateClassScheduleSession(
     campus: input.campus === undefined ? current.campus : normalizeText(input.campus),
     note: input.note === undefined ? current.note : normalizeText(input.note),
     focusSummary: input.focusSummary === undefined ? current.focusSummary : normalizeText(input.focusSummary),
-    updatedAt: new Date().toISOString()
+    locked,
+    lockedAt: locked ? current.lockedAt ?? now : undefined,
+    updatedAt: now
   };
 
   const klass = await getClassById(current.classId);
@@ -413,13 +483,17 @@ export async function applyClassSchedulePlan(input: {
   items: ClassScheduleSessionInput[];
   replaceClassIds?: string[];
   schoolId?: string | null;
+  preserveLocked?: boolean;
 }) {
   const replaceSet = new Set((input.replaceClassIds ?? []).filter(Boolean));
   const nextList = readStore().filter((item) => {
     if (input.schoolId && normalizeSchoolId(item.schoolId) !== normalizeSchoolId(input.schoolId)) {
       return true;
     }
-    return !replaceSet.has(item.classId);
+    if (!replaceSet.has(item.classId)) {
+      return true;
+    }
+    return input.preserveLocked === true && item.locked;
   });
 
   const created: ClassScheduleSession[] = [];
@@ -445,6 +519,8 @@ export async function applyClassSchedulePlan(input: {
       campus: normalizeText(draft.campus),
       note: normalizeText(draft.note),
       focusSummary: normalizeText(draft.focusSummary),
+      locked: false,
+      lockedAt: undefined,
       createdAt: now,
       updatedAt: now
     };
@@ -457,6 +533,51 @@ export async function applyClassSchedulePlan(input: {
   return created.sort(compareSessions);
 }
 
+export async function replaceClassScheduleSessions(input: {
+  classIds: string[];
+  sessions: ClassScheduleSession[];
+  schoolId?: string | null;
+  ignoreTeacherUnavailable?: boolean;
+}) {
+  const classIdSet = new Set(input.classIds.filter(Boolean));
+  const nextList = readStore().filter((item) => {
+    if (input.schoolId && normalizeSchoolId(item.schoolId) !== normalizeSchoolId(input.schoolId)) {
+      return true;
+    }
+    return !classIdSet.has(item.classId);
+  });
+
+  const restored: ClassScheduleSession[] = [];
+  for (const snapshot of input.sessions) {
+    if (!classIdSet.has(snapshot.classId)) {
+      badRequest("snapshot classId out of scope");
+    }
+    const klass = await getClassById(snapshot.classId);
+    if (!klass) {
+      notFound(`class not found: ${snapshot.classId}`);
+    }
+
+    assertWeekdayValue(snapshot.weekday);
+    assertTimeRange(snapshot.startTime, snapshot.endTime);
+
+    const next = mapSession({
+      ...snapshot,
+      schoolId: normalizeSchoolId(klass.schoolId),
+      locked: snapshot.locked === true,
+      lockedAt: snapshot.locked ? snapshot.lockedAt : undefined
+    });
+
+    await assertScheduleConstraints([...nextList, ...restored], next, {
+      teacherId: klass.teacherId ?? null,
+      ignoreTeacherUnavailable: input.ignoreTeacherUnavailable
+    });
+    restored.push(next);
+  }
+
+  writeStore([...nextList, ...restored]);
+  return restored.sort(compareSessions);
+}
+
 export async function deleteClassScheduleSession(id: string, scope?: { schoolId?: string | null }) {
   const list = readStore();
   const index = list.findIndex((item) => item.id === id);
@@ -467,6 +588,9 @@ export async function deleteClassScheduleSession(id: string, scope?: { schoolId?
   const current = list[index];
   if (scope?.schoolId && normalizeSchoolId(current.schoolId) !== normalizeSchoolId(scope.schoolId)) {
     return null;
+  }
+  if (current.locked) {
+    conflict("节次已锁定，请先解锁后再删除");
   }
 
   list.splice(index, 1);

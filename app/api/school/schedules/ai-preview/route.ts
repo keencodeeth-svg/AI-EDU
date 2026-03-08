@@ -1,6 +1,6 @@
 import { createLearningRoute } from "@/lib/api/domains";
 import { badRequest, forbidden } from "@/lib/api/http";
-import { applySchoolAiScheduleDirect } from "@/lib/school-schedule-ai-operations";
+import { previewSchoolAiScheduleOperation } from "@/lib/school-schedule-ai-operations";
 import { type SchoolAiScheduleMode } from "@/lib/school-schedule-ai";
 import { v } from "@/lib/api/validation";
 
@@ -61,7 +61,7 @@ export const POST = createLearningRoute({
     }
 
     return {
-      data: await applySchoolAiScheduleDirect({
+      data: await previewSchoolAiScheduleOperation({
         schoolId: targetSchoolId,
         classIds: body.classIds,
         weeklyLessonsPerClass: body.weeklyLessonsPerClass,

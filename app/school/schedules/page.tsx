@@ -81,16 +81,36 @@ type AiScheduleResponse = {
       skippedClassCount: number;
       untouchedClassCount: number;
       templateAppliedClassCount?: number;
+      lockedPreservedSessionCount?: number;
     };
     warnings: string[];
     createdSessions: ScheduleViewItem[];
     impactedClasses: AiImpactedClass[];
+    applied?: boolean;
+    previewId?: string;
+    operationId?: string;
+    rollbackAvailable?: boolean;
+    generatedAt?: string;
   };
+};
+
+type AiOperationSummary = {
+  id: string;
+  createdAt: string;
+  appliedAt?: string;
+  mode: AiMode;
+  targetClassCount: number;
+  createdSessions: number;
+  unresolvedLessons: number;
+  lockedPreservedSessionCount: number;
+  rollbackAvailable: boolean;
 };
 
 type ScheduleTemplateResponse = { data?: SchoolScheduleTemplate[] };
 type TeacherUnavailableResponse = { data?: TeacherUnavailableSlot[] };
 type SchoolUsersResponse = { data?: SchoolUserRecord[] };
+type LatestAiOperationResponse = { data?: AiOperationSummary | null };
+type AiRollbackResponse = { data?: { operationId: string; restoredClassCount: number; restoredSessionCount: number } };
 
 type TemplateFormState = {
   id?: string;
@@ -226,9 +246,12 @@ export default function SchoolSchedulesPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [aiForm, setAiForm] = useState<AiScheduleFormState>(DEFAULT_AI_FORM);
   const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiRollingBack, setAiRollingBack] = useState(false);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiResult, setAiResult] = useState<AiScheduleResponse["data"] | null>(null);
+  const [latestAiOperation, setLatestAiOperation] = useState<AiOperationSummary | null>(null);
+  const [lockingId, setLockingId] = useState<string | null>(null);
   const [templates, setTemplates] = useState<SchoolScheduleTemplate[]>([]);
   const [teacherUnavailableSlots, setTeacherUnavailableSlots] = useState<TeacherUnavailableSlot[]>([]);
   const [teachers, setTeachers] = useState<SchoolUserRecord[]>([]);
@@ -252,11 +275,12 @@ export default function SchoolSchedulesPage() {
     setPageError(null);
 
     try {
-      const [payload, templatesPayload, teacherUnavailablePayload, teachersPayload] = await Promise.all([
+      const [payload, templatesPayload, teacherUnavailablePayload, teachersPayload, latestAiOperationPayload] = await Promise.all([
         requestJson<SchoolSchedulesResponse>("/api/school/schedules"),
         requestJson<ScheduleTemplateResponse>("/api/school/schedules/templates"),
         requestJson<TeacherUnavailableResponse>("/api/school/schedules/teacher-unavailability"),
-        requestJson<SchoolUsersResponse>("/api/school/users?role=teacher")
+        requestJson<SchoolUsersResponse>("/api/school/users?role=teacher"),
+        requestJson<LatestAiOperationResponse>("/api/school/schedules/ai-operations/latest")
       ]);
       setClasses(payload.data?.classes ?? []);
       setSessions(payload.data?.sessions ?? []);
@@ -264,6 +288,7 @@ export default function SchoolSchedulesPage() {
       setTemplates(templatesPayload.data ?? []);
       setTeacherUnavailableSlots(teacherUnavailablePayload.data ?? []);
       setTeachers(teachersPayload.data ?? []);
+      setLatestAiOperation(latestAiOperationPayload.data ?? null);
       setAuthRequired(false);
       setLastLoadedAt(new Date().toISOString());
       if (payload.data?.classes?.[0]?.id) {
@@ -281,6 +306,7 @@ export default function SchoolSchedulesPage() {
         setTemplates([]);
         setTeacherUnavailableSlots([]);
         setTeachers([]);
+        setLatestAiOperation(null);
       } else {
         setPageError(getRequestErrorMessage(error, "加载课程表管理失败"));
       }
@@ -348,6 +374,17 @@ export default function SchoolSchedulesPage() {
   const aiTemplateCoverageCount = useMemo(() => {
     return classes.filter((item) => templateByKey.has(`${item.grade}:${item.subject}`)).length;
   }, [classes, templateByKey]);
+
+  const lockedSessionCount = useMemo(() => sessions.filter((item) => item.locked).length, [sessions]);
+
+  const lockedCountByClass = useMemo(() => {
+    const map = new Map<string, number>();
+    sessions.forEach((item) => {
+      if (!item.locked) return;
+      map.set(item.classId, (map.get(item.classId) ?? 0) + 1);
+    });
+    return map;
+  }, [sessions]);
 
   const filteredSessions = useMemo(() => {
     const keywordLower = keyword.trim().toLowerCase();
@@ -504,7 +541,7 @@ export default function SchoolSchedulesPage() {
     setAiResult(null);
   }, []);
 
-  const handleAiGenerate = useCallback(async () => {
+  const buildAiRequestBody = useCallback(() => {
     const weeklyLessonsPerClass = Number(aiForm.weeklyLessonsPerClass);
     const lessonDurationMinutes = Number(aiForm.lessonDurationMinutes);
     const periodsPerDay = Number(aiForm.periodsPerDay);
@@ -513,15 +550,53 @@ export default function SchoolSchedulesPage() {
     const lunchBreakAfterPeriod = aiForm.lunchBreakAfterPeriod ? Number(aiForm.lunchBreakAfterPeriod) : undefined;
 
     if (!aiForm.weekdays.length) {
-      setAiError("请至少选择 1 个排课日。");
-      return;
+      throw new Error("请至少选择 1 个排课日。");
     }
     if (!Number.isFinite(weeklyLessonsPerClass) || weeklyLessonsPerClass < 1) {
-      setAiError("请填写有效的每班每周总节数。");
+      throw new Error("请填写有效的每班每周总节数。");
+    }
+
+    return {
+      weeklyLessonsPerClass,
+      lessonDurationMinutes,
+      periodsPerDay,
+      weekdays: aiForm.weekdays.map((item) => Number(item)),
+      dayStartTime: aiForm.dayStartTime,
+      shortBreakMinutes,
+      lunchBreakAfterPeriod,
+      lunchBreakMinutes,
+      mode: aiForm.mode,
+      campus: aiForm.campus
+    };
+  }, [aiForm]);
+
+  const handleAiPreview = useCallback(async () => {
+    try {
+      const payload = buildAiRequestBody();
+      setAiGenerating(true);
+      setAiError(null);
+      setAiMessage(null);
+      const result = await requestJson<AiScheduleResponse>("/api/school/schedules/ai-preview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      setAiResult(result.data ?? null);
+      setAiMessage(`AI 预演已完成，预计新增 ${result.data?.summary.createdSessions ?? 0} 个节次。`);
+    } catch (error) {
+      setAiError(getRequestErrorMessage(error, "AI 预演失败"));
+    } finally {
+      setAiGenerating(false);
+    }
+  }, [buildAiRequestBody]);
+
+  const handleAiApplyPreview = useCallback(async () => {
+    if (!aiResult?.previewId) {
+      setAiError("请先完成一次 AI 预演。");
       return;
     }
     if (aiForm.mode === "replace_all" && typeof window !== "undefined") {
-      const confirmed = window.confirm("全量重排会替换当前学校现有课表，确定继续吗？");
+      const confirmed = window.confirm("确认将本次 AI 预演正式写入课表吗？系统会保留已锁定节次，并支持回滚最近一次 AI 排课。");
       if (!confirmed) {
         return;
       }
@@ -531,31 +606,72 @@ export default function SchoolSchedulesPage() {
     setAiError(null);
     setAiMessage(null);
     try {
-      const result = await requestJson<AiScheduleResponse>("/api/school/schedules/ai-generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          weeklyLessonsPerClass,
-          lessonDurationMinutes,
-          periodsPerDay,
-          weekdays: aiForm.weekdays.map((item) => Number(item)),
-          dayStartTime: aiForm.dayStartTime,
-          shortBreakMinutes,
-          lunchBreakAfterPeriod,
-          lunchBreakMinutes,
-          mode: aiForm.mode,
-          campus: aiForm.campus
-        })
+      const result = await requestJson<AiScheduleResponse>(`/api/school/schedules/ai-preview/${aiResult.previewId}/apply`, {
+        method: "POST"
       });
       setAiResult(result.data ?? null);
       await loadData("refresh");
-      setAiMessage(`AI 排课已完成，本次新增 ${result.data?.summary.createdSessions ?? 0} 个节次。`);
+      setAiMessage(`AI 排课已写入课表，本次新增 ${result.data?.summary.createdSessions ?? 0} 个节次。`);
     } catch (error) {
-      setAiError(getRequestErrorMessage(error, "AI 排课失败"));
+      setAiError(getRequestErrorMessage(error, "确认写入 AI 排课失败"));
     } finally {
       setAiGenerating(false);
     }
-  }, [aiForm, loadData]);
+  }, [aiForm.mode, aiResult?.previewId, loadData]);
+
+  const handleAiRollback = useCallback(async () => {
+    if (!latestAiOperation?.id) {
+      setAiError("当前没有可回滚的 AI 排课记录。");
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("确定回滚最近一次已写入的 AI 排课吗？仅在课表未被后续人工调整时可成功回滚。");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setAiRollingBack(true);
+    setAiError(null);
+    setAiMessage(null);
+    try {
+      const result = await requestJson<AiRollbackResponse>("/api/school/schedules/ai-operations/rollback", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ operationId: latestAiOperation.id })
+      });
+      setAiResult(null);
+      await loadData("refresh");
+      setAiMessage(`已回滚最近一次 AI 排课，恢复 ${result.data?.restoredSessionCount ?? 0} 个节次。`);
+    } catch (error) {
+      setAiError(getRequestErrorMessage(error, "回滚 AI 排课失败"));
+    } finally {
+      setAiRollingBack(false);
+    }
+  }, [latestAiOperation?.id, loadData]);
+
+  const handleToggleLock = useCallback(async (item: ScheduleViewItem) => {
+    setLockingId(item.id);
+    setPageError(null);
+    setFormError(null);
+    setFormMessage(null);
+    try {
+      await requestJson<ScheduleMutationResponse>(`/api/school/schedules/${item.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ locked: !item.locked })
+      });
+      if (editingId === item.id && !item.locked) {
+        resetForm({ preserveMessage: true });
+      }
+      await loadData("refresh");
+      setFormMessage(item.locked ? "课程节次已解锁" : "课程节次已锁定");
+    } catch (error) {
+      setPageError(getRequestErrorMessage(error, item.locked ? "解锁节次失败" : "锁定节次失败"));
+    } finally {
+      setLockingId(null);
+    }
+  }, [editingId, loadData, resetForm]);
 
 
   const toggleTemplateWeekday = useCallback((weekday: string) => {
@@ -803,7 +919,7 @@ export default function SchoolSchedulesPage() {
       <Card title="AI 一键排课" tag="AI">
         <div className="grid" style={{ gap: 12 }}>
           <div className="section-sub">
-            根据全校班级、教师绑定、每班总节数与单节课时，自动生成固定周课表，并尽量避开同一教师撞课。
+            先预演、再写入，并支持保留锁定节次和回滚最近一次 AI 排课，避免学校端误操作直接覆盖课表。
           </div>
 
           <div className="grid grid-3">
@@ -811,6 +927,8 @@ export default function SchoolSchedulesPage() {
             <Stat label="预计新增节次" value={String(aiRequestedLessonCount)} helper={`按每班 ${aiWeeklyLessonsTarget || 0} 节/周估算`} />
             <Stat label="待补教师班级" value={String(aiTeacherGapCount)} helper="未绑定教师会自动跳过" />
             <Stat label="已配置模板班级" value={String(aiTemplateCoverageCount)} helper="同年级同学科自动套用" />
+            <Stat label="已锁定节次" value={String(lockedSessionCount)} helper="重排时自动保留" />
+            <Stat label="最近 AI 新增" value={String(latestAiOperation?.createdSessions ?? 0)} helper={latestAiOperation ? "可一键回滚" : "暂无已写入记录"} />
           </div>
 
           <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 }}>
@@ -866,7 +984,7 @@ export default function SchoolSchedulesPage() {
                     className={active ? "button secondary" : "button ghost"}
                     type="button"
                     onClick={() => toggleAiWeekday(item.value)}
-                    disabled={aiGenerating}
+                    disabled={aiGenerating || aiRollingBack}
                   >
                     {item.label}
                   </button>
@@ -875,14 +993,33 @@ export default function SchoolSchedulesPage() {
             </div>
           </div>
 
+          {latestAiOperation ? (
+            <div className="card">
+              <div className="section-title">最近一次已写入的 AI 排课</div>
+              <div className="meta-text" style={{ marginTop: 6 }}>
+                {latestAiOperation.mode === "replace_all" ? "全校重排" : "补齐课时"} · 目标班级 {latestAiOperation.targetClassCount} 个 · 新增 {latestAiOperation.createdSessions} 节 · 未完成 {latestAiOperation.unresolvedLessons} 节
+              </div>
+              <div className="meta-text" style={{ marginTop: 6 }}>
+                写入于 {formatLoadedTime(latestAiOperation.appliedAt ?? latestAiOperation.createdAt)}
+                {latestAiOperation.lockedPreservedSessionCount ? ` · 保留锁定节次 ${latestAiOperation.lockedPreservedSessionCount} 个` : ""}
+              </div>
+            </div>
+          ) : null}
+
           {aiError ? <StatePanel compact tone="error" title="AI 排课失败" description={aiError} /> : null}
-          {aiMessage ? <StatePanel compact tone="success" title="AI 排课完成" description={aiMessage} /> : null}
+          {aiMessage ? <StatePanel compact tone="success" title={aiResult?.applied ? "AI 排课已写入" : "AI 预演完成"} description={aiMessage} /> : null}
 
           <div className="cta-row">
-            <button className="button primary" type="button" onClick={() => void handleAiGenerate()} disabled={aiGenerating}>
-              {aiGenerating ? "AI 排课中..." : aiForm.mode === "replace_all" ? "AI 全校重排课表" : "一键 AI 辅助排课"}
+            <button className="button primary" type="button" onClick={() => void handleAiPreview()} disabled={aiGenerating || aiRollingBack}>
+              {aiGenerating && (!aiResult?.previewId || aiResult?.applied) ? "AI 预演中..." : "先预演 AI 排课"}
             </button>
-            <button className="button ghost" type="button" onClick={resetAiForm} disabled={aiGenerating}>
+            <button className="button secondary" type="button" onClick={() => void handleAiApplyPreview()} disabled={aiGenerating || aiRollingBack || !aiResult?.previewId || aiResult?.applied}>
+              {aiGenerating && aiResult?.previewId && !aiResult?.applied ? "写入中..." : aiResult?.applied ? "已写入课表" : "确认写入课表"}
+            </button>
+            <button className="button ghost" type="button" onClick={() => void handleAiRollback()} disabled={aiGenerating || aiRollingBack || !latestAiOperation?.rollbackAvailable}>
+              {aiRollingBack ? "回滚中..." : "回滚最近一次 AI"}
+            </button>
+            <button className="button ghost" type="button" onClick={resetAiForm} disabled={aiGenerating || aiRollingBack}>
               重置配置
             </button>
           </div>
@@ -890,9 +1027,13 @@ export default function SchoolSchedulesPage() {
           {aiResult ? (
             <div className="grid grid-2" style={{ alignItems: "start" }}>
               <div className="card">
-                <div className="section-title">本次 AI 结果</div>
+                <div className="section-title">{aiResult.applied ? "本次 AI 已写入课表" : "本次 AI 预演结果"}</div>
                 <div className="meta-text" style={{ marginTop: 6 }}>
                   目标班级 {aiResult.summary.targetClassCount} 个 · 新增节次 {aiResult.summary.createdSessions} 个 · 未完成 {aiResult.summary.unresolvedLessons} 节
+                  {(aiResult.summary.lockedPreservedSessionCount ?? 0) > 0 ? ` · 保留锁定 ${(aiResult.summary.lockedPreservedSessionCount ?? 0)} 节` : ""}
+                </div>
+                <div className="meta-text" style={{ marginTop: 6 }}>
+                  {aiResult.applied ? "本轮已落库；如果尚未有后续人工改动，可用上方按钮一键回滚。" : "当前仅为预演结果，确认后才会正式写入学校课程表。"}
                 </div>
                 <div className="grid" style={{ gap: 8, marginTop: 12 }}>
                   {aiResult.createdSessions.slice(0, 6).map((item) => (
@@ -940,7 +1081,6 @@ export default function SchoolSchedulesPage() {
           ) : null}
         </div>
       </Card>
-
 
       <div className="grid grid-2" style={{ alignItems: "start" }}>
         <Card title="年级学科课时模板" tag="模板">
@@ -1221,15 +1361,22 @@ export default function SchoolSchedulesPage() {
                       {list.length ? (
                         list.map((item) => (
                           <div key={item.id} style={{ border: "1px solid var(--stroke)", borderRadius: 14, padding: 10, background: "rgba(255,255,255,0.72)" }}>
-                            <div style={{ fontSize: 14, fontWeight: 700 }}>{item.className}</div>
+                            <div className="cta-row" style={{ justifyContent: "space-between", alignItems: "flex-start", gap: 10, marginTop: 0 }}>
+                              <div style={{ fontSize: 14, fontWeight: 700 }}>{item.className}</div>
+                              {item.locked ? <span className="pill">已锁定</span> : null}
+                            </div>
                             <div className="section-sub" style={{ marginTop: 4 }}>{item.startTime}-{item.endTime}{item.slotLabel ? ` · ${item.slotLabel}` : ""}</div>
                             <div className="meta-text" style={{ marginTop: 6 }}>{formatSubjectLine(item)}{item.room ? ` · ${item.room}` : ""}</div>
                             {item.focusSummary ? <div className="meta-text" style={{ marginTop: 6 }}>课堂焦点：{item.focusSummary}</div> : null}
                             {item.note ? <div className="meta-text" style={{ marginTop: 6 }}>备注：{item.note}</div> : null}
+                            {item.locked ? <div className="meta-text" style={{ marginTop: 6, color: "#6941c6" }}>锁定后 AI 重排与手动删除都会跳过该节次。</div> : null}
                             <div className="cta-row cta-row-tight" style={{ marginTop: 10 }}>
-                              <button className="button secondary" type="button" onClick={() => startEdit(item)}>编辑</button>
-                              <button className="button ghost" type="button" onClick={() => void handleDelete(item.id)} disabled={deletingId === item.id}>
-                                {deletingId === item.id ? "删除中..." : "删除"}
+                              <button className="button ghost" type="button" onClick={() => void handleToggleLock(item)} disabled={lockingId === item.id || deletingId === item.id}>
+                                {lockingId === item.id ? "处理中..." : item.locked ? "解锁" : "锁定"}
+                              </button>
+                              <button className="button secondary" type="button" onClick={() => startEdit(item)} disabled={item.locked || lockingId === item.id}>编辑</button>
+                              <button className="button ghost" type="button" onClick={() => void handleDelete(item.id)} disabled={item.locked || deletingId === item.id || lockingId === item.id}>
+                                {item.locked ? "已锁定" : deletingId === item.id ? "删除中..." : "删除"}
                               </button>
                             </div>
                           </div>
@@ -1260,7 +1407,7 @@ export default function SchoolSchedulesPage() {
                       {item.subject} · {item.grade} 年级 · 教师 {item.teacherName ?? item.teacherId ?? "未绑定"}
                     </div>
                     <div className="meta-text" style={{ marginTop: 6 }}>
-                      当前已排 {scheduleCount} 节/周 · 作业 {item.assignmentCount} 份 · 学生 {item.studentCount} 人
+                      当前已排 {scheduleCount} 节/周{(lockedCountByClass.get(item.id) ?? 0) ? `（锁定 ${(lockedCountByClass.get(item.id) ?? 0)} 节）` : ""} · 作业 {item.assignmentCount} 份 · 学生 {item.studentCount} 人
                     </div>
                   </div>
                   <span className="pill">{hasSchedule ? `${scheduleCount} 节/周` : "待排课"}</span>

@@ -19,6 +19,7 @@ export async function runAdminContentSuite(context) {
   assert.ok(Array.isArray(schoolSchedulesBefore.body?.data?.classes), "School schedules should include classes array");
   const scheduleClasses = (schoolSchedulesBefore.body?.data?.classes ?? []).slice(0, 3);
   assert.ok(scheduleClasses.length >= 3, "School schedules should expose at least 3 classes for scheduling regression");
+  const initialTargetClassCount = (schoolSchedulesBefore.body?.data?.sessions ?? []).filter((session) => session.classId === scheduleClasses[0].id).length;
 
   const templateSave = await apiFetch("/api/school/schedules/templates", {
     method: "POST",
@@ -66,7 +67,30 @@ export async function runAdminContentSuite(context) {
   const savedUnavailable = (teacherUnavailableList.body?.data ?? []).find((item) => item.id === teacherUnavailableCreate.body?.data?.id);
   assert.ok(savedUnavailable, "Teacher unavailable slot should be queryable");
 
-  const aiScheduleGenerate = await apiFetch("/api/school/schedules/ai-generate", {
+  const lockedSeedCreate = await apiFetch("/api/school/schedules", {
+    method: "POST",
+    json: {
+      classId: scheduleClasses[0].id,
+      weekday: 4,
+      startTime: "17:00",
+      endTime: "17:40",
+      room: "锁定教室A",
+      campus: "模板校区",
+      slotLabel: "锁定节次"
+    }
+  });
+  assert.equal(lockedSeedCreate.status, 200, `POST /api/school/schedules for lock seed failed: ${lockedSeedCreate.raw}`);
+  const lockedSeedId = lockedSeedCreate.body?.data?.id;
+  assert.ok(lockedSeedId, "Lock seed schedule should return an id");
+
+  const lockedSeedPatch = await apiFetch(`/api/school/schedules/${lockedSeedId}`, {
+    method: "PATCH",
+    json: { locked: true }
+  });
+  assert.equal(lockedSeedPatch.status, 200, `PATCH /api/school/schedules/:id lock failed: ${lockedSeedPatch.raw}`);
+  assert.equal(lockedSeedPatch.body?.data?.locked, true, "Schedule lock should persist");
+
+  const aiSchedulePreview = await apiFetch("/api/school/schedules/ai-preview", {
     method: "POST",
     json: {
       schoolId: "school-default",
@@ -82,20 +106,62 @@ export async function runAdminContentSuite(context) {
       mode: "replace_all"
     }
   });
-  assert.equal(aiScheduleGenerate.status, 200, `POST /api/school/schedules/ai-generate failed: ${aiScheduleGenerate.raw}`);
-  assert.equal(aiScheduleGenerate.body?.data?.summary?.targetClassCount, 1, "AI scheduling should target requested class");
-  assert.equal(aiScheduleGenerate.body?.data?.summary?.createdSessions, 3, "AI scheduling should apply grade-subject template lesson count");
-  assert.equal(aiScheduleGenerate.body?.data?.summary?.templateAppliedClassCount, 1, "AI scheduling should report template-applied classes");
-  assert.ok(Array.isArray(aiScheduleGenerate.body?.data?.createdSessions), "AI scheduling should return createdSessions array");
+  assert.equal(aiSchedulePreview.status, 200, `POST /api/school/schedules/ai-preview failed: ${aiSchedulePreview.raw}`);
+  assert.equal(aiSchedulePreview.body?.data?.applied, false, "AI preview should not apply immediately");
+  assert.ok(aiSchedulePreview.body?.data?.previewId, "AI preview should return previewId");
+  assert.equal(aiSchedulePreview.body?.data?.summary?.targetClassCount, 1, "AI preview should target requested class");
+  assert.equal(aiSchedulePreview.body?.data?.summary?.createdSessions, 2, "AI preview should keep locked lessons and only generate the remaining slots");
+  assert.equal(aiSchedulePreview.body?.data?.summary?.templateAppliedClassCount, 1, "AI preview should report template-applied classes");
+  assert.equal(aiSchedulePreview.body?.data?.summary?.lockedPreservedSessionCount, 1, "AI preview should report preserved locked lessons");
+  assert.ok(Array.isArray(aiSchedulePreview.body?.data?.createdSessions), "AI preview should return createdSessions array");
   assert.ok(
-    (aiScheduleGenerate.body?.data?.createdSessions ?? []).every((item) => !(item.weekday === 1 && item.startTime === "08:00")),
-    "AI scheduling should avoid teacher unavailable slots"
+    (aiSchedulePreview.body?.data?.createdSessions ?? []).every((item) => !(item.weekday === 1 && item.startTime === "08:00")),
+    "AI preview should avoid teacher unavailable slots"
   );
 
+  const schoolSchedulesAfterPreview = await apiFetch("/api/school/schedules?schoolId=school-default");
+  assert.equal(schoolSchedulesAfterPreview.status, 200, `GET /api/school/schedules after AI preview failed: ${schoolSchedulesAfterPreview.raw}`);
+  const previewClassCount = (schoolSchedulesAfterPreview.body?.data?.sessions ?? []).filter((session) => session.classId === scheduleClasses[0].id).length;
+  assert.equal(previewClassCount, initialTargetClassCount + 1, "AI preview should not persist schedule changes");
+
+  const previewId = aiSchedulePreview.body?.data?.previewId;
+  const aiScheduleApply = await apiFetch(`/api/school/schedules/ai-preview/${previewId}/apply`, {
+    method: "POST"
+  });
+  assert.equal(aiScheduleApply.status, 200, `POST /api/school/schedules/ai-preview/:id/apply failed: ${aiScheduleApply.raw}`);
+  assert.equal(aiScheduleApply.body?.data?.applied, true, "AI preview apply should persist schedules");
+  assert.equal(aiScheduleApply.body?.data?.summary?.createdSessions, 2, "Applying AI preview should create the previewed sessions only");
+  assert.ok(aiScheduleApply.body?.data?.rollbackAvailable, "Applied AI schedule should expose rollback availability");
+
   const schoolSchedulesAfterAi = await apiFetch("/api/school/schedules?schoolId=school-default");
-  assert.equal(schoolSchedulesAfterAi.status, 200, `GET /api/school/schedules after AI generation failed: ${schoolSchedulesAfterAi.raw}`);
+  assert.equal(schoolSchedulesAfterAi.status, 200, `GET /api/school/schedules after AI apply failed: ${schoolSchedulesAfterAi.raw}`);
   const firstClassCount = (schoolSchedulesAfterAi.body?.data?.sessions ?? []).filter((session) => session.classId === scheduleClasses[0].id).length;
-  assert.equal(firstClassCount, 3, "School schedule store should keep template-generated lessons for the target class");
+  assert.equal(firstClassCount, 3, "School schedule store should keep locked seed plus AI-generated lessons for the target class");
+
+  const latestAiOperation = await apiFetch("/api/school/schedules/ai-operations/latest?schoolId=school-default");
+  assert.equal(latestAiOperation.status, 200, `GET /api/school/schedules/ai-operations/latest failed: ${latestAiOperation.raw}`);
+  assert.equal(latestAiOperation.body?.data?.id, aiScheduleApply.body?.data?.operationId, "Latest AI operation should match the applied preview");
+
+  const lockedDelete = await apiFetch(`/api/school/schedules/${lockedSeedId}`, {
+    method: "DELETE"
+  });
+  assert.equal(lockedDelete.status, 409, "Locked schedules should reject direct deletion");
+  assert.equal(lockedDelete.body?.error, "节次已锁定，请先解锁后再删除");
+
+  const rollbackAi = await apiFetch("/api/school/schedules/ai-operations/rollback", {
+    method: "POST",
+    json: {
+      schoolId: "school-default",
+      operationId: aiScheduleApply.body?.data?.operationId
+    }
+  });
+  assert.equal(rollbackAi.status, 200, `POST /api/school/schedules/ai-operations/rollback failed: ${rollbackAi.raw}`);
+  assert.equal(rollbackAi.body?.data?.restoredSessionCount, initialTargetClassCount + 1, "Rollback should restore the pre-AI snapshot for the target class");
+
+  const schoolSchedulesAfterRollback = await apiFetch("/api/school/schedules?schoolId=school-default");
+  assert.equal(schoolSchedulesAfterRollback.status, 200, `GET /api/school/schedules after rollback failed: ${schoolSchedulesAfterRollback.raw}`);
+  const rolledBackClassCount = (schoolSchedulesAfterRollback.body?.data?.sessions ?? []).filter((session) => session.classId === scheduleClasses[0].id).length;
+  assert.equal(rolledBackClassCount, initialTargetClassCount + 1, "Rollback should restore the target class to the pre-AI snapshot plus locked seed");
 
   const roomOwnerCreate = await apiFetch("/api/school/schedules", {
     method: "POST",

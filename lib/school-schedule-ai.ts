@@ -40,6 +40,14 @@ export type SchoolAiScheduleInput = {
   campus?: string;
 };
 
+type DecoratedAiSession = ClassScheduleSession & {
+  className: string;
+  subject: string;
+  grade: string;
+  teacherName?: string;
+  teacherId: string | null;
+};
+
 export type SchoolAiScheduleResult = {
   summary: {
     targetClassCount: number;
@@ -51,17 +59,10 @@ export type SchoolAiScheduleResult = {
     skippedClassCount: number;
     untouchedClassCount: number;
     templateAppliedClassCount: number;
+    lockedPreservedSessionCount: number;
   };
   warnings: string[];
-  createdSessions: Array<
-    ClassScheduleSession & {
-      className: string;
-      subject: string;
-      grade: string;
-      teacherName?: string;
-      teacherId: string | null;
-    }
-  >;
+  createdSessions: DecoratedAiSession[];
   impactedClasses: Array<{
     id: string;
     name: string;
@@ -89,6 +90,24 @@ export type SchoolAiScheduleResult = {
   };
 };
 
+export type SchoolAiScheduleExecutionResult = SchoolAiScheduleResult & {
+  generatedAt: string;
+  applied: boolean;
+  previewId?: string;
+  operationId?: string;
+  rollbackAvailable?: boolean;
+};
+
+export type SchoolAiSchedulePlan = {
+  schoolId: string;
+  generatedAt: string;
+  targetClassIds: string[];
+  replaceClassIds: string[];
+  baseSessions: ClassScheduleSession[];
+  drafts: ClassScheduleSessionInput[];
+  result: SchoolAiScheduleResult;
+};
+
 type TimeBlock = {
   weekday: Weekday;
   startTime: string;
@@ -111,6 +130,17 @@ type ResolvedScheduleConfig = {
   lunchBreakMinutes: number;
   campus?: string;
   templateApplied: boolean;
+};
+
+type SchoolClassMeta = {
+  id: string;
+  name: string;
+  subject: string;
+  grade: string;
+  teacherId: string | null;
+  teacherName?: string;
+  scheduleCount: number;
+  studentCount: number;
 };
 
 function uniqueWeekdays(weekdays: Weekday[]) {
@@ -205,13 +235,11 @@ function createTeacherConflictWarnings(
 
   const warnings: string[] = [];
   byTeacher.forEach((list, teacherId) => {
-    const sorted = list
-      .slice()
-      .sort((left, right) => {
-        if (left.weekday !== right.weekday) return left.weekday - right.weekday;
-        if (left.startTime !== right.startTime) return left.startTime.localeCompare(right.startTime);
-        return left.classId.localeCompare(right.classId, "zh-CN");
-      });
+    const sorted = list.slice().sort((left, right) => {
+      if (left.weekday !== right.weekday) return left.weekday - right.weekday;
+      if (left.startTime !== right.startTime) return left.startTime.localeCompare(right.startTime);
+      return left.classId.localeCompare(right.classId, "zh-CN");
+    });
     for (let index = 1; index < sorted.length; index += 1) {
       const previous = sorted[index - 1];
       const current = sorted[index];
@@ -263,7 +291,10 @@ function scoreSlot(input: {
   );
 }
 
-function resolveClassConfig(input: SchoolAiScheduleInput, template?: Awaited<ReturnType<typeof getScheduleTemplateByGradeSubject>>) {
+function resolveClassConfig(
+  input: SchoolAiScheduleInput,
+  template?: Awaited<ReturnType<typeof getScheduleTemplateByGradeSubject>>
+) {
   return {
     weeklyLessonsPerClass: template?.weeklyLessonsPerClass ?? input.weeklyLessonsPerClass,
     lessonDurationMinutes: template?.lessonDurationMinutes ?? input.lessonDurationMinutes,
@@ -278,8 +309,50 @@ function resolveClassConfig(input: SchoolAiScheduleInput, template?: Awaited<Ret
   } satisfies ResolvedScheduleConfig;
 }
 
-export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleInput): Promise<SchoolAiScheduleResult> {
-  const classes = await listSchoolClasses(input.schoolId);
+function decorateSessions(sessions: ClassScheduleSession[], classMap: Map<string, SchoolClassMeta>): DecoratedAiSession[] {
+  return sessions.map((item) => {
+    const klass = classMap.get(item.classId);
+    return {
+      ...item,
+      className: klass?.name ?? item.classId,
+      subject: klass?.subject ?? "unknown",
+      grade: klass?.grade ?? "-",
+      teacherName: klass?.teacherName,
+      teacherId: klass?.teacherId ?? null
+    };
+  });
+}
+
+function buildPreviewSessions(
+  drafts: ClassScheduleSessionInput[],
+  schoolId: string,
+  classMap: Map<string, SchoolClassMeta>,
+  generatedAt: string
+) {
+  return decorateSessions(
+    drafts.map((draft, index) => ({
+      id: `preview-${index + 1}`,
+      schoolId,
+      classId: draft.classId,
+      weekday: draft.weekday as Weekday,
+      startTime: draft.startTime,
+      endTime: draft.endTime,
+      slotLabel: draft.slotLabel,
+      room: draft.room,
+      campus: draft.campus,
+      note: draft.note,
+      focusSummary: draft.focusSummary,
+      locked: false,
+      lockedAt: undefined,
+      createdAt: generatedAt,
+      updatedAt: generatedAt
+    })),
+    classMap
+  );
+}
+
+export async function buildSchoolAiSchedulePlan(input: SchoolAiScheduleInput): Promise<SchoolAiSchedulePlan> {
+  const classes = (await listSchoolClasses(input.schoolId)) as SchoolClassMeta[];
   const classMap = new Map(classes.map((item) => [item.id, item]));
   const selectedIds = input.classIds?.length
     ? Array.from(new Set(input.classIds.map((item) => item.trim()).filter(Boolean)))
@@ -314,16 +387,23 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
   const selectedSet = new Set(selectedIds);
   const allSessions = await listClassScheduleSessions({ schoolId: input.schoolId });
   const currentSelectedSessions = allSessions.filter((item) => selectedSet.has(item.classId));
-  const preservedSessions = input.mode === "replace_all" ? allSessions.filter((item) => !selectedSet.has(item.classId)) : allSessions.slice();
+  const lockedSelectedSessions = input.mode === "replace_all" ? currentSelectedSessions.filter((item) => item.locked) : [];
+  const preservedSessions = input.mode === "replace_all"
+    ? allSessions.filter((item) => !selectedSet.has(item.classId) || item.locked)
+    : allSessions.slice();
 
   const classBlocks = new Map<string, TimeBlock[]>();
   const teacherBlocks = new Map<string, TimeBlock[]>();
   const classDayLoad = new Map<string, number>();
   const teacherDayLoad = new Map<string, number>();
   const currentCountByClass = new Map<string, number>();
+  const lockedCountByClass = new Map<string, number>();
 
   currentSelectedSessions.forEach((item) => {
     currentCountByClass.set(item.classId, (currentCountByClass.get(item.classId) ?? 0) + 1);
+  });
+  lockedSelectedSessions.forEach((item) => {
+    lockedCountByClass.set(item.classId, (lockedCountByClass.get(item.classId) ?? 0) + 1);
   });
 
   preservedSessions.forEach((item) => {
@@ -352,6 +432,10 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
   });
 
   const warnings = createTeacherConflictWarnings(preservedSessions, classMap);
+  if (lockedSelectedSessions.length) {
+    warnings.unshift(`本次已保留 ${lockedSelectedSessions.length} 个已锁定节次，AI 不会覆盖这些安排。`);
+  }
+
   const drafts: ClassScheduleSessionInput[] = [];
   const impactedClasses: SchoolAiScheduleResult["impactedClasses"] = [];
 
@@ -369,12 +453,21 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
     }
 
     const slots = buildSlotTemplates(resolvedConfig);
-    const maxDailyLessonsPerClass = Math.max(2, Math.ceil(resolvedConfig.weeklyLessonsPerClass / Math.max(resolvedConfig.weekdays.length, 1)));
+    const maxDailyLessonsPerClass = Math.max(
+      2,
+      Math.ceil(resolvedConfig.weeklyLessonsPerClass / Math.max(resolvedConfig.weekdays.length, 1))
+    );
     const existingCount = currentCountByClass.get(klass.id) ?? 0;
-    const requestedForClass =
-      input.mode === "replace_all"
-        ? resolvedConfig.weeklyLessonsPerClass
-        : Math.max(resolvedConfig.weeklyLessonsPerClass - existingCount, 0);
+    const lockedPreservedCount = lockedCountByClass.get(klass.id) ?? 0;
+    const requestedForClass = input.mode === "replace_all"
+      ? Math.max(resolvedConfig.weeklyLessonsPerClass - lockedPreservedCount, 0)
+      : Math.max(resolvedConfig.weeklyLessonsPerClass - existingCount, 0);
+
+    if (input.mode === "replace_all" && lockedPreservedCount > resolvedConfig.weeklyLessonsPerClass) {
+      warnings.push(
+        `班级 ${klass.name} 已锁定 ${lockedPreservedCount} 节，超过目标 ${resolvedConfig.weeklyLessonsPerClass} 节；AI 已保留锁定节次且不再新增。`
+      );
+    }
 
     requestedLessons += requestedForClass;
 
@@ -389,9 +482,12 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
         teacherName: klass.teacherName,
         requestedLessons: 0,
         createdLessons: 0,
-        totalLessonsAfter: existingCount,
+        totalLessonsAfter: input.mode === "replace_all" ? lockedPreservedCount : existingCount,
         status: "unchanged",
-        reason: "已达到目标课时"
+        reason:
+          input.mode === "replace_all" && lockedPreservedCount > 0
+            ? `已保留 ${lockedPreservedCount} 个锁定节次`
+            : "已达到目标课时"
       });
       return;
     }
@@ -409,7 +505,7 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
         teacherName: klass.teacherName,
         requestedLessons: requestedForClass,
         createdLessons: 0,
-        totalLessonsAfter: existingCount,
+        totalLessonsAfter: input.mode === "replace_all" ? lockedPreservedCount : existingCount,
         status: "skipped",
         reason: "未绑定教师"
       });
@@ -502,6 +598,7 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
       skippedClassCount += 1;
     }
 
+    const successReason = resolvedConfig.templateApplied ? "已按年级学科模板生成" : "已按默认配置生成";
     impactedClasses.push({
       id: klass.id,
       name: klass.name,
@@ -511,60 +608,84 @@ export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleIn
       teacherName: klass.teacherName,
       requestedLessons: requestedForClass,
       createdLessons: createdForClass.length,
-      totalLessonsAfter: input.mode === "replace_all" ? createdForClass.length : existingCount + createdForClass.length,
+      totalLessonsAfter:
+        input.mode === "replace_all"
+          ? lockedPreservedCount + createdForClass.length
+          : existingCount + createdForClass.length,
       status: createdForClass.length ? "generated" : "skipped",
       reason: createdForClass.length
-        ? resolvedConfig.templateApplied
-          ? "已按年级学科模板生成"
-          : "已按默认配置生成"
+        ? input.mode === "replace_all" && lockedPreservedCount > 0
+          ? `${successReason}，并保留 ${lockedPreservedCount} 个锁定节次`
+          : successReason
         : "当前排课约束下无可用时段"
     });
   });
 
-  const created = await applyClassSchedulePlan({
-    schoolId: input.schoolId,
-    replaceClassIds: input.mode === "replace_all" ? selectedIds : undefined,
-    items: drafts
-  });
-
-  const createdSessions = created.map((item) => {
-    const klass = classMap.get(item.classId);
-    return {
-      ...item,
-      className: klass?.name ?? item.classId,
-      subject: klass?.subject ?? "unknown",
-      grade: klass?.grade ?? "-",
-      teacherName: klass?.teacherName,
-      teacherId: klass?.teacherId ?? null
-    };
-  });
-
+  const generatedAt = new Date().toISOString();
   return {
-    summary: {
-      targetClassCount: selectedClassList.length,
-      teacherBoundClassCount: selectedClassList.filter((item) => item.teacherId).length,
-      replacedClassCount: input.mode === "replace_all" ? selectedClassList.length : 0,
-      createdSessions: createdSessions.length,
-      requestedLessons,
-      unresolvedLessons,
-      skippedClassCount,
-      untouchedClassCount,
-      templateAppliedClassCount
-    },
-    warnings,
-    createdSessions,
-    impactedClasses,
-    config: {
-      weeklyLessonsPerClass: input.weeklyLessonsPerClass,
-      lessonDurationMinutes: input.lessonDurationMinutes,
-      periodsPerDay: input.periodsPerDay,
-      weekdays: uniqueWeekdays(input.weekdays),
-      dayStartTime: input.dayStartTime,
-      shortBreakMinutes: input.shortBreakMinutes,
-      lunchBreakAfterPeriod: input.lunchBreakAfterPeriod,
-      lunchBreakMinutes: input.lunchBreakMinutes,
-      mode: input.mode,
-      campus: input.campus?.trim() || undefined
+    schoolId: input.schoolId,
+    generatedAt,
+    targetClassIds: selectedIds,
+    replaceClassIds: input.mode === "replace_all" ? selectedIds : [],
+    baseSessions: currentSelectedSessions,
+    drafts,
+    result: {
+      summary: {
+        targetClassCount: selectedClassList.length,
+        teacherBoundClassCount: selectedClassList.filter((item) => item.teacherId).length,
+        replacedClassCount: input.mode === "replace_all" ? selectedClassList.length : 0,
+        createdSessions: drafts.length,
+        requestedLessons,
+        unresolvedLessons,
+        skippedClassCount,
+        untouchedClassCount,
+        templateAppliedClassCount,
+        lockedPreservedSessionCount: lockedSelectedSessions.length
+      },
+      warnings,
+      createdSessions: buildPreviewSessions(drafts, input.schoolId, classMap, generatedAt),
+      impactedClasses,
+      config: {
+        weeklyLessonsPerClass: input.weeklyLessonsPerClass,
+        lessonDurationMinutes: input.lessonDurationMinutes,
+        periodsPerDay: input.periodsPerDay,
+        weekdays: uniqueWeekdays(input.weekdays),
+        dayStartTime: input.dayStartTime,
+        shortBreakMinutes: input.shortBreakMinutes,
+        lunchBreakAfterPeriod: input.lunchBreakAfterPeriod,
+        lunchBreakMinutes: input.lunchBreakMinutes,
+        mode: input.mode,
+        campus: input.campus?.trim() || undefined
+      }
     }
   };
+}
+
+export async function executeSchoolAiSchedulePlan(
+  plan: SchoolAiSchedulePlan,
+  options?: { previewId?: string; operationId?: string }
+): Promise<SchoolAiScheduleExecutionResult> {
+  const created = await applyClassSchedulePlan({
+    schoolId: plan.schoolId,
+    replaceClassIds: plan.replaceClassIds.length ? plan.replaceClassIds : undefined,
+    items: plan.drafts,
+    preserveLocked: true
+  });
+  const classes = (await listSchoolClasses(plan.schoolId)) as SchoolClassMeta[];
+  const classMap = new Map(classes.map((item) => [item.id, item]));
+
+  return {
+    ...plan.result,
+    generatedAt: plan.generatedAt,
+    applied: true,
+    previewId: options?.previewId,
+    operationId: options?.operationId ?? options?.previewId,
+    rollbackAvailable: true,
+    createdSessions: decorateSessions(created, classMap)
+  };
+}
+
+export async function generateAndApplySchoolAiSchedule(input: SchoolAiScheduleInput): Promise<SchoolAiScheduleExecutionResult> {
+  const plan = await buildSchoolAiSchedulePlan(input);
+  return executeSchoolAiSchedulePlan(plan);
 }

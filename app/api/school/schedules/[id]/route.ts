@@ -25,6 +25,7 @@ const updateBodySchema = v.object<{
   campus?: string;
   note?: string;
   focusSummary?: string;
+  locked?: boolean;
 }>(
   {
     weekday: v.optional(v.number({ coerce: true, integer: true, min: 1, max: 7 })),
@@ -34,7 +35,8 @@ const updateBodySchema = v.object<{
     room: v.optional(v.string({ allowEmpty: true, trim: false })),
     campus: v.optional(v.string({ allowEmpty: true, trim: false })),
     note: v.optional(v.string({ allowEmpty: true, trim: false })),
-    focusSummary: v.optional(v.string({ allowEmpty: true, trim: false }))
+    focusSummary: v.optional(v.string({ allowEmpty: true, trim: false })),
+    locked: v.optional(v.boolean())
   },
   { allowUnknown: false }
 );
