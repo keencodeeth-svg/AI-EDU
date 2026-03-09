@@ -24,6 +24,7 @@ const TYPE_LABELS: Record<string, string> = {
   class: "班级",
   announcement: "公告",
   teacher_alert_action: "教师动作",
+  student_profile_reminder: "资料补充提醒",
   exam_review_pack: "考试复盘",
   exam_review_pack_parent: "家长复盘"
 };

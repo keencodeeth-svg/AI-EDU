@@ -117,6 +117,16 @@ type AiPreviewResponse = {
   };
 };
 
+type FollowUpActionResponse = {
+  students?: number;
+  parents?: number;
+  recipients?: Array<{
+    studentId: string;
+    displayName: string;
+    missingFields: string[];
+  }>;
+};
+
 type AiOptions = {
   balanceGender: boolean;
   pairByScoreComplement: boolean;
@@ -211,6 +221,48 @@ function buildStudentOptionLabel(student: TeacherSeatingStudent) {
   return `${getStudentDisplayName(student)} · ${student.placementScore}分 · ${genderLabel} · ${heightLabel}`;
 }
 
+function buildFollowUpChecklist(params: {
+  classLabel: string;
+  studentsNeedingProfileReminder: TeacherSeatingStudent[];
+  watchStudents: TeacherSeatingStudent[];
+  summary: PlanSummary | null;
+  lockedSeatCount: number;
+}) {
+  const lines = [
+    `班级：${params.classLabel}`,
+    `资料待补：${params.studentsNeedingProfileReminder.length} 人`,
+    `前排仍需关注：${Math.max(0, (params.summary?.frontPriorityStudentCount ?? 0) - (params.summary?.frontPrioritySatisfiedCount ?? 0))} 人`,
+    `低干扰仍需关注：${Math.max(0, (params.summary?.focusPriorityStudentCount ?? 0) - (params.summary?.focusPrioritySatisfiedCount ?? 0))} 人`,
+    `锁定座位：${params.lockedSeatCount} 个`
+  ];
+
+  if (params.studentsNeedingProfileReminder.length) {
+    lines.push(
+      `待补资料学生：${params.studentsNeedingProfileReminder
+        .slice(0, 8)
+        .map((student) => `${getStudentDisplayName(student)}（${student.missingProfileFields.join("/ ")}）`)
+        .join("；")}`
+    );
+  }
+
+  if (params.watchStudents.length) {
+    lines.push(
+      `重点观察：${params.watchStudents
+        .slice(0, 6)
+        .map((student) => {
+          const reasons = [] as string[];
+          if (isFrontPriorityStudent(student)) reasons.push("前排关注");
+          if (isFocusPriorityStudent(student)) reasons.push("低干扰优先");
+          if (student.missingProfileFields.length) reasons.push("资料待补");
+          return `${getStudentDisplayName(student)}（${reasons.join("/")}）`;
+        })
+        .join("；")}`
+    );
+  }
+
+  return lines.join("\n");
+}
+
 export default function TeacherSeatingPage() {
   const [classes, setClasses] = useState<TeacherClassItem[]>([]);
   const [classId, setClassId] = useState("");
@@ -231,6 +283,10 @@ export default function TeacherSeatingPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [followUpMessage, setFollowUpMessage] = useState<string | null>(null);
+  const [followUpError, setFollowUpError] = useState<string | null>(null);
+  const [includeParentsInReminder, setIncludeParentsInReminder] = useState(false);
+  const [followUpActing, setFollowUpActing] = useState<null | "remind" | "copy">(null);
   const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
   const loadData = useCallback(async (mode: "initial" | "refresh" = "initial", targetClassId?: string) => {
@@ -314,10 +370,34 @@ export default function TeacherSeatingPage() {
       [...students].sort(
         (left, right) =>
           left.profileCompleteness - right.profileCompleteness ||
-          Number(isFrontPriorityStudent(right)) - Number(isFrontPriorityStudent(left)) ||
+          Number(isFrontPriorityStudent(right) || isFocusPriorityStudent(right)) -
+            Number(isFrontPriorityStudent(left) || isFocusPriorityStudent(left)) ||
           right.placementScore - left.placementScore
       ),
     [students]
+  );
+  const studentsNeedingProfileReminder = useMemo(
+    () => roster.filter((student) => student.missingProfileFields.length > 0),
+    [roster]
+  );
+  const watchStudents = useMemo(
+    () =>
+      roster.filter(
+        (student) => isFrontPriorityStudent(student) || isFocusPriorityStudent(student) || student.missingProfileFields.length > 0
+      ),
+    [roster]
+  );
+  const classLabel = useMemo(() => classes.find((item) => item.id === classId)?.name ?? "当前班级", [classId, classes]);
+  const followUpChecklist = useMemo(
+    () =>
+      buildFollowUpChecklist({
+        classLabel,
+        studentsNeedingProfileReminder,
+        watchStudents,
+        summary: draftSummary,
+        lockedSeatCount: lockedSeats.length
+      }),
+    [classLabel, draftSummary, lockedSeats.length, studentsNeedingProfileReminder, watchStudents]
   );
   const frontRowCount = draftPlan ? getFrontRowCount(draftPlan.rows) : 1;
 
@@ -431,6 +511,49 @@ export default function TeacherSeatingPage() {
       setSaveError(getRequestErrorMessage(nextError, "保存排座位失败"));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRemindIncompleteProfiles() {
+    if (!classId || !studentsNeedingProfileReminder.length) return;
+    setFollowUpActing("remind");
+    setFollowUpMessage(null);
+    setFollowUpError(null);
+
+    try {
+      const payload = await requestJson<{ data?: FollowUpActionResponse }>("/api/teacher/seating/follow-up", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          classId,
+          action: "remind_incomplete_profiles",
+          includeParents: includeParentsInReminder,
+          limit: Math.min(studentsNeedingProfileReminder.length, 30)
+        })
+      });
+      const result = payload.data;
+      setFollowUpMessage(
+        `已发送资料补充提醒：学生 ${result?.students ?? 0} 人${includeParentsInReminder ? `，家长 ${result?.parents ?? 0} 人` : ""}。`
+      );
+    } catch (nextError) {
+      setFollowUpError(getRequestErrorMessage(nextError, "发送资料补充提醒失败"));
+    } finally {
+      setFollowUpActing(null);
+    }
+  }
+
+  async function handleCopyFollowUpChecklist() {
+    setFollowUpActing("copy");
+    setFollowUpMessage(null);
+    setFollowUpError(null);
+
+    try {
+      await navigator.clipboard.writeText(followUpChecklist);
+      setFollowUpMessage("已复制本轮排座位观察清单。");
+    } catch {
+      setFollowUpError("复制失败，请稍后重试。");
+    } finally {
+      setFollowUpActing(null);
     }
   }
 
@@ -738,6 +861,99 @@ export default function TeacherSeatingPage() {
             </div>
           </div>
         )}
+      </Card>
+
+      <Card title="执行闭环" tag="跟进">
+        <div className="feature-card">
+          <EduIcon name="rocket" />
+          <p>排座位完成后，建议立刻处理资料待补学生，并保留一份课堂观察清单，方便下一次微调。</p>
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginTop: 12 }}>
+          <div className="card">
+            <div className="section-title">资料待补</div>
+            <p>{studentsNeedingProfileReminder.length} 人</p>
+          </div>
+          <div className="card">
+            <div className="section-title">前排仍需关注</div>
+            <p>{Math.max(0, (draftSummary?.frontPriorityStudentCount ?? 0) - (draftSummary?.frontPrioritySatisfiedCount ?? 0))} 人</p>
+          </div>
+          <div className="card">
+            <div className="section-title">低干扰仍需关注</div>
+            <p>{Math.max(0, (draftSummary?.focusPriorityStudentCount ?? 0) - (draftSummary?.focusPrioritySatisfiedCount ?? 0))} 人</p>
+          </div>
+          <div className="card">
+            <div className="section-title">重点观察</div>
+            <p>{watchStudents.length} 人</p>
+          </div>
+        </div>
+
+        <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 12, alignItems: "center" }}>
+          <label className="card" style={{ cursor: "pointer" }}>
+            <input
+              type="checkbox"
+              checked={includeParentsInReminder}
+              onChange={(event) => setIncludeParentsInReminder(event.target.checked)}
+              style={{ marginRight: 8 }}
+            />
+            同步提醒家长
+          </label>
+          <button
+            className="button secondary"
+            type="button"
+            onClick={() => void handleRemindIncompleteProfiles()}
+            disabled={followUpActing !== null || !studentsNeedingProfileReminder.length}
+          >
+            {followUpActing === "remind" ? "发送中..." : "提醒补齐资料"}
+          </button>
+          <button
+            className="button ghost"
+            type="button"
+            onClick={() => void handleCopyFollowUpChecklist()}
+            disabled={followUpActing !== null}
+          >
+            {followUpActing === "copy" ? "复制中..." : "复制观察清单"}
+          </button>
+        </div>
+
+        {followUpError ? <div style={{ color: "#b42318", fontSize: 13, marginTop: 12 }}>{followUpError}</div> : null}
+        {followUpMessage ? <div style={{ color: "#027a48", fontSize: 13, marginTop: 12 }}>{followUpMessage}</div> : null}
+
+        <div className="grid" style={{ gap: 12, marginTop: 12 }}>
+          <div className="card">
+            <div className="section-title">待补资料学生</div>
+            {studentsNeedingProfileReminder.length ? (
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
+                {studentsNeedingProfileReminder.slice(0, 10).map((student) => (
+                  <span key={`remind-${student.id}`} className="badge">
+                    {getStudentDisplayName(student)} · 缺 {student.missingProfileFields.length} 项
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p style={{ color: "var(--ink-1)", marginTop: 8 }}>本班用于排座位的关键画像已补齐。</p>
+            )}
+          </div>
+          <div className="card">
+            <div className="section-title">重点观察名单</div>
+            {watchStudents.length ? (
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                {watchStudents.slice(0, 6).map((student) => {
+                  const reasons = [] as string[];
+                  if (isFrontPriorityStudent(student)) reasons.push("前排关注");
+                  if (isFocusPriorityStudent(student)) reasons.push("低干扰优先");
+                  if (student.missingProfileFields.length) reasons.push("资料待补");
+                  return (
+                    <div key={`watch-${student.id}`} style={{ fontSize: 13 }}>
+                      {getStudentDisplayName(student)} · {reasons.join(" / ")}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p style={{ color: "var(--ink-1)", marginTop: 8 }}>当前没有需要重点跟进的学生。</p>
+            )}
+          </div>
+        </div>
       </Card>
 
       <Card title="当前座位草稿" tag={draftPlan.generatedBy === "ai" ? "AI 草稿" : "手动草稿"}>

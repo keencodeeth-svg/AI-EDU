@@ -1,4 +1,5 @@
 import { badRequest, notFound } from "./api/http";
+import { getParentsByStudentId } from "./auth";
 import { getAssignmentProgress, getAssignmentsByClass } from "./assignments";
 import { getClassSeatPlan, type ClassSeatPlan } from "./class-seat-plans";
 import { getClassById, getClassesByTeacher, getClassStudents, type ClassItem } from "./classes";
@@ -15,6 +16,7 @@ import {
   getStudentPersonaTags,
   type StudentPersonaLike
 } from "./student-persona-options";
+import { createNotificationsBulk } from "./notifications";
 import { listStudentPersonasByUserIds } from "./student-personas";
 
 export type TeacherSeatingStudent = {
@@ -83,6 +85,18 @@ export type TeacherSeatingAiOptions = {
   balanceGender: boolean;
   pairByScoreComplement: boolean;
   respectHeightGradient: boolean;
+};
+
+export type TeacherSeatingFollowUpRecipient = {
+  studentId: string;
+  displayName: string;
+  missingFields: string[];
+};
+
+export type TeacherSeatingFollowUpResult = {
+  students: number;
+  parents: number;
+  recipients: TeacherSeatingFollowUpRecipient[];
 };
 
 function pickTeacherClass(classes: ClassItem[], teacherId: string, classId?: string) {
@@ -691,5 +705,76 @@ export async function buildSavedTeacherSeatingResult(input: {
     students,
     plan: input.plan,
     ...buildTeacherSeatingDiagnostics(input.plan, students, undefined, { lockedSeatCount: 0 })
+  };
+}
+
+export async function sendTeacherSeatingProfileReminders(input: {
+  teacherId: string;
+  classId: string;
+  includeParents?: boolean;
+  limit?: number;
+}): Promise<TeacherSeatingFollowUpResult> {
+  const klass = await getClassById(input.classId);
+  if (!klass || klass.teacherId !== input.teacherId) {
+    notFound("class not found");
+  }
+
+  const students = await buildTeacherSeatingStudents(input.classId);
+  const recipients = students
+    .filter((student) => student.missingProfileFields.length > 0)
+    .sort(
+      (left, right) =>
+        right.missingProfileFields.length - left.missingProfileFields.length ||
+        Number(isFrontPriority(right) || isFocusPriority(right)) - Number(isFrontPriority(left) || isFocusPriority(left)) ||
+        left.name.localeCompare(right.name, "zh-CN")
+    )
+    .slice(0, Math.min(Math.max(input.limit ?? 30, 1), 60));
+
+  if (!recipients.length) {
+    return {
+      students: 0,
+      parents: 0,
+      recipients: []
+    };
+  }
+
+  const studentNotifications = recipients.map((student) => ({
+    userId: student.id,
+    title: "请补充课堂资料",
+    content: `老师正在优化班级「${klass.name}」的排座位，请尽快补充 ${student.missingProfileFields.join("、")}。资料越完整，AI 排座位和课堂协作建议越准确。`,
+    type: "student_profile_reminder"
+  }));
+
+  const parentNotifications = [] as Array<{
+    userId: string;
+    title: string;
+    content: string;
+    type: string;
+  }>;
+
+  if (input.includeParents) {
+    for (const student of recipients) {
+      const parents = await getParentsByStudentId(student.id);
+      parents.forEach((parent) => {
+        parentNotifications.push({
+          userId: parent.id,
+          title: "请协助补充孩子课堂资料",
+          content: `老师正在优化班级「${klass.name}」的排座位，孩子仍需补充 ${student.missingProfileFields.join("、")}，建议尽快在学生资料中完善。`,
+          type: "student_profile_reminder"
+        });
+      });
+    }
+  }
+
+  await createNotificationsBulk([...studentNotifications, ...parentNotifications]);
+
+  return {
+    students: studentNotifications.length,
+    parents: parentNotifications.length,
+    recipients: recipients.map((student) => ({
+      studentId: student.id,
+      displayName: student.preferredName || student.name,
+      missingFields: student.missingProfileFields
+    }))
   };
 }

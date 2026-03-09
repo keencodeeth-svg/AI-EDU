@@ -232,8 +232,8 @@ export async function runTeacherExamSuite(context) {
           seatPreference: "back",
           personality: "balanced",
           focusSupport: "self_driven",
-          peerSupport: "balanced",
-          strengths: "节奏稳定，完成度高",
+          peerSupport: undefined,
+          strengths: "",
           supportNotes: "身高较高，优先安排后排或中后排"
         }
       ].map((item) => [item.email, item])
@@ -1155,6 +1155,23 @@ export async function runTeacherExamSuite(context) {
     lockedSeatAfterPreview?.studentId,
     lockedSeedSeat?.studentId,
     "Teacher seating preview should preserve locked seat assignment"
+  );
+  const seatingFollowUp = await apiFetch("/api/teacher/seating/follow-up", {
+    method: "POST",
+    json: {
+      classId: examClass.id,
+      action: "remind_incomplete_profiles",
+      includeParents: false,
+      limit: 60
+    }
+  });
+  assert.equal(seatingFollowUp.status, 200, `POST /api/teacher/seating/follow-up failed: ${seatingFollowUp.raw}`);
+  assert.ok((seatingFollowUp.body?.data?.students ?? 0) >= 1, "Teacher seating follow-up should notify at least one student");
+  assert.ok(
+    (seatingFollowUp.body?.data?.recipients ?? []).some(
+      (item) => Array.isArray(item.missingFields) && item.missingFields.length > 0 && typeof item.displayName === "string"
+    ),
+    "Teacher seating follow-up should return recipients with missing profile fields"
   );
   const previewTargetSeat = (teacherSeatingPreview.body?.data?.plan?.seats ?? []).find((seat) => seat.studentId === targetStudent.id);
   assert.ok(previewTargetSeat, "Teacher seating preview should place the target student");
