@@ -22,7 +22,8 @@ export function useTeacherDataLoader({
   setAssignments,
   setInsights,
   setJoinRequests,
-  setKnowledgePoints
+  setKnowledgePoints,
+  onLoaded
 }: {
   setUnauthorized: Dispatch<SetStateAction<boolean>>;
   setLoading: Dispatch<SetStateAction<boolean>>;
@@ -33,39 +34,46 @@ export function useTeacherDataLoader({
   setInsights: Dispatch<SetStateAction<TeacherInsightsData | null>>;
   setJoinRequests: Dispatch<SetStateAction<TeacherJoinRequest[]>>;
   setKnowledgePoints: Dispatch<SetStateAction<KnowledgePoint[]>>;
+  onLoaded?: () => void;
 }) {
   const loadAll = useCallback(async () => {
     setUnauthorized(false);
     setLoading(true);
     setError(null);
     setMessage(null);
-    const classRes = await fetch("/api/teacher/classes");
-    if (classRes.status === 401) {
-      setUnauthorized(true);
+
+    try {
+      const classRes = await fetch("/api/teacher/classes");
+      if (classRes.status === 401) {
+        setUnauthorized(true);
+        return;
+      }
+      const classData = (await classRes.json()) as { data?: ClassItem[] };
+      setClasses(classData.data ?? []);
+
+      const assignmentRes = await fetch("/api/teacher/assignments");
+      const assignmentData = (await assignmentRes.json()) as { data?: AssignmentItem[] };
+      setAssignments(assignmentData.data ?? []);
+
+      const insightRes = await fetch("/api/teacher/insights");
+      const insightData = (await insightRes.json()) as TeacherInsightsData;
+      if (insightRes.ok) {
+        setInsights(insightData);
+      }
+
+      const joinRes = await fetch("/api/teacher/join-requests");
+      const joinData = (await joinRes.json()) as { data?: TeacherJoinRequest[] };
+      if (joinRes.ok) {
+        setJoinRequests(joinData.data ?? []);
+      }
+
+      onLoaded?.();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "加载教师工作台失败");
+    } finally {
       setLoading(false);
-      return;
     }
-    const classData = (await classRes.json()) as { data?: ClassItem[] };
-    setClasses(classData.data ?? []);
-
-    const assignmentRes = await fetch("/api/teacher/assignments");
-    const assignmentData = (await assignmentRes.json()) as { data?: AssignmentItem[] };
-    setAssignments(assignmentData.data ?? []);
-
-    const insightRes = await fetch("/api/teacher/insights");
-    const insightData = (await insightRes.json()) as TeacherInsightsData;
-    if (insightRes.ok) {
-      setInsights(insightData);
-    }
-
-    const joinRes = await fetch("/api/teacher/join-requests");
-    const joinData = (await joinRes.json()) as { data?: TeacherJoinRequest[] };
-    if (joinRes.ok) {
-      setJoinRequests(joinData.data ?? []);
-    }
-
-    setLoading(false);
-  }, [setAssignments, setClasses, setError, setInsights, setJoinRequests, setLoading, setMessage, setUnauthorized]);
+  }, [onLoaded, setAssignments, setClasses, setError, setInsights, setJoinRequests, setLoading, setMessage, setUnauthorized]);
 
   const loadKnowledgePoints = useCallback(async () => {
     const res = await fetch("/api/knowledge-points");

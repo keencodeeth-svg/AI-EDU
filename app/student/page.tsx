@@ -5,7 +5,9 @@ import { type FormEvent, useCallback, useEffect, useMemo, useRef, useState } fro
 import StatePanel from "@/components/StatePanel";
 import { trackEvent } from "@/lib/analytics-client";
 import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } from "@/lib/client-request";
+import type { ScheduleResponse } from "@/lib/class-schedules";
 import StudentDashboardGuideCard from "./_components/StudentDashboardGuideCard";
+import StudentExecutionSummaryCard from "./_components/StudentExecutionSummaryCard";
 import StudentEntryCompactCard from "./_components/StudentEntryCompactCard";
 import StudentEntryDetailCard from "./_components/StudentEntryDetailCard";
 import StudentMotivationCard from "./_components/StudentMotivationCard";
@@ -42,6 +44,7 @@ type MotivationResponse = MotivationPayload | { data?: MotivationPayload | null 
 type JoinRequestsResponse = { data?: JoinRequest[] };
 type TodayTasksResponse = { data?: TodayTaskPayload | null };
 type JoinClassResponse = { message?: string; data?: { message?: string } };
+type ScheduleData = NonNullable<ScheduleResponse["data"]>;
 
 function extractPlanItems(payload: PlanResponse | null | undefined): PlanItem[] {
   if (Array.isArray(payload?.data?.items)) return payload.data.items;
@@ -67,6 +70,11 @@ export default function StudentPage() {
   const [motivation, setMotivation] = useState<MotivationPayload | null>(null);
   const [todayTasks, setTodayTasks] = useState<TodayTaskPayload | null>(null);
   const [todayTaskError, setTodayTaskError] = useState<string | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleData | null>(null);
+  const [scheduleError, setScheduleError] = useState<string | null>(null);
+  const [scheduleLoading, setScheduleLoading] = useState(true);
+  const [scheduleRefreshing, setScheduleRefreshing] = useState(false);
+  const [scheduleLastLoadedAt, setScheduleLastLoadedAt] = useState<string | null>(null);
   const [joinCode, setJoinCode] = useState("");
   const [joinMessage, setJoinMessage] = useState<JoinMessage | null>(null);
   const [joinRequests, setJoinRequests] = useState<JoinRequest[]>([]);
@@ -100,6 +108,34 @@ export default function StudentPage() {
     }
   }, []);
 
+  const loadSchedule = useCallback(async (mode: "initial" | "refresh" = "initial") => {
+    if (mode === "refresh") {
+      setScheduleRefreshing(true);
+    } else {
+      setScheduleLoading(true);
+    }
+    setScheduleError(null);
+
+    try {
+      const payload = await requestJson<ScheduleResponse>("/api/schedule");
+      setSchedule(payload.data ?? null);
+      setScheduleLastLoadedAt(new Date().toISOString());
+      return true;
+    } catch (nextError) {
+      if (isAuthError(nextError)) {
+        throw nextError;
+      }
+      if (mode === "initial") {
+        setSchedule(null);
+      }
+      setScheduleError(getRequestErrorMessage(nextError, "加载课程表失败"));
+      return false;
+    } finally {
+      setScheduleLoading(false);
+      setScheduleRefreshing(false);
+    }
+  }, []);
+
   const loadDashboard = useCallback(
     async (mode: "initial" | "refresh" = "initial") => {
       if (mode === "refresh") {
@@ -112,12 +148,14 @@ export default function StudentPage() {
       try {
         const [planPayload, motivationPayload] = await Promise.all([
           requestJson<PlanResponse>("/api/plan"),
-          requestJson<MotivationResponse>("/api/student/motivation")
+          requestJson<MotivationResponse>("/api/student/motivation"),
+          loadJoinRequests(),
+          loadTodayTasks(),
+          loadSchedule(mode === "refresh" ? "refresh" : "initial")
         ]);
 
         setPlan(extractPlanItems(planPayload));
         setMotivation(extractMotivation(motivationPayload));
-        await Promise.all([loadJoinRequests(), loadTodayTasks()]);
         setAuthRequired(false);
         setLastLoadedAt(new Date().toISOString());
       } catch (nextError) {
@@ -128,6 +166,9 @@ export default function StudentPage() {
           setJoinRequests([]);
           setTodayTasks(null);
           setTodayTaskError(null);
+          setSchedule(null);
+          setScheduleError(null);
+          setScheduleLastLoadedAt(null);
         } else {
           setPageError(getRequestErrorMessage(nextError, "加载学习控制台失败"));
         }
@@ -136,8 +177,21 @@ export default function StudentPage() {
         setRefreshing(false);
       }
     },
-    [loadJoinRequests, loadTodayTasks]
+    [loadJoinRequests, loadSchedule, loadTodayTasks]
   );
+
+  const refreshSchedule = useCallback(async () => {
+    try {
+      await loadSchedule("refresh");
+    } catch (nextError) {
+      if (isAuthError(nextError)) {
+        setAuthRequired(true);
+        setSchedule(null);
+        setScheduleError(null);
+        setScheduleLastLoadedAt(null);
+      }
+    }
+  }, [loadSchedule]);
 
   useEffect(() => {
     void loadDashboard();
@@ -248,7 +302,7 @@ export default function StudentPage() {
     [todayTasks, visiblePriorityTasks]
   );
 
-  const hasDashboardData = plan.length > 0 || motivation !== null || todayTasks !== null || joinRequests.length > 0;
+  const hasDashboardData = plan.length > 0 || motivation !== null || todayTasks !== null || schedule !== null || joinRequests.length > 0;
 
   async function handleJoinClass(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -328,7 +382,7 @@ export default function StudentPage() {
     return (
       <StatePanel
         title="学习控制台加载中"
-        description="正在汇总学习计划、今日任务和成长激励。"
+        description="正在汇总课表、学习计划、今日任务和成长激励。"
         tone="loading"
       />
     );
@@ -369,7 +423,7 @@ export default function StudentPage() {
       <div className="section-head">
         <div>
           <h2>学习控制台</h2>
-          <div className="section-sub">今日任务、成长激励与学习入口。</div>
+          <div className="section-sub">今日课表、任务闭环、成长激励与学习入口。</div>
         </div>
         <div className="cta-row no-margin" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
           {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
@@ -382,16 +436,30 @@ export default function StudentPage() {
 
       {pageError ? <StatePanel title="本次刷新存在异常" description={pageError} tone="error" compact /> : null}
 
-      <StudentScheduleCard />
-
-      <StudentDashboardGuideCard
-        showDashboardGuide={showDashboardGuide}
-        onHide={hideDashboardGuide}
-        onShow={showDashboardGuideAgain}
+      <StudentScheduleCard
+        schedule={schedule}
+        loading={scheduleLoading}
+        refreshing={scheduleRefreshing}
+        authRequired={authRequired}
+        error={scheduleError}
+        lastLoadedAt={scheduleLastLoadedAt}
+        onRefresh={() => {
+          void refreshSchedule();
+        }}
       />
 
-      <div className="student-focus-grid">
+      <StudentExecutionSummaryCard
+        schedule={schedule}
+        todayTasks={todayTasks}
+        recommendedTask={recommendedTask}
+        weakPlanCount={weakPlanCount}
+        onTaskEvent={handleTaskEvent}
+      />
+
+      <div id="student-next-action" className="student-focus-grid">
         <StudentNextActionCard
+          schedule={schedule}
+          todayTasks={todayTasks}
           recommendedTask={recommendedTask}
           mustDoCount={todayTasks?.summary?.mustDo ?? visiblePriorityTasks.length}
           totalTaskCount={todayTasks?.summary?.total ?? visiblePriorityTasks.length}
@@ -400,18 +468,28 @@ export default function StudentPage() {
         />
 
         <StudentQuickTutorCard
+          schedule={schedule}
           mustDoCount={todayTasks?.summary?.mustDo ?? visiblePriorityTasks.length}
           weakPlanCount={weakPlanCount}
         />
       </div>
 
+      <StudentDashboardGuideCard
+        showDashboardGuide={showDashboardGuide}
+        onHide={hideDashboardGuide}
+        onShow={showDashboardGuideAgain}
+      />
+
       <div className="student-overview-grid">
-        <StudentPriorityTasksCard
-          todayTaskError={todayTaskError}
-          visiblePriorityTasks={visiblePriorityTasks}
-          hiddenTodayTaskCount={hiddenTodayTaskCount}
-          onTaskEvent={handleTaskEvent}
-        />
+        <div id="student-priority-tasks">
+          <StudentPriorityTasksCard
+            schedule={schedule}
+            todayTaskError={todayTaskError}
+            visiblePriorityTasks={visiblePriorityTasks}
+            hiddenTodayTaskCount={hiddenTodayTaskCount}
+            onTaskEvent={handleTaskEvent}
+          />
+        </div>
 
         <div className="grid" style={{ gap: 10 }}>
           <StudentTaskOverviewCard
@@ -427,6 +505,7 @@ export default function StudentPage() {
 
       <div id="student-task-queue">
         <StudentUnifiedTaskQueueCard
+          schedule={schedule}
           todayTasks={todayTasks}
           todayTaskError={todayTaskError}
           onTaskEvent={handleTaskEvent}

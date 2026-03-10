@@ -1,5 +1,6 @@
+import type { ScheduleResponse } from "@/lib/class-schedules";
 import { buildTutorLaunchHref } from "@/lib/tutor-launch";
-import type { EntryCategory, EntryCategoryMeta, EntryItem, TodayTaskStatus } from "./types";
+import type { EntryCategory, EntryCategoryMeta, EntryItem, TodayTask, TodayTaskStatus } from "./types";
 
 export const STUDENT_DASHBOARD_GUIDE_KEY = "guide:student-dashboard:v1";
 
@@ -239,4 +240,99 @@ export function getTodayTaskSourceLabel(source: "assignment" | "exam" | "wrong_r
   if (source === "plan") return "计划";
   if (source === "lesson") return "课程提醒";
   return "挑战";
+}
+
+
+type StudentScheduleData = ScheduleResponse["data"] | null;
+type StudentNextLesson = NonNullable<NonNullable<ScheduleResponse["data"]>["nextLesson"]>;
+
+export type StudentLessonWindow = {
+  nextLesson: StudentNextLesson | null;
+  minutesUntilNextLesson: number | null;
+  lessonInProgress: boolean;
+  lessonStartsSoon: boolean;
+  lessonWindowActive: boolean;
+  safeTaskMinutes: number | null;
+};
+
+export type StudentTaskTimingAdvice = StudentLessonWindow & {
+  canStartNow: boolean;
+  timingLabel: string;
+  deferReason: string | null;
+};
+
+export function getMinutesUntil(startAt: string | undefined) {
+  if (!startAt) return null;
+  const diff = new Date(startAt).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / 60000));
+}
+
+export function getStudentLessonWindow(schedule: StudentScheduleData): StudentLessonWindow {
+  const nextLesson = schedule?.nextLesson ?? null;
+  const minutesUntilNextLesson = getMinutesUntil(nextLesson?.startAt);
+  const lessonInProgress = nextLesson?.status === "in_progress";
+  const lessonStartsSoon = !lessonInProgress && minutesUntilNextLesson !== null && minutesUntilNextLesson <= 30;
+  const lessonWindowActive = Boolean(nextLesson && (lessonInProgress || lessonStartsSoon));
+  const safeTaskMinutes = lessonStartsSoon && minutesUntilNextLesson !== null ? Math.max(5, minutesUntilNextLesson - 10) : null;
+
+  return {
+    nextLesson,
+    minutesUntilNextLesson,
+    lessonInProgress,
+    lessonStartsSoon,
+    lessonWindowActive,
+    safeTaskMinutes
+  };
+}
+
+export function getStudentTaskTimingAdvice(task: TodayTask, schedule: StudentScheduleData): StudentTaskTimingAdvice {
+  const lessonWindow = getStudentLessonWindow(schedule);
+
+  if (!lessonWindow.nextLesson) {
+    return {
+      ...lessonWindow,
+      canStartNow: true,
+      timingLabel: task.source === "lesson" ? "按课表做" : "可现在做",
+      deferReason: null
+    };
+  }
+
+  if (!lessonWindow.lessonWindowActive) {
+    return {
+      ...lessonWindow,
+      canStartNow: true,
+      timingLabel: task.source === "lesson" ? "按课表做" : "可现在做",
+      deferReason: null
+    };
+  }
+
+  if (task.source === "lesson") {
+    return {
+      ...lessonWindow,
+      canStartNow: true,
+      timingLabel: lessonWindow.lessonInProgress ? "课堂优先" : "课前优先",
+      deferReason: null
+    };
+  }
+
+  if (lessonWindow.lessonInProgress) {
+    return {
+      ...lessonWindow,
+      canStartNow: false,
+      timingLabel: "建议课后",
+      deferReason: "当前已进入上课时段，先处理课堂任务，其他任务课后再开。"
+    };
+  }
+
+  const safeTaskMinutes = lessonWindow.safeTaskMinutes ?? 5;
+  const canStartNow = task.effortMinutes <= safeTaskMinutes;
+
+  return {
+    ...lessonWindow,
+    canStartNow,
+    timingLabel: canStartNow ? "可课前完成" : "建议课后",
+    deferReason: canStartNow
+      ? null
+      : `距离上课还有 ${lessonWindow.minutesUntilNextLesson ?? 0} 分钟，当前任务预计 ${task.effortMinutes} 分钟，更适合课后开始。`
+  };
 }

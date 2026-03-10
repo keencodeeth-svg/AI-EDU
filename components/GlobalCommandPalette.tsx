@@ -10,7 +10,41 @@ type NavGroup = { title: string; links: NavLink[] };
 type SearchItem = NavLink & {
   group: string;
   groupType: "primary" | "group" | "recent";
+  aliases: string[];
 };
+
+const SEARCH_ALIASES_BY_HREF: Record<string, string[]> = {
+  "/calendar": ["课表", "课程表", "排课", "节次", "上课安排", "今日课程"],
+  "/tutor": ["拍题", "拍照识题", "图片识题", "上传图片", "搜题", "拍题即问"],
+  "/coach": ["学习陪练", "AI陪练", "陪练"],
+  "/practice": ["刷题", "做题", "练题"],
+  "/wrong-book": ["错题", "错题整理", "错题复习", "错题本"],
+  "/report": ["学习报告", "报告", "分析报告"],
+  "/notifications": ["通知", "提醒", "消息提醒"],
+  "/inbox": ["消息", "收件箱", "站内信"],
+  "/student/assignments": ["作业", "作业中心", "待完成作业"],
+  "/student/exams": ["考试", "在线考试", "试卷"],
+  "/student/profile": ["学生资料", "个人资料", "画像", "个人信息"],
+  "/student/growth": ["成长", "成长画像", "成长记录"],
+  "/teacher/submissions": ["提交", "提交箱", "作业提交"],
+  "/teacher/gradebook": ["成绩", "成绩册", "分数", "成绩管理"],
+  "/teacher/analysis": ["学情", "学情分析", "班级分析", "风险学生"],
+  "/teacher/seating": ["排座", "排座位", "座位", "座位表", "学期排座", "学期座位"],
+  "/school/schedules": ["学校排课", "学校课表", "课程表管理", "课表管理", "AI排课", "一键排课"],
+  "/school/classes": ["班级", "班级管理"],
+  "/school/teachers": ["教师管理", "老师管理"]
+};
+
+function buildAliases(item: NavLink) {
+  return SEARCH_ALIASES_BY_HREF[item.href] ?? [];
+}
+
+function rankAlias(alias: string, normalized: string) {
+  if (alias === normalized) return 96;
+  if (alias.startsWith(normalized)) return 72;
+  if (alias.includes(normalized)) return 42;
+  return -1;
+}
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
@@ -28,14 +62,14 @@ function mergeLinks(primaryLinks: NavLink[], navGroups: NavGroup[]) {
   primaryLinks.forEach((item) => {
     if (seen.has(item.href)) return;
     seen.add(item.href);
-    merged.push({ ...item, group: "核心功能", groupType: "primary" });
+    merged.push({ ...item, group: "核心功能", groupType: "primary", aliases: buildAliases(item) });
   });
 
   navGroups.forEach((group) => {
     group.links.forEach((item) => {
       if (seen.has(item.href)) return;
       seen.add(item.href);
-      merged.push({ ...item, group: group.title, groupType: "group" });
+      merged.push({ ...item, group: group.title, groupType: "group", aliases: buildAliases(item) });
     });
   });
 
@@ -47,8 +81,9 @@ function rankItem(item: SearchItem, query: string, recentHrefs: string[]) {
   const label = item.label.toLowerCase();
   const href = item.href.toLowerCase();
   const group = item.group.toLowerCase();
+  const aliasScore = item.aliases.reduce((best, alias) => Math.max(best, rankAlias(alias.toLowerCase(), normalized)), -1);
   if (!normalized) return 0;
-  if (!label.includes(normalized) && !href.includes(normalized) && !group.includes(normalized)) return -1;
+  if (!label.includes(normalized) && !href.includes(normalized) && !group.includes(normalized) && aliasScore < 0) return -1;
 
   let score = 0;
   if (label === normalized) score += 120;
@@ -56,6 +91,7 @@ function rankItem(item: SearchItem, query: string, recentHrefs: string[]) {
   if (label.includes(normalized)) score += 48;
   if (group.includes(normalized)) score += 22;
   if (href.includes(normalized)) score += 14;
+  if (aliasScore >= 0) score += aliasScore;
   const recentIndex = recentHrefs.indexOf(item.href);
   if (recentIndex >= 0) {
     score += Math.max(0, 24 - recentIndex * 4);
@@ -189,7 +225,8 @@ export default function GlobalCommandPalette({
           mergedLinks.find((candidate) => candidate.href === item.href) ?? {
             ...item,
             group: "常用入口",
-            groupType: "primary" as const
+            groupType: "primary" as const,
+            aliases: buildAliases(item)
           }
       );
   }, [mergedLinks, navGroups, pathname, primaryLinks]);
@@ -253,9 +290,12 @@ export default function GlobalCommandPalette({
     if (navigationTimerRef.current !== null) {
       window.clearTimeout(navigationTimerRef.current);
     }
+    const currentPath = window.location.pathname;
     navigationTimerRef.current = window.setTimeout(() => {
-      setNavigatingHref(null);
-    }, 2500);
+      if (pendingNavigationHrefRef.current !== item.href) return;
+      if (window.location.pathname !== currentPath || window.location.pathname === item.href) return;
+      window.location.assign(item.href);
+    }, 900);
     router.prefetch(item.href);
     router.push(item.href);
   }
@@ -317,7 +357,7 @@ export default function GlobalCommandPalette({
               disabled={Boolean(navigatingHref)}
             />
             <div className="command-palette-hint">
-              {navigatingHref ? `正在跳转到 ${navigatingHref} ...` : "支持键盘上下选择，回车直达"}
+              {navigatingHref ? `正在跳转到 ${navigatingHref}，若无响应会自动重试` : "支持键盘上下选择，回车直达"}
             </div>
           </div>
 
@@ -344,6 +384,8 @@ export default function GlobalCommandPalette({
                   role="option"
                   aria-selected={index === selectedIndex}
                   className={`command-palette-result${index === selectedIndex ? " active" : ""}`}
+                  onMouseEnter={() => setSelectedIndex(index)}
+                  onFocus={() => setSelectedIndex(index)}
                   onClick={() => navigateTo(item)}
                   disabled={Boolean(navigatingHref)}
                 >

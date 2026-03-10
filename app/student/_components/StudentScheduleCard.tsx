@@ -1,54 +1,34 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
 import Card from "@/components/Card";
 import StatePanel from "@/components/StatePanel";
-import { formatLoadedTime, getRequestErrorMessage, isAuthError, requestJson } from "@/lib/client-request";
+import { formatLoadedTime } from "@/lib/client-request";
 import type { ScheduleResponse } from "@/lib/class-schedules";
+
+type StudentScheduleCardProps = {
+  schedule: ScheduleResponse["data"] | null;
+  loading: boolean;
+  refreshing: boolean;
+  authRequired: boolean;
+  error: string | null;
+  lastLoadedAt: string | null;
+  onRefresh: () => void;
+};
 
 function formatLessonRange(startAt: string, endAt: string) {
   return `${new Date(startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}-${new Date(endAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
 }
 
-export default function StudentScheduleCard() {
-  const [schedule, setSchedule] = useState<ScheduleResponse["data"] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [authRequired, setAuthRequired] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
-
-  const loadSchedule = useCallback(async (mode: "initial" | "refresh" = "initial") => {
-    if (mode === "refresh") {
-      setRefreshing(true);
-    } else {
-      setLoading(true);
-    }
-    setError(null);
-
-    try {
-      const payload = await requestJson<ScheduleResponse>("/api/schedule");
-      setSchedule(payload.data ?? null);
-      setAuthRequired(false);
-      setLastLoadedAt(new Date().toISOString());
-    } catch (nextError) {
-      if (isAuthError(nextError)) {
-        setAuthRequired(true);
-        setSchedule(null);
-      } else {
-        setError(getRequestErrorMessage(nextError, "加载课程表失败"));
-      }
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void loadSchedule("initial");
-  }, [loadSchedule]);
-
+export default function StudentScheduleCard({
+  schedule,
+  loading,
+  refreshing,
+  authRequired,
+  error,
+  lastLoadedAt,
+  onRefresh
+}: StudentScheduleCardProps) {
   return (
     <Card title="课程表优先区" tag="课表">
       {loading && !schedule && !error && !authRequired ? (
@@ -72,7 +52,9 @@ export default function StudentScheduleCard() {
           title="课程表加载失败"
           description={error}
           action={
-            <button className="button secondary" type="button" onClick={() => void loadSchedule("initial")}>重试</button>
+            <button className="button secondary" type="button" onClick={onRefresh}>
+              重试
+            </button>
           }
         />
       ) : !schedule?.nextLesson && !schedule?.todayLessons?.length ? (
@@ -105,11 +87,15 @@ export default function StudentScheduleCard() {
             </div>
             <div className="cta-row no-margin" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
               {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
-              <button className="button ghost" type="button" onClick={() => void loadSchedule("refresh")} disabled={loading || refreshing}>
+              <button className="button ghost" type="button" onClick={onRefresh} disabled={loading || refreshing}>
                 {refreshing ? "刷新中..." : "刷新课表"}
               </button>
             </div>
           </div>
+
+          {error && schedule ? (
+            <StatePanel compact tone="error" title="课表刷新未完成" description={error} />
+          ) : null}
 
           {schedule?.nextLesson ? (
             <div className="card">

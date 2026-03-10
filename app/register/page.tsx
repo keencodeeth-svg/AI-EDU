@@ -1,13 +1,15 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Card from "@/components/Card";
 import PasswordPolicyHint from "@/components/auth/PasswordPolicyHint";
 import { GRADE_OPTIONS } from "@/lib/constants";
 import type { RegisterPayload, RegisterResponse, RegisterRole } from "./types";
 
 export default function RegisterPage() {
+  const searchParams = useSearchParams();
   const [role, setRole] = useState<RegisterRole>("student");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
@@ -19,6 +21,13 @@ export default function RegisterPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const nextRole = searchParams.get("role");
+    if (nextRole === "student" || nextRole === "parent") {
+      setRole(nextRole);
+    }
+  }, [searchParams]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -82,6 +91,7 @@ export default function RegisterPage() {
               <option value="student">学生</option>
               <option value="parent">家长</option>
             </select>
+            <div className="form-note">会根据角色展示对应的首日填写项，减少第一次注册时的判断成本。</div>
           </label>
           <label className="form-field">
             <div className="section-title">姓名</div>
@@ -149,7 +159,7 @@ export default function RegisterPage() {
           </button>
         </form>
         <div className="section-sub" style={{ marginTop: 12 }}>
-          已有账号？<Link href="/login">去登录</Link>
+          已有账号？<Link href={`/login?role=${role}&entry=register`}>去登录</Link>
         </div>
       </Card>
     </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import RoleScheduleFocusCard from "@/components/RoleScheduleFocusCard";
 import StatePanel from "@/components/StatePanel";
@@ -8,6 +8,7 @@ import { formatLoadedTime, requestJson, type RequestError } from "@/lib/client-r
 import ParentAssignmentsCard from "./_components/ParentAssignmentsCard";
 import ParentCorrectionsCard from "./_components/ParentCorrectionsCard";
 import ParentFavoritesCard from "./_components/ParentFavoritesCard";
+import { ParentExecutionSummaryCard, ParentNextStepCard } from "./_components/ParentActionCenterPanels";
 import ParentWeakPointsCard from "./_components/ParentWeakPointsCard";
 import ParentWeeklyReportCard from "./_components/ParentWeeklyReportCard";
 import type {
@@ -109,7 +110,12 @@ export default function ParentPage() {
         setAssignmentSummary(null);
         setAssignmentExecution(null);
         setAssignmentEffect(null);
+        setAssignmentReminder("");
+        setAssignmentActionItems([]);
+        setAssignmentParentTips([]);
+        setAssignmentEstimatedMinutes(0);
         setFavorites([]);
+        setReceiptError(null);
       } else {
         setPageError(requestError.message || "加载失败");
       }
@@ -212,7 +218,18 @@ export default function ParentPage() {
   }
 
   if (!report) {
-    return null;
+    return (
+      <StatePanel
+        tone="empty"
+        title="暂时还没有可查看的家长周报"
+        description="当前未生成本周学情数据，可稍后刷新，或等待孩子产生新的学习记录。"
+        action={
+          <button className="button secondary" type="button" onClick={() => void loadAll("refresh")}>
+            刷新重试
+          </button>
+        }
+      />
+    );
   }
 
   const pendingTasks = tasks.filter((task) => task.status === "pending");
@@ -221,6 +238,8 @@ export default function ParentPage() {
     return diff >= 0 && diff <= 2 * 24 * 60 * 60 * 1000;
   });
   const overdueTasks = pendingTasks.filter((task) => new Date(task.dueDate).getTime() < Date.now());
+  const pendingWeeklyActionItems = (report.actionItems ?? []).filter((item) => item.receipt?.status !== "done");
+  const pendingAssignmentActionItems = assignmentActionItems.filter((item) => item.receipt?.status !== "done");
   const reminderText = [
     `本周订正任务：待完成 ${summary?.pending ?? pendingTasks.length} 题。`,
     overdueTasks.length ? `已逾期 ${overdueTasks.length} 题，请尽快完成。` : "",
@@ -235,12 +254,12 @@ export default function ParentPage() {
       <div className="section-head">
         <div>
           <h2>家长空间</h2>
-          <div className="section-sub">掌握学情、作业进度与订正提醒，支持一键刷新与回执闭环跟进。</div>
+          <div className="section-sub">把“看报告”改成“今晚先做什么”，帮助家长真正完成陪伴闭环。</div>
         </div>
         <div className="workflow-toolbar">
           <span className="chip">家校协作</span>
-          <span className="chip">作业待跟进 {assignmentSummary?.pending ?? 0} 份</span>
-          <span className="chip">订正待处理 {summary?.pending ?? pendingTasks.length} 题</span>
+          <span className="chip">待回执动作 {pendingWeeklyActionItems.length + pendingAssignmentActionItems.length} 项</span>
+          <span className="chip">今晚必跟进 {(summary?.overdue ?? overdueTasks.length) + (assignmentSummary?.overdue ?? 0)} 项</span>
           <span className="chip">收藏 {favorites.length} 题</span>
           {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
           <button
@@ -270,52 +289,83 @@ export default function ParentPage() {
 
       <RoleScheduleFocusCard variant="parent" />
 
-      <div className="workflow-card-meta">
-        <span className="chip">近 7 天正确率 {report.stats.accuracy}%</span>
-        <span className="chip">周报行动卡 {(report.actionItems ?? []).length} 项</span>
-        <span className="chip">作业行动卡 {assignmentActionItems.length} 项</span>
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <ParentNextStepCard
+          report={report}
+          correctionSummary={summary}
+          assignmentSummary={assignmentSummary}
+          assignmentActionItems={assignmentActionItems}
+          assignmentExecution={assignmentExecution}
+          pendingCorrectionCount={pendingTasks.length}
+          overdueCorrectionCount={overdueTasks.length}
+          dueSoonCorrectionCount={dueSoonTasks.length}
+          favoritesCount={favorites.length}
+        />
+        <ParentExecutionSummaryCard
+          report={report}
+          correctionSummary={summary}
+          assignmentSummary={assignmentSummary}
+          assignmentActionItems={assignmentActionItems}
+          assignmentExecution={assignmentExecution}
+          pendingCorrectionCount={pendingTasks.length}
+          overdueCorrectionCount={overdueTasks.length}
+          dueSoonCorrectionCount={dueSoonTasks.length}
+          favoritesCount={favorites.length}
+        />
       </div>
 
-      <ParentWeeklyReportCard
-        report={report}
-        receiptError={receiptError}
-        receiptNotes={receiptNotes}
-        receiptLoadingKey={receiptLoadingKey}
-        onNoteChange={handleReceiptNoteChange}
-        onSubmitReceipt={submitReceipt}
-      />
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <div id="parent-corrections">
+          <ParentCorrectionsCard
+            summary={summary}
+            pendingCount={pendingTasks.length}
+            overdueCount={overdueTasks.length}
+            dueSoonCount={dueSoonTasks.length}
+            reminderText={reminderText}
+            reminderCopied={reminderCopied}
+            onCopyReminder={() => copyText(reminderText, setReminderCopied)}
+          />
+        </div>
+        <div id="parent-assignments">
+          <ParentAssignmentsCard
+            assignmentSummary={assignmentSummary}
+            assignmentEstimatedMinutes={assignmentEstimatedMinutes}
+            assignmentActionItems={assignmentActionItems}
+            assignmentExecution={assignmentExecution}
+            assignmentEffect={assignmentEffect}
+            assignmentList={assignmentList}
+            assignmentReminder={assignmentReminder}
+            assignmentParentTips={assignmentParentTips}
+            assignmentCopied={assignmentCopied}
+            receiptError={receiptError}
+            receiptNotes={receiptNotes}
+            receiptLoadingKey={receiptLoadingKey}
+            onNoteChange={handleReceiptNoteChange}
+            onSubmitReceipt={submitReceipt}
+            onCopyReminder={() => copyText(assignmentReminder, setAssignmentCopied)}
+          />
+        </div>
+      </div>
 
-      <ParentWeakPointsCard report={report} />
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <div id="parent-weekly-report">
+          <ParentWeeklyReportCard
+            report={report}
+            receiptError={receiptError}
+            receiptNotes={receiptNotes}
+            receiptLoadingKey={receiptLoadingKey}
+            onNoteChange={handleReceiptNoteChange}
+            onSubmitReceipt={submitReceipt}
+          />
+        </div>
+        <div id="parent-weak-points">
+          <ParentWeakPointsCard report={report} />
+        </div>
+      </div>
 
-      <ParentCorrectionsCard
-        summary={summary}
-        pendingCount={pendingTasks.length}
-        overdueCount={overdueTasks.length}
-        dueSoonCount={dueSoonTasks.length}
-        reminderText={reminderText}
-        reminderCopied={reminderCopied}
-        onCopyReminder={() => copyText(reminderText, setReminderCopied)}
-      />
-
-      <ParentAssignmentsCard
-        assignmentSummary={assignmentSummary}
-        assignmentEstimatedMinutes={assignmentEstimatedMinutes}
-        assignmentActionItems={assignmentActionItems}
-        assignmentExecution={assignmentExecution}
-        assignmentEffect={assignmentEffect}
-        assignmentList={assignmentList}
-        assignmentReminder={assignmentReminder}
-        assignmentParentTips={assignmentParentTips}
-        assignmentCopied={assignmentCopied}
-        receiptError={receiptError}
-        receiptNotes={receiptNotes}
-        receiptLoadingKey={receiptLoadingKey}
-        onNoteChange={handleReceiptNoteChange}
-        onSubmitReceipt={submitReceipt}
-        onCopyReminder={() => copyText(assignmentReminder, setAssignmentCopied)}
-      />
-
-      <ParentFavoritesCard favorites={favorites} />
+      <div id="parent-favorites">
+        <ParentFavoritesCard favorites={favorites} />
+      </div>
     </div>
   );
 }

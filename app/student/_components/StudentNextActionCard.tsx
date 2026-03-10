@@ -4,11 +4,14 @@ import Link from "next/link";
 import Card from "@/components/Card";
 import EduIcon from "@/components/EduIcon";
 import { trackEvent } from "@/lib/analytics-client";
+import type { ScheduleResponse } from "@/lib/class-schedules";
 import { buildTutorLaunchHref } from "@/lib/tutor-launch";
-import type { TodayTask, TodayTaskEventName } from "../types";
-import { getTodayTaskSourceLabel, getTodayTaskStatusLabel } from "../utils";
+import type { TodayTask, TodayTaskEventName, TodayTaskPayload } from "../types";
+import { getStudentLessonWindow, getStudentTaskTimingAdvice, getTodayTaskSourceLabel, getTodayTaskStatusLabel } from "../utils";
 
 type StudentNextActionCardProps = {
+  schedule: ScheduleResponse["data"] | null;
+  todayTasks: TodayTaskPayload | null;
   recommendedTask: TodayTask | null;
   mustDoCount: number;
   totalTaskCount: number;
@@ -26,7 +29,14 @@ function formatDueAt(value: string | null) {
   });
 }
 
+function formatLessonRange(startAt: string, endAt: string) {
+  return `${new Date(startAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}-${new Date(endAt).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+
 export default function StudentNextActionCard({
+  schedule,
+  todayTasks,
   recommendedTask,
   mustDoCount,
   totalTaskCount,
@@ -34,8 +44,20 @@ export default function StudentNextActionCard({
   onTaskEvent
 }: StudentNextActionCardProps) {
   const tutorHref = buildTutorLaunchHref({ intent: "image", source: "student-next-action" });
+  const lessonTutorHref = buildTutorLaunchHref({ intent: "image", source: "student-next-action-lesson-window" });
+  const lessonWindow = getStudentLessonWindow(schedule);
+  const { nextLesson, minutesUntilNextLesson, lessonInProgress, lessonWindowActive } = lessonWindow;
+  const linkedLessonTask = nextLesson && todayTasks?.tasks?.length
+    ? todayTasks.tasks.find((task) => task.source === "lesson" && task.sourceId === nextLesson.id) ?? null
+    : null;
+  const lessonActionHref = nextLesson?.actionHref ?? linkedLessonTask?.href ?? "/calendar";
+  const lessonActionLabel = lessonInProgress
+    ? nextLesson?.actionLabel ?? "回到课堂任务"
+    : nextLesson?.pendingAssignmentCount
+      ? nextLesson?.actionLabel ?? "先做课前准备"
+      : nextLesson?.actionLabel ?? "先看下节课";
 
-  function trackAuxiliaryAction(action: "queue" | "tutor" | "practice") {
+  function trackAuxiliaryAction(action: "queue" | "tutor" | "practice" | "lesson" | "post_lesson_queue") {
     trackEvent({
       eventName: "student_next_action_clicked",
       page: "/student",
@@ -44,12 +66,118 @@ export default function StudentNextActionCard({
         recommendedTaskId: recommendedTask?.id ?? null,
         mustDoCount,
         totalTaskCount,
-        weakPlanCount
+        weakPlanCount,
+        nextLessonId: nextLesson?.id ?? null,
+        nextLessonStatus: nextLesson?.status ?? null
       }
     });
   }
 
+  const canStartRecommendedNow = recommendedTask ? getStudentTaskTimingAdvice(recommendedTask, schedule).canStartNow : false;
+
+  if (lessonWindowActive && nextLesson) {
+    const lessonHeadline = lessonInProgress
+      ? `${nextLesson.className} 正在进行`
+      : `先准备 ${nextLesson.className}`;
+    const lessonDescription = lessonInProgress
+      ? linkedLessonTask
+        ? "当前已进入上课时段，优先处理课堂任务；其他任务留到课后再收口。"
+        : "当前已进入上课时段，先聚焦课堂任务和老师要求，别再开新坑。"
+      : !canStartRecommendedNow && recommendedTask
+        ? `距离上课还有 ${minutesUntilNextLesson} 分钟，而“${recommendedTask.title}”预计需要 ${recommendedTask.effortMinutes} 分钟，现在开新任务大概率会被打断。`
+        : nextLesson.pendingAssignmentCount > 0
+          ? `距离上课还有 ${minutesUntilNextLesson} 分钟，先确认关联作业和课堂焦点，临上课会更从容。`
+          : `距离上课还有 ${minutesUntilNextLesson} 分钟，适合做课前准备或快速核对问题，不适合再开长任务。`;
+    const postLessonHint = recommendedTask && recommendedTask.source !== "lesson"
+      ? `课后第一项仍是“${recommendedTask.title}”，预计 ${recommendedTask.effortMinutes} 分钟。`
+      : "课后再回到今日任务队列继续推进，不需要现在重新判断。";
+
+    return (
+      <Card title="现在最值得先做" tag="Focus">
+        <div className="student-next-action-layout">
+          <div className="student-next-action-hero">
+            <div className="feature-card" style={{ alignItems: "flex-start" }}>
+              <EduIcon name="rocket" />
+              <div>
+                <div className="student-next-action-kicker">受课表影响</div>
+                <div className="student-next-action-title">{lessonHeadline}</div>
+                <p className="student-next-action-description">{lessonDescription}</p>
+              </div>
+            </div>
+
+            <div className="badge-row">
+              <span className="badge">{lessonInProgress ? "上课中" : `${minutesUntilNextLesson ?? 0} 分钟后上课`}</span>
+              <span className="badge">{nextLesson.subjectLabel}</span>
+              <span className="badge">{formatLessonRange(nextLesson.startAt, nextLesson.endAt)}</span>
+              {nextLesson.room ? <span className="badge">{nextLesson.room}</span> : null}
+              {nextLesson.pendingAssignmentCount ? <span className="badge">关联任务 {nextLesson.pendingAssignmentCount} 项</span> : null}
+            </div>
+
+            <div className="student-next-action-reason">
+              <div className="student-next-action-reason-label">为什么现在先这样做</div>
+              <div className="meta-text" style={{ lineHeight: 1.65 }}>
+                {nextLesson.focusSummary ? `课堂焦点：${nextLesson.focusSummary}。` : "先围绕课堂准备，能显著减少临近上课时的手忙脚乱。"}
+                {" "}{postLessonHint}
+              </div>
+            </div>
+
+            <div className="cta-row">
+              <Link
+                className="button primary"
+                href={lessonActionHref}
+                onClick={() => {
+                  if (linkedLessonTask) {
+                    onTaskEvent(linkedLessonTask, "task_started");
+                  }
+                  trackAuxiliaryAction("lesson");
+                }}
+              >
+                {lessonActionLabel}
+              </Link>
+              <Link
+                className="button secondary"
+                href={lessonTutorHref}
+                onClick={() => trackAuxiliaryAction("tutor")}
+              >
+                课前快问
+              </Link>
+              <a
+                className="button ghost"
+                href="#student-task-queue"
+                onClick={() => trackAuxiliaryAction("post_lesson_queue")}
+              >
+                {recommendedTask && recommendedTask.source !== "lesson" ? "看课后第一项" : "查看完整队列"}
+              </a>
+            </div>
+          </div>
+
+          <div className="student-next-action-rail">
+            <div className="student-next-action-metric">
+              <div className="section-title">当前窗口</div>
+              <div className="student-next-action-metric-value">{lessonInProgress ? "课堂中" : `${minutesUntilNextLesson ?? 0} 分钟`}</div>
+              <div className="meta-text">{lessonInProgress ? "先聚焦课堂，不再开新任务。" : "只做能快速收口的动作。"}</div>
+            </div>
+            <div className="student-next-action-metric">
+              <div className="section-title">关联待办</div>
+              <div className="student-next-action-metric-value">{nextLesson.pendingAssignmentCount}</div>
+              <div className="meta-text">先清课堂相关事项，切换成本最低。</div>
+            </div>
+            <div className="student-next-action-metric">
+              <div className="section-title">课后第一项</div>
+              <div className="student-next-action-metric-value">{recommendedTask && recommendedTask.source !== "lesson" ? recommendedTask.effortMinutes : 0}</div>
+              <div className="meta-text">{recommendedTask && recommendedTask.source !== "lesson" ? `${recommendedTask.title} · 预计 ${recommendedTask.effortMinutes} 分钟` : "课后回到今日队列继续推进。"}</div>
+            </div>
+          </div>
+        </div>
+      </Card>
+    );
+  }
+
   if (!recommendedTask) {
+    const nextLessonLabel = nextLesson
+      ? `${nextLesson.subjectLabel} · ${formatLessonRange(nextLesson.startAt, nextLesson.endAt)}`
+      : "今天没有下一节课，按任务队列推进即可。";
+
     return (
       <Card title="现在最值得先做" tag="Focus">
         <div className="student-next-action-layout">
@@ -105,8 +233,8 @@ export default function StudentNextActionCard({
               <div className="meta-text">先给你一个明确动作，避免在首页停留太久。</div>
             </div>
             <div className="student-next-action-summary">
-              <div className="section-title">不中断节奏</div>
-              <div className="meta-text">练习、拍题、完整队列三个入口覆盖大多数真实学习场景。</div>
+              <div className="section-title">下一节课</div>
+              <div className="meta-text">{nextLessonLabel}</div>
             </div>
           </div>
         </div>
@@ -139,6 +267,7 @@ export default function StudentNextActionCard({
             <div className="student-next-action-reason-label">为什么先做</div>
             <div className="meta-text" style={{ lineHeight: 1.65 }}>
               {recommendedTask.recommendedReason}
+              {nextLesson && !lessonWindowActive ? ` 下一节课是 ${nextLesson.subjectLabel}，当前时间仍足够，适合先把这项推进一段。` : ""}
             </div>
           </div>
 
@@ -157,7 +286,8 @@ export default function StudentNextActionCard({
                     status: recommendedTask.status,
                     mustDoCount,
                     totalTaskCount,
-                    weakPlanCount
+                    weakPlanCount,
+                    nextLessonId: nextLesson?.id ?? null
                   }
                 });
               }}
@@ -189,9 +319,9 @@ export default function StudentNextActionCard({
             <div className="meta-text">看清今天任务量，避免一开始就焦虑。</div>
           </div>
           <div className="student-next-action-metric">
-            <div className="section-title">薄弱项</div>
-            <div className="student-next-action-metric-value">{weakPlanCount}</div>
-            <div className="meta-text">卡题时优先用拍题即问，别硬耗时间。</div>
+            <div className="section-title">{nextLesson ? "下一节课" : "薄弱项"}</div>
+            <div className="student-next-action-metric-value">{nextLesson ? (minutesUntilNextLesson ?? 0) : weakPlanCount}</div>
+            <div className="meta-text">{nextLesson ? `${nextLesson.subjectLabel} · ${formatLessonRange(nextLesson.startAt, nextLesson.endAt)}` : `卡题时优先用拍题即问，别硬耗时间。`}</div>
           </div>
         </div>
       </div>

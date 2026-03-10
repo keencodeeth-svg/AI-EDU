@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import Card from "@/components/Card";
 import { trackEvent } from "@/lib/analytics-client";
 
@@ -51,6 +52,7 @@ function resolveLoginErrorMessage(payload: LoginErrorPayload, status: number) {
 }
 
 export default function LoginPage() {
+  const searchParams = useSearchParams();
   const [role, setRole] = useState<LoginRole>("student");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -77,9 +79,22 @@ export default function LoginPage() {
     trackEvent({
       eventName: "login_page_view",
       page: "/login",
-      props: { entry: "direct" }
+      props: { entry: searchParams.get("entry") ?? "direct", preselectedRole: searchParams.get("role") ?? null }
     });
-  }, []);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const nextRole = searchParams.get("role");
+    if (
+      nextRole === "student" ||
+      nextRole === "teacher" ||
+      nextRole === "parent" ||
+      nextRole === "admin" ||
+      nextRole === "school_admin"
+    ) {
+      setRole(nextRole);
+    }
+  }, [searchParams]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -209,7 +224,7 @@ export default function LoginPage() {
         </div>
         <div className="auth-links">
           <div>
-            没有账号？<Link href="/register">去注册</Link>
+            没有账号？<Link href={`/register?role=${role}&entry=login`}>去注册</Link>
           </div>
           <div>
             教师注册：<Link href="/teacher/register">去注册</Link>

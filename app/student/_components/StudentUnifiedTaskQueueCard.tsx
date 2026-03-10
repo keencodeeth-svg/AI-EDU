@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import type { ScheduleResponse } from "@/lib/class-schedules";
 import Card from "@/components/Card";
 import type { TodayTask, TodayTaskEventName, TodayTaskPayload } from "../types";
-import { getTodayTaskSourceLabel, getTodayTaskStatusLabel } from "../utils";
+import { getStudentLessonWindow, getStudentTaskTimingAdvice, getTodayTaskSourceLabel, getTodayTaskStatusLabel } from "../utils";
 
 type StudentUnifiedTaskQueueCardProps = {
+  schedule: ScheduleResponse["data"] | null;
   todayTasks: TodayTaskPayload | null;
   todayTaskError: string | null;
   onTaskEvent: (task: TodayTask, eventName: TodayTaskEventName) => void;
@@ -54,12 +56,14 @@ function formatDueAt(value: string | null) {
 }
 
 export default function StudentUnifiedTaskQueueCard({
+  schedule,
   todayTasks,
   todayTaskError,
   onTaskEvent
 }: StudentUnifiedTaskQueueCardProps) {
   const [activeGroup, setActiveGroup] = useState<QueueFilterKey>("all");
   const [expandedGroups, setExpandedGroups] = useState<Record<QueueGroupKey, boolean>>(DEFAULT_EXPANDED);
+  const lessonWindow = getStudentLessonWindow(schedule);
 
   const visibleGroups = useMemo(() => {
     if (activeGroup === "all") {
@@ -69,8 +73,21 @@ export default function StudentUnifiedTaskQueueCard({
   }, [activeGroup]);
 
   const visibleTaskCount = useMemo(
-    () => visibleGroups.reduce((sum, group) => sum + (todayTasks?.groups?.[group.key]?.length ?? 0), 0),
-    [todayTasks, visibleGroups]
+    () => visibleGroups.reduce((sum, group) => {
+      const items = todayTasks?.groups?.[group.key] ?? [];
+      if (!lessonWindow.lessonWindowActive) return sum + items.length;
+      return sum + items.filter((task) => getStudentTaskTimingAdvice(task, schedule).canStartNow).length;
+    }, 0),
+    [lessonWindow.lessonWindowActive, schedule, todayTasks, visibleGroups]
+  );
+
+  const deferredTaskCount = useMemo(
+    () => visibleGroups.reduce((sum, group) => {
+      if (!lessonWindow.lessonWindowActive) return sum;
+      const items = todayTasks?.groups?.[group.key] ?? [];
+      return sum + items.filter((task) => !getStudentTaskTimingAdvice(task, schedule).canStartNow).length;
+    }, 0),
+    [lessonWindow.lessonWindowActive, schedule, todayTasks, visibleGroups]
   );
 
   function toggleGroupExpanded(groupKey: QueueGroupKey) {
@@ -112,7 +129,10 @@ export default function StudentUnifiedTaskQueueCard({
             })}
           </div>
           <div className="task-queue-summary">
-            当前显示 {visibleTaskCount} 项任务，默认按“先做这些 → 继续推进 → 成长加分”排序，减少你自己再做一轮判断。
+            当前显示 {visibleTaskCount} 项任务。
+            {lessonWindow.lessonWindowActive
+              ? ` 现在处于${lessonWindow.lessonInProgress ? "上课" : "课前"}窗口，默认优先展示能在当前窗口内收口的任务；另外 ${deferredTaskCount} 项建议课后处理。`
+              : " 默认按“先做这些 → 继续推进 → 成长加分”排序，减少你自己再做一轮判断。"}
           </div>
         </div>
       ) : null}
@@ -121,7 +141,17 @@ export default function StudentUnifiedTaskQueueCard({
         {visibleGroups.map((group) => {
           const items = todayTasks?.groups?.[group.key] ?? [];
           const expanded = expandedGroups[group.key];
-          const visibleItems = expanded ? items : items.slice(0, 3);
+          const timedItems = items.map((task) => ({
+            task,
+            timing: getStudentTaskTimingAdvice(task, schedule)
+          }));
+          const actionableItems = lessonWindow.lessonWindowActive
+            ? timedItems.filter((item) => item.timing.canStartNow)
+            : timedItems;
+          const deferredItems = lessonWindow.lessonWindowActive
+            ? timedItems.filter((item) => !item.timing.canStartNow)
+            : [];
+          const visibleItems = expanded ? actionableItems : actionableItems.slice(0, 3);
 
           return (
             <div key={group.key} className="card" style={{ gap: 10 }}>
@@ -132,21 +162,29 @@ export default function StudentUnifiedTaskQueueCard({
                     {group.description}
                   </div>
                 </div>
-                <div className="cta-row no-margin" style={{ gap: 8 }}>
+                <div className="cta-row no-margin" style={{ gap: 8, flexWrap: "wrap" }}>
                   <span className="badge">{items.length} 项</span>
-                  {items.length > 3 ? (
+                  {lessonWindow.lessonWindowActive ? <span className="badge">当前可做 {actionableItems.length} 项</span> : null}
+                  {deferredItems.length > 0 ? <span className="badge">课后 {deferredItems.length} 项</span> : null}
+                  {actionableItems.length > 3 ? (
                     <button className="button ghost" type="button" onClick={() => toggleGroupExpanded(group.key)}>
-                      {expanded ? "收起" : `查看全部（${items.length}）`}
+                      {expanded ? "收起" : `查看全部（${actionableItems.length}）`}
                     </button>
                   ) : null}
                 </div>
               </div>
 
               {!visibleItems.length ? (
-                <div className="meta-text">当前这一组暂无任务。</div>
+                <div className="meta-text" style={{ lineHeight: 1.7 }}>
+                  {deferredItems.length > 0
+                    ? lessonWindow.lessonInProgress
+                      ? "当前正在上课，这一组任务建议课后再处理。"
+                      : "这一组任务更适合课后开始，避免临近上课时开启后难以收口。"
+                    : "当前这一组暂无任务。"}
+                </div>
               ) : (
                 <div className="grid" style={{ gap: 10 }}>
-                  {visibleItems.map((task) => (
+                  {visibleItems.map(({ task, timing }) => (
                     <div
                       key={task.id}
                       style={{
@@ -175,6 +213,7 @@ export default function StudentUnifiedTaskQueueCard({
                       </div>
 
                       <div className="badge-row" style={{ marginTop: 8 }}>
+                        <span className="badge">{timing.timingLabel}</span>
                         <span className="badge">{getTodayTaskSourceLabel(task.source)}</span>
                         <span className="badge">预计 {task.effortMinutes} 分钟</span>
                         <span className="badge">收益 {task.expectedGain}</span>
@@ -198,7 +237,11 @@ export default function StudentUnifiedTaskQueueCard({
                 </div>
               )}
 
-              {items.length > visibleItems.length ? (
+              {deferredItems.length > 0 ? (
+                <div className="meta-text" style={{ lineHeight: 1.7 }}>
+                  另外 {deferredItems.length} 项建议课后处理，避免当前窗口内开启后被上课打断。
+                </div>
+              ) : items.length > visibleItems.length ? (
                 <div className="meta-text">还有 {items.length - visibleItems.length} 项同组任务待推进。</div>
               ) : null}
             </div>

@@ -1,12 +1,16 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import type { CourseModule } from "@/lib/modules";
 import Card from "@/components/Card";
+import StatePanel from "@/components/StatePanel";
 import RoleScheduleFocusCard from "@/components/RoleScheduleFocusCard";
+import { formatLoadedTime } from "@/lib/client-request";
 import { TeacherAssignmentsCard, TeacherClassListCard, TeacherJoinRequestsCard } from "./_components/TeacherCollectionPanels";
 import { TeacherAddStudentCard, TeacherAssignmentComposerCard, TeacherCreateClassCard } from "./_components/TeacherFormPanels";
 import { TeacherExamModuleCard, TeacherInsightsCard, TeacherOverviewCard, TeacherQuickAccessCards } from "./_components/TeacherSummaryPanels";
+import { TeacherExecutionSummaryCard, TeacherNextStepCard } from "./_components/TeacherPrimaryFlowPanels";
 import type {
   AlertImpactData,
   AssignmentFormState,
@@ -38,6 +42,7 @@ export default function TeacherPage() {
   const [actingAlertKey, setActingAlertKey] = useState<string | null>(null);
   const [impactByAlertId, setImpactByAlertId] = useState<Record<string, AlertImpactData>>({});
   const [loadingImpactId, setLoadingImpactId] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<string | null>(null);
 
   const [classForm, setClassForm] = useState<ClassFormState>({ name: "", subject: "math", grade: "4" });
   const [studentForm, setStudentForm] = useState<StudentFormState>({ classId: "", email: "" });
@@ -72,7 +77,8 @@ export default function TeacherPage() {
     setAssignments,
     setInsights,
     setJoinRequests,
-    setKnowledgePoints
+    setKnowledgePoints,
+    onLoaded: () => setLastLoadedAt(new Date().toISOString())
   });
 
   useTeacherDefaultSelections({
@@ -250,8 +256,29 @@ export default function TeacherPage() {
     loadAll();
   }
 
+  if (loading && !classes.length && !assignments.length && !insights && !unauthorized) {
+    return (
+      <StatePanel
+        title="教师工作台加载中"
+        description="正在同步班级、作业、预警和教学执行数据。"
+        tone="loading"
+      />
+    );
+  }
+
   if (unauthorized) {
-    return <Card title="教师端">请先使用教师账号登录。</Card>;
+    return (
+      <StatePanel
+        title="需要教师账号登录"
+        description="请先使用教师账号登录后，再查看教学工作台和班级执行动作。"
+        tone="info"
+        action={
+          <Link className="button secondary" href="/login">
+            前往登录
+          </Link>
+        }
+      />
+    );
   }
 
   return (
@@ -259,54 +286,91 @@ export default function TeacherPage() {
       <div className="section-head">
         <div>
           <h2>教师工作台</h2>
-          <div className="section-sub">班级管理、作业发布与 AI 教学工具。</div>
+          <div className="section-sub">先处理阻塞项，再发作业、看学情和安排本周课堂动作。</div>
         </div>
-        <span className="chip">教学进度跟踪</span>
+        <div className="cta-row no-margin" style={{ flexWrap: "wrap", justifyContent: "flex-end" }}>
+          {lastLoadedAt ? <span className="chip">更新于 {formatLoadedTime(lastLoadedAt)}</span> : null}
+          <span className="chip">教学进度跟踪</span>
+          <button className="button secondary" type="button" onClick={() => void loadAll()} disabled={loading}>
+            {loading ? "刷新中..." : "刷新"}
+          </button>
+        </div>
       </div>
+
+      {error ? <StatePanel title="本次操作存在异常" description={error} tone="error" compact /> : null}
+      {message ? <StatePanel title="最近一次操作已完成" description={message} tone="success" compact /> : null}
 
       <RoleScheduleFocusCard variant="teacher" />
 
-      <TeacherOverviewCard classes={classes} assignments={assignments} message={message} error={error} />
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <TeacherNextStepCard
+          classes={classes}
+          assignments={assignments}
+          joinRequests={joinRequests}
+          insights={insights}
+        />
+        <TeacherExecutionSummaryCard
+          classes={classes}
+          assignments={assignments}
+          joinRequests={joinRequests}
+          insights={insights}
+        />
+      </div>
 
-      <TeacherExamModuleCard />
+      <div id="teacher-compose-assignment">
+        <TeacherAssignmentComposerCard
+          classes={classes}
+          modules={modules}
+          assignmentForm={assignmentForm}
+          filteredPoints={filteredPoints}
+          loading={loading}
+          assignmentError={assignmentError}
+          assignmentMessage={assignmentMessage}
+          onChange={(patch) => setAssignmentForm((prev) => ({ ...prev, ...patch }))}
+          onSubmit={handleCreateAssignment}
+        />
+      </div>
 
       <TeacherInsightsCard insights={insights} actingAlertKey={actingAlertKey} acknowledgingAlertId={acknowledgingAlertId} impactByAlertId={impactByAlertId} loadingImpactId={loadingImpactId} onRunAlertAction={runAlertAction} onAcknowledgeAlert={acknowledgeAlert} onLoadAlertImpact={loadAlertImpact} />
+
+      <div className="grid grid-2" style={{ alignItems: "start" }}>
+        <div id="teacher-join-requests">
+          <TeacherJoinRequestsCard joinRequests={joinRequests} onApprove={handleApprove} onReject={handleReject} />
+        </div>
+        <TeacherOverviewCard classes={classes} assignments={assignments} message={null} error={null} />
+      </div>
+
+      <TeacherExamModuleCard />
 
       <TeacherQuickAccessCards />
 
       <div className="grid grid-2">
-        <TeacherCreateClassCard
-          classForm={classForm}
-          loading={loading}
-          onChange={(patch) => setClassForm((prev) => ({ ...prev, ...patch }))}
-          onSubmit={handleCreateClass}
-        />
-        <TeacherAddStudentCard
-          studentForm={studentForm}
-          classes={classes}
-          loading={loading}
-          onChange={(patch) => setStudentForm((prev) => ({ ...prev, ...patch }))}
-          onSubmit={handleAddStudent}
-        />
+        <div id="teacher-create-class">
+          <TeacherCreateClassCard
+            classForm={classForm}
+            loading={loading}
+            onChange={(patch) => setClassForm((prev) => ({ ...prev, ...patch }))}
+            onSubmit={handleCreateClass}
+          />
+        </div>
+        <div id="teacher-add-student">
+          <TeacherAddStudentCard
+            studentForm={studentForm}
+            classes={classes}
+            loading={loading}
+            onChange={(patch) => setStudentForm((prev) => ({ ...prev, ...patch }))}
+            onSubmit={handleAddStudent}
+          />
+        </div>
       </div>
 
-      <TeacherAssignmentComposerCard
-        classes={classes}
-        modules={modules}
-        assignmentForm={assignmentForm}
-        filteredPoints={filteredPoints}
-        loading={loading}
-        assignmentError={assignmentError}
-        assignmentMessage={assignmentMessage}
-        onChange={(patch) => setAssignmentForm((prev) => ({ ...prev, ...patch }))}
-        onSubmit={handleCreateAssignment}
-      />
+      <div id="teacher-class-list">
+        <TeacherClassListCard classes={classes} onRegenerateCode={handleRegenerateCode} onUpdateJoinMode={handleUpdateJoinMode} />
+      </div>
 
-      <TeacherClassListCard classes={classes} onRegenerateCode={handleRegenerateCode} onUpdateJoinMode={handleUpdateJoinMode} />
-
-      <TeacherJoinRequestsCard joinRequests={joinRequests} onApprove={handleApprove} onReject={handleReject} />
-
-      <TeacherAssignmentsCard assignments={assignments} />
+      <div id="teacher-assignment-list">
+        <TeacherAssignmentsCard assignments={assignments} />
+      </div>
     </div>
   );
 }
